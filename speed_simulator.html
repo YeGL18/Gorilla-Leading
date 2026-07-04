@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>时速模拟动画</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+.animation-area{flex:1;position:relative;overflow:hidden;min-height:0}
+canvas{position:absolute;top:0;left:0;width:100%;height:100%}
+.speed-text{
+    position:absolute;top:44%;left:50%;transform:translate(-50%,-50%);
+    font-size:18vw;font-weight:900;color:#fff;z-index:2;pointer-events:none;
+    font-variant-numeric:tabular-nums;letter-spacing:-0.03em;
+}
+.speed-unit{
+    position:absolute;bottom:14%;left:50%;transform:translateX(-50%);
+    font-size:3.2vw;color:rgba(255,255,255,0.15);z-index:2;pointer-events:none;letter-spacing:0.3em;
+}
+.control-panel{background:rgba(16,16,26,0.95);border-top:1px solid rgba(255,200,0,0.06);padding:16px 20px 20px;z-index:10}
+.control-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px}
+.control-label{color:rgba(255,255,255,0.4);font-size:13px;font-weight:500;letter-spacing:0.5px}
+.speed-value{color:#ffd700;font-size:30px;font-weight:800;font-variant-numeric:tabular-nums}
+.speed-value span{font-size:14px;font-weight:400;color:rgba(255,215,0,0.3);margin-left:2px}
+input[type="range"]{-webkit-appearance:none;appearance:none;width:100%;height:3px;border-radius:2px;background:rgba(255,200,0,0.1);outline:none;cursor:pointer}
+input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:24px;height:24px;border-radius:50%;background:radial-gradient(circle at 40% 30%,#ffd700,#c89600);cursor:pointer;box-shadow:0 0 30px rgba(255,200,0,0.2)}
+.tick-marks{display:flex;justify-content:space-between;padding:6px 0 0}
+.tick-mark{color:rgba(255,255,255,0.1);font-size:10px}
+</style>
+</head>
+<body>
+<div class="animation-area">
+    <canvas id="c"></canvas>
+    <div class="speed-text" id="speedText">0</div>
+    <div class="speed-unit">KM/H</div>
+</div>
+<div class="control-panel">
+    <div class="control-header">
+        <span class="control-label">目标时速</span>
+        <div class="speed-value" id="speedValue">0 <span>km/h</span></div>
+    </div>
+    <input type="range" id="speedSlider" min="0" max="240" value="0" step="1">
+    <div class="tick-marks">
+        <span class="tick-mark">0</span>
+        <span class="tick-mark">60</span>
+        <span class="tick-mark">120</span>
+        <span class="tick-mark">180</span>
+        <span class="tick-mark">240</span>
+    </div>
+</div>
+<script>
+var canvas=document.getElementById('c'),ctx=canvas.getContext('2d'),txt=document.getElementById('speedText'),val=document.getElementById('speedValue'),slider=document.getElementById('speedSlider');
+var dots=[],cx,cy,mr,target=0,display=0,raf=null;
+
+function resize(){
+    var dpr=window.devicePixelRatio||1;
+    canvas.width=canvas.clientWidth*dpr;canvas.height=canvas.clientHeight*dpr;
+    cx=canvas.clientWidth/2;cy=canvas.clientHeight/2;mr=Math.sqrt(cx*cx+cy*cy);gen();
+}
+
+function gen(){
+    dots=[];var gap=9,cols=Math.floor(cx*2/gap),rows=Math.floor(cy*2/gap),w=cx*2,h=cy*2;
+    for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){
+        var bx=c*gap+gap/2,by=r*gap+gap/2;
+        var dx=bx-cx,dy=by-cy,nr=Math.sqrt(dx*dx+dy*dy)/Math.max(1,mr);
+        dots.push({bx,by,dx,dy,nr,ox:bx,oy:by});
+    }
+}
+
+function distort(d, norm, w, h) {
+    var influence = Math.min(cx, cy) * 0.35;
+    var maxPull = Math.min(cx, cy) * 0.15 * norm;
+
+    var t, r, arc, falloff;
+
+    t = d.bx / w;
+    arc = 4 * t * (1 - t);
+    r = d.by / influence;
+    falloff = 1 / (1 + r * Math.sqrt(r));
+    var dy = arc * falloff * maxPull;
+
+    r = (h - d.by) / influence;
+    falloff = 1 / (1 + r * Math.sqrt(r));
+    dy -= arc * falloff * maxPull;
+
+    t = d.by / h;
+    arc = 4 * t * (1 - t);
+    r = d.bx / influence;
+    falloff = 1 / (1 + r * Math.sqrt(r));
+    var dx = arc * falloff * maxPull;
+
+    r = (w - d.bx) / influence;
+    falloff = 1 / (1 + r * Math.sqrt(r));
+    dx -= arc * falloff * maxPull;
+
+    return {px: d.bx + dx, py: d.by + dy};
+}
+
+function draw(ts){
+    var dpr=window.devicePixelRatio||1,s=display,norm=s/240;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    ctx.save();ctx.scale(dpr,dpr);
+    ctx.globalCompositeOperation='screen';
+    var w=canvas.clientWidth,h=canvas.clientHeight;
+    var pf=0.0008+norm*0.0012,phase=(ts*pf)%1,rw=0.14,ra=Math.min(1.2,norm*6);
+
+    if(norm<0.01){
+        for(var i=0;i<dots.length;i++){
+            var d=dots[i];var p=distort(d,norm,w,h);
+            ctx.globalAlpha=0.35;ctx.fillStyle='#b8860b';
+            ctx.beginPath();ctx.arc(p.px,p.py,0.8,0,Math.PI*2);ctx.fill();
+        }
+        ctx.restore();return;
+    }
+
+    for(var i=0;i<dots.length;i++){
+        var d=dots[i];
+        var p = distort(d, norm, w, h);
+        var px=p.px, py=p.py;
+
+        var dn=Math.sqrt((px-cx)*(px-cx)+(py-cy)*(py-cy))/Math.max(1,mr),rip=0;
+        for(var r=0;r<2;r++){
+            var rp=(phase+r*0.5)%1;if(rp<0.01)rp=0;
+            var bd=(dn-rp)/rw;
+            var ampl=(1-rp*0.5)*ra;
+            var theta=Math.min(Math.PI/2,Math.abs(bd)*Math.PI/2);
+            rip+=Math.cos(theta)*Math.cos(theta)*ampl;
+        }
+        var rad=Math.max(0.5,1.2*(1+rip*0.7));
+        var cf=Math.abs(d.dx)/cx*Math.abs(d.dy)/cy;
+        var sd=Math.max(0,(norm-80/240)/(1-80/240));
+        var dm=1-sd*cf*0.5;
+        var op=Math.min(1,(0.4+norm*0.6)*(1+rip*0.3))*dm;
+        var glow=norm>0.02&&d.nr>0.15?norm*d.nr*35*(0.8+rip*0.3):0;
+        if(glow>0){
+            ctx.globalAlpha=glow*0.006*dm;ctx.fillStyle='#ffd700';
+            ctx.beginPath();ctx.arc(px,py,rad+glow*0.06,0,Math.PI*2);ctx.fill();
+        }
+        ctx.globalAlpha=op;ctx.fillStyle=rip>0.08?'#ffd700':'#b8860b';
+        ctx.beginPath();ctx.arc(px,py,rad,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+}
+
+function loop(ts){
+    var diff=target-display;
+    display+=Math.abs(diff)>0.3?diff*0.12:diff*0.5;
+    var rnd=Math.round(display);
+    txt.textContent=rnd;val.innerHTML=rnd+' <span>km/h</span>';slider.value=rnd;
+    draw(ts||0);raf=requestAnimationFrame(loop);
+}
+
+slider.addEventListener('input',function(){target=parseInt(this.value,10);});
+slider.addEventListener('change',function(){target=parseInt(this.value,10);});
+window.addEventListener('resize',function(){resize();});
+resize();raf=requestAnimationFrame(loop);
+</script>
+</body>
+</html>
