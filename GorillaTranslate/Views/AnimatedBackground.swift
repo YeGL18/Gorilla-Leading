@@ -4,8 +4,11 @@ struct AnimatedBackground: View {
     @ObservedObject var clock: AnimationClock
     var colorSchemeIndex: Int = 0
     var isVoiceRecording: Bool = false
+    var orbEnabled: Bool = true
+    var useTimeBasedOrb: Bool = false
+    var phaseManager: TimePhaseManager? = nil
     @Environment(\.colorScheme) private var colorScheme
-
+    
     private var isDark: Bool {
         colorScheme == .dark
     }
@@ -49,6 +52,14 @@ struct AnimatedBackground: View {
     }
 
     var body: some View {
+        if useTimeBasedOrb, let phaseManager = phaseManager {
+            TimeBasedOrbView(phaseManager: phaseManager, clock: clock, orbEnabled: orbEnabled)
+        } else {
+            legacyOrbView
+        }
+    }
+
+    private var legacyOrbView: some View {
         GeometryReader { geometry in
             let w = geometry.size.width
             let h = geometry.size.height
@@ -64,7 +75,7 @@ struct AnimatedBackground: View {
                 .ignoresSafeArea()
 
                 Circle()
-                    .fill(Color(hex: colors[0].hex).opacity(colors[0].opacity))
+                    .fill(Color(hex: colors[0].hex).opacity(colors[0].opacity * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 450, height: 450)
                     .offset(
@@ -73,7 +84,7 @@ struct AnimatedBackground: View {
                     )
 
                 Circle()
-                    .fill(Color(hex: colors[1].hex).opacity(colors[1].opacity))
+                    .fill(Color(hex: colors[1].hex).opacity(colors[1].opacity * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 500, height: 500)
                     .offset(
@@ -82,7 +93,7 @@ struct AnimatedBackground: View {
                     )
 
                 Circle()
-                    .fill(Color(hex: colors[2].hex).opacity(colors[2].opacity))
+                    .fill(Color(hex: colors[2].hex).opacity(colors[2].opacity * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 420, height: 420)
                     .offset(

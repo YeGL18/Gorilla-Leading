@@ -2,7 +2,7 @@ import Foundation
 import CoreLocation
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
-    private let manager = CLLocationManager()
+    private(set) var manager = CLLocationManager()
     private let geocoder = CLGeocoder()
     private var recentQualities: [GPSQuality] = []
     private let requiredSamples = 5
@@ -25,7 +25,19 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let transportType: String
 
         var duration: String {
-            guard let departure = departureDate else { return "ongoing" }
+            let departure: Date
+            if let d = departureDate, d.timeIntervalSince(arrivalDate) < 7 * 24 * 3600 {
+                departure = d
+            } else {
+                let elapsed = Date().timeIntervalSince(arrivalDate)
+                if elapsed < 60 { return "< 1 min" }
+                else if elapsed < 3600 { return "\(Int(elapsed / 60)) min" }
+                else {
+                    let h = Int(elapsed / 3600)
+                    let m = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
+                    return "\(h)h \(m)m"
+                }
+            }
             let interval = departure.timeIntervalSince(arrivalDate)
             if interval < 60 {
                 return "< 1 min"
@@ -44,6 +56,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var gpsQuality: GPSQuality = .unknown
     @Published var currentAddress: String = ""
     @Published var visits: [VisitRecord] = []
+    @Published var lastLocation: CLLocation?
+    @Published var heading: Double = 0
 
     private let visitsKey = "visit_records"
 
@@ -57,6 +71,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
         manager.startMonitoringVisits()
+        if CLLocationManager.headingAvailable() {
+            manager.startUpdatingHeading()
+        }
         loadVisits()
     }
 
@@ -70,6 +87,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else { return }
         DispatchQueue.main.async {
+            self.lastLocation = location
             if location.speed >= 0 {
                 self.speed = location.speed * 3.6
             }
@@ -91,18 +109,15 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
+        let speedMs = manager.location?.speed ?? -1
+        let speedKmh = speedMs >= 0 ? speedMs * 3.6 : 0
         let transport: String
-        switch visit.departureDate.timeIntervalSince(visit.arrivalDate) {
-        case ..<120:
-            transport = "Passing"
-        default:
-            switch Int.random(in: 0...4) {
-            case 0: transport = "Walking"
-            case 1: transport = "Driving"
-            case 2: transport = "Train"
-            case 3: transport = "Airplane"
-            default: transport = "Cycling"
-            }
+        if speedKmh < 2 {
+            transport = "Walking"
+        } else if speedKmh < 80 {
+            transport = "Driving"
+        } else {
+            transport = "Transit"
         }
 
         let record = VisitRecord(
@@ -111,7 +126,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             latitude: visit.coordinate.latitude,
             longitude: visit.coordinate.longitude,
             arrivalDate: visit.arrivalDate,
-            departureDate: visit.departureDate,
+            departureDate: visit.departureDate.timeIntervalSince(visit.arrivalDate) < 7 * 24 * 3600 ? visit.departureDate : nil,
             transportType: transport
         )
 
@@ -136,10 +151,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                     latitude: record.latitude,
                     longitude: record.longitude,
                     arrivalDate: record.arrivalDate,
-                    departureDate: record.departureDate,
+                    departureDate: (record.departureDate != nil && record.departureDate!.timeIntervalSince(record.arrivalDate) < 7 * 24 * 3600) ? record.departureDate : nil,
                     transportType: record.transportType
                 )
                 self.visits.insert(updated, at: 0)
+                self.visits.sort { $0.arrivalDate > $1.arrivalDate }
                 self.saveVisits()
             }
         }
@@ -164,7 +180,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         DispatchQueue.main.async {
             self.authorizationStatus = manager.authorizationStatus
-            if manager.authorizationStatus == .authorizedWhenInUse || manager.authorizationStatus == .authorizedAlways {
+            if manager.authorizationStatus == .authorizedWhenInUse {
+                manager.requestAlwaysAuthorization()
+                self.gpsQuality = .unknown
+            } else if manager.authorizationStatus == .authorizedAlways {
                 self.gpsQuality = .unknown
             } else {
                 self.gpsQuality = .bad
@@ -176,6 +195,13 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         print("Location error: \(error.localizedDescription)")
     }
 
+    func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        let h = newHeading.magneticHeading
+        DispatchQueue.main.async {
+            self.heading = h
+        }
+    }
+
     private func saveVisits() {
         if let data = try? JSONEncoder().encode(visits) {
             UserDefaults.standard.set(data, forKey: visitsKey)
@@ -185,6 +211,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func loadVisits() {
         guard let data = UserDefaults.standard.data(forKey: visitsKey),
               let decoded = try? JSONDecoder().decode([VisitRecord].self, from: data) else { return }
-        visits = decoded
+        visits = decoded.sorted { $0.arrivalDate > $1.arrivalDate }
+    }
+
+    func clearVisits() {
+        visits = []
+        UserDefaults.standard.removeObject(forKey: visitsKey)
     }
 }

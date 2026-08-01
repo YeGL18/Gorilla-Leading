@@ -3,12 +3,16 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
+		05B1C5DB301837BB00589328 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05B1C5DA301837BB00589328 /* WidgetKit.framework */; };
+		05B1C5DD301837BB00589328 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05B1C5DC301837BB00589328 /* SwiftUI.framework */; };
+		05B1C5EE301837BC00589328 /* ParkingTimerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		110F68C8F30F7220369D4617 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */; };
 		157F6325A2902DAE2BD0FCFA /* SpeedSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */; };
-		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
+		712AB096BC3B75DE0BA4E278 /* RoseFourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */; };
 		A10001 /* GorillaTranslateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001 /* GorillaTranslateApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20002 /* ContentView.swift */; };
 		A10003 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20003 /* Language.swift */; };
@@ -22,14 +26,50 @@
 		A10016 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20016 /* SettingsView.swift */; };
 		A10017 /* TranslationRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20018 /* TranslationRecord.swift */; };
 		A10018 /* AnimationClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20019 /* AnimationClock.swift */; };
+		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
+		D10001 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20001 /* Destination.swift */; };
+		E10001 /* ParkingPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20001 /* ParkingPhoto.swift */; };
+		E14C057DE2641559B70A543F /* WeatherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759D5AC501F16B3C56606AE5 /* WeatherService.swift */; };
+		EA44CAF9DA9ACC24F1E1247F /* TimeBasedOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186CBC60988AE080898F728D /* TimeBasedOrbView.swift */; };
 /* End PBXBuildFile section */
 
+/* Begin PBXContainerItemProxy section */
+		05B1C5EC301837BC00589328 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A80001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 05B1C5D7301837BA00589328;
+			remoteInfo = ParkingTimerWidgetExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		05B1C5F3301837BC00589328 /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				05B1C5EE301837BC00589328 /* ParkingTimerWidgetExtension.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
 /* Begin PBXFileReference section */
+		05B1C5D33018374D00589328 /* GorillaTranslate.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GorillaTranslate.entitlements; sourceTree = "<group>"; };
+		05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ParkingTimerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		05B1C5DA301837BB00589328 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		05B1C5DC301837BB00589328 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		05B1C5F4301837EA00589328 /* ParkingTimerWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ParkingTimerWidgetExtension.entitlements; sourceTree = "<group>"; };
+		186CBC60988AE080898F728D /* TimeBasedOrbView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeBasedOrbView.swift; sourceTree = "<group>"; };
+		65605E6361F50510E915CAAA /* MorphingText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MorphingText.swift; path = GorillaTranslate/Views/MorphingText.swift; sourceTree = "<group>"; };
+		759D5AC501F16B3C56606AE5 /* WeatherService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WeatherService.swift; sourceTree = "<group>"; };
 		7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeedSimulationView.swift; sourceTree = "<group>"; };
-		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
 		A20001 /* GorillaTranslateApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaTranslateApp.swift; sourceTree = "<group>"; };
 		A20002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20003 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
@@ -44,12 +84,51 @@
 		A20017 /* GorillaTranslate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GorillaTranslate.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20018 /* TranslationRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationRecord.swift; sourceTree = "<group>"; };
 		A20019 /* AnimationClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimationClock.swift; sourceTree = "<group>"; };
+		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
+		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
+		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
 		C20001 /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
+		D20001 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
+		E20001 /* ParkingPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingPhoto.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 05B1C5D7301837BA00589328 /* ParkingTimerWidgetExtension */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ParkingTimerWidget;
+			sourceTree = "<group>";
+		};
+/* End PBXFileSystemSynchronizedRootGroup section */
+
 /* Begin PBXFrameworksBuildPhase section */
+		05B1C5D5301837BA00589328 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				05B1C5DD301837BB00589328 /* SwiftUI.framework in Frameworks */,
+				05B1C5DB301837BB00589328 /* WidgetKit.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A30001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -60,17 +139,31 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		05B1C5D9301837BB00589328 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				05B1C5DA301837BB00589328 /* WidgetKit.framework */,
+				05B1C5DC301837BB00589328 /* SwiftUI.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		A40001 = {
 			isa = PBXGroup;
 			children = (
+				05B1C5F4301837EA00589328 /* ParkingTimerWidgetExtension.entitlements */,
 				A40002 /* GorillaTranslate */,
+				05B1C5DE301837BB00589328 /* ParkingTimerWidget */,
+				05B1C5D9301837BB00589328 /* Frameworks */,
 				A40005 /* Products */,
+				65605E6361F50510E915CAAA /* MorphingText.swift */,
 			);
 			sourceTree = "<group>";
 		};
 		A40002 /* GorillaTranslate */ = {
 			isa = PBXGroup;
 			children = (
+				05B1C5D33018374D00589328 /* GorillaTranslate.entitlements */,
 				A20001 /* GorillaTranslateApp.swift */,
 				A20002 /* ContentView.swift */,
 				A40003 /* Models */,
@@ -90,6 +183,10 @@
 				A20018 /* TranslationRecord.swift */,
 				A20019 /* AnimationClock.swift */,
 				B20001 /* LocationManager.swift */,
+				D20001 /* Destination.swift */,
+				E20001 /* ParkingPhoto.swift */,
+				B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */,
+				759D5AC501F16B3C56606AE5 /* WeatherService.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -105,6 +202,8 @@
 				A20020 /* DotMatrixView.swift */,
 				B20002 /* SpeedView.swift */,
 				C20001 /* MapView.swift */,
+				186CBC60988AE080898F728D /* TimeBasedOrbView.swift */,
+				B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -113,6 +212,7 @@
 			isa = PBXGroup;
 			children = (
 				A20017 /* GorillaTranslate.app */,
+				05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -144,6 +244,26 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		05B1C5D7301837BA00589328 /* ParkingTimerWidgetExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 05B1C5F0301837BC00589328 /* Build configuration list for PBXNativeTarget "ParkingTimerWidgetExtension" */;
+			buildPhases = (
+				05B1C5D4301837BA00589328 /* Sources */,
+				05B1C5D5301837BA00589328 /* Frameworks */,
+				05B1C5D6301837BA00589328 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				05B1C5DE301837BB00589328 /* ParkingTimerWidget */,
+			);
+			name = ParkingTimerWidgetExtension;
+			productName = ParkingTimerWidgetExtension;
+			productReference = 05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		A50001 /* GorillaTranslate */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = A70001 /* Build configuration list for PBXNativeTarget "GorillaTranslate" */;
@@ -151,10 +271,12 @@
 				A60001 /* Sources */,
 				A30001 /* Frameworks */,
 				A60002 /* Resources */,
+				05B1C5F3301837BC00589328 /* Embed Foundation Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				05B1C5ED301837BC00589328 /* PBXTargetDependency */,
 			);
 			name = GorillaTranslate;
 			productName = GorillaTranslate;
@@ -168,9 +290,12 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1540;
+				LastSwiftUpdateCheck = 2610;
 				LastUpgradeCheck = 1540;
 				TargetAttributes = {
+					05B1C5D7301837BA00589328 = {
+						CreatedOnToolsVersion = 26.1.1;
+					};
 					A50001 = {
 						CreatedOnToolsVersion = 15.4;
 					};
@@ -190,11 +315,19 @@
 			projectRoot = "";
 			targets = (
 				A50001 /* GorillaTranslate */,
+				05B1C5D7301837BA00589328 /* ParkingTimerWidgetExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		05B1C5D6301837BA00589328 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A60002 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -207,6 +340,13 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		05B1C5D4301837BA00589328 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		A60001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -223,16 +363,96 @@
 				A10017 /* TranslationRecord.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
+				D10001 /* Destination.swift in Sources */,
 				B10002 /* SpeedView.swift in Sources */,
 				C10001 /* MapView.swift in Sources */,
 				157F6325A2902DAE2BD0FCFA /* SpeedSimulationView.swift in Sources */,
 				A10019 /* DotMatrixView.swift in Sources */,
+				E10001 /* ParkingPhoto.swift in Sources */,
+				110F68C8F30F7220369D4617 /* TimePhase.swift in Sources */,
+				EA44CAF9DA9ACC24F1E1247F /* TimeBasedOrbView.swift in Sources */,
+				E14C057DE2641559B70A543F /* WeatherService.swift in Sources */,
+				712AB096BC3B75DE0BA4E278 /* RoseFourView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
+/* Begin PBXTargetDependency section */
+		05B1C5ED301837BC00589328 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 05B1C5D7301837BA00589328 /* ParkingTimerWidgetExtension */;
+			targetProxy = 05B1C5EC301837BC00589328 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin XCBuildConfiguration section */
+		05B1C5F1301837BC00589328 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = ParkingTimerWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JVL487RN2F;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ParkingTimerWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ParkingTimerWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gorilla.translation.ParkingTimerWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		05B1C5F2301837BC00589328 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
+				CODE_SIGN_ENTITLEMENTS = ParkingTimerWidgetExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = JVL487RN2F;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ParkingTimerWidget/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ParkingTimerWidget;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 26.1;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.gorilla.translation.ParkingTimerWidget;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		A90001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -355,15 +575,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = GorillaTranslate/GorillaTranslate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gorilla Leading";
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice input.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -390,15 +613,18 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = GorillaTranslate/GorillaTranslate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gorilla Leading";
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
+				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
+				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice input.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
-				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -423,6 +649,15 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		05B1C5F0301837BC00589328 /* Build configuration list for PBXNativeTarget "ParkingTimerWidgetExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				05B1C5F1301837BC00589328 /* Debug */,
+				05B1C5F2301837BC00589328 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		A70001 /* Build configuration list for PBXNativeTarget "GorillaTranslate" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

@@ -74,7 +74,7 @@ struct DotMatrixWebView: UIViewRepresentable {
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <style>
         *{margin:0;padding:0;box-sizing:border-box}
-        body{background:#000;overflow:hidden;height:100%;margin:0}
+        body{background:transparent;overflow:hidden;height:100%;margin:0}
         html{height:100%;margin:0}
         canvas{position:absolute;top:0;left:0;width:100%;height:100%;transform:scale(1.15);transform-origin:center center}
         #blur{filter:blur(3px);pointer-events:none}

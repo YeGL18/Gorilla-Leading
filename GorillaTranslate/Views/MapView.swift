@@ -1,98 +1,42 @@
 import SwiftUI
 import MapKit
+import Combine
 
 class NonAdjustingMapView: MKMapView {
     var allowCameraChange = false
-    private var lockedDistance: CLLocationDistance?
-    private var lockedCenter: CLLocationCoordinate2D?
-    private var lockedPitch: CGFloat?
-    private var lockedHeading: CLLocationDirection?
-    private var isLocked = false
-
-    func lockCamera() {
-        lockedDistance = camera.centerCoordinateDistance
-        lockedCenter = centerCoordinate
-        lockedPitch = camera.pitch
-        lockedHeading = camera.heading
-        isLocked = true
-    }
-
-    func unlockCamera() {
-        isLocked = false
-    }
-
-    func restoreCamera() {
-        guard isLocked, 
-              let dist = lockedDistance, 
-              let center = lockedCenter,
-              let pitch = lockedPitch,
-              let heading = lockedHeading else { return }
-        let cam = camera
-        cam.centerCoordinateDistance = dist
-        cam.centerCoordinate = center
-        cam.pitch = pitch
-        cam.heading = heading
-        super.setCamera(cam, animated: false)
-    }
+    private var savedCameraBeforeLayout: MKMapCamera?
 
     override func setCamera(_ newCamera: MKMapCamera, animated: Bool) {
-        guard allowCameraChange else { 
-            restoreCamera()
-            return 
-        }
+        guard allowCameraChange else { return }
         super.setCamera(newCamera, animated: animated)
     }
 
     override func setRegion(_ newRegion: MKCoordinateRegion, animated: Bool) {
-        guard allowCameraChange else { 
-            restoreCamera()
-            return 
-        }
+        guard allowCameraChange else { return }
         super.setRegion(newRegion, animated: animated)
     }
-    
+
     override func layoutSubviews() {
+        if !allowCameraChange {
+            savedCameraBeforeLayout = camera
+        }
         super.layoutSubviews()
-        restoreCamera()
-    }
-    
-    override func setCenter(_ coordinate: CLLocationCoordinate2D, animated: Bool) {
-        guard allowCameraChange else {
-            restoreCamera()
-            return
+        if !allowCameraChange, let saved = savedCameraBeforeLayout {
+            camera = saved
+            savedCameraBeforeLayout = nil
         }
-        super.setCenter(coordinate, animated: animated)
-    }
-    
-    override func setVisibleMapRect(_ mapRect: MKMapRect, animated: Bool) {
-        guard allowCameraChange else {
-            restoreCamera()
-            return
-        }
-        super.setVisibleMapRect(mapRect, animated: animated)
-    }
-    
-    override func setVisibleMapRect(_ mapRect: MKMapRect, edgePadding insets: UIEdgeInsets, animated: Bool) {
-        guard allowCameraChange else {
-            restoreCamera()
-            return
-        }
-        super.setVisibleMapRect(mapRect, edgePadding: insets, animated: animated)
-    }
-    
-    override func showAnnotations(_ annotations: [MKAnnotation], animated: Bool) {
-        guard allowCameraChange else {
-            restoreCamera()
-            return
-        }
-        super.showAnnotations(annotations, animated: animated)
     }
 }
 
 struct MapView: UIViewRepresentable {
     @Binding var savedRegion: MKCoordinateRegion?
+    @Binding var savedCamera: MKMapCamera?
     @Binding var flyTrigger: Int
     var isLandscape: Bool
+    var routeOverlay: MKPolyline?
+    var followHeading: Bool
+    @EnvironmentObject private var locationManager: LocationManager
+    @Environment(\.colorScheme) private var colorScheme
 
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
@@ -103,26 +47,23 @@ struct MapView: UIViewRepresentable {
         mapView.showsUserLocation = true
         mapView.userTrackingMode = .none
         mapView.pointOfInterestFilter = .excludingAll
-        mapView.overrideUserInterfaceStyle = .dark
+        mapView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         mapView.delegate = context.coordinator
         context.coordinator.mapView = mapView
 
-        if let saved = savedRegion {
-            mapView.unlockCamera()
-            mapView.allowCameraChange = true
-            mapView.setRegion(saved, animated: false)
-            mapView.lockCamera()
-            mapView.allowCameraChange = false
-        } else {
-            mapView.allowCameraChange = true
-            mapView.lockCamera()
-            mapView.allowCameraChange = false
-        }
+        // 默认定位到香港，避免首次打开闪 San Jose
+        let hongKong = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
+        mapView.allowCameraChange = true
+        let camera = MKMapCamera()
+        camera.centerCoordinate = hongKong
+        camera.centerCoordinateDistance = 50000
+        mapView.setCamera(camera, animated: false)
+        mapView.allowCameraChange = false
 
-        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched))
-        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched))
-        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched))
-        let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched))
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
+        let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
+        let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
+        let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
         mapView.addGestureRecognizer(tap)
         mapView.addGestureRecognizer(pan)
         mapView.addGestureRecognizer(pinch)
@@ -152,8 +93,12 @@ struct MapView: UIViewRepresentable {
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
         
+        let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+        if mapView.overrideUserInterfaceStyle != targetStyle {
+            mapView.overrideUserInterfaceStyle = targetStyle
+        }
+        
         if landscapeChanged {
-            mapView.lockCamera()
             mapView.allowCameraChange = false
             context.coordinator.autoZoomTimer?.invalidate()
             context.coordinator.autoZoomTimer = nil
@@ -170,6 +115,57 @@ struct MapView: UIViewRepresentable {
                 context.coordinator.startTracking()
             }
         }
+
+        // 路线覆盖层
+        if let overlay = routeOverlay {
+            if context.coordinator.currentRouteOverlay == nil ||
+               context.coordinator.currentRouteOverlay !== overlay {
+                mapView.removeOverlays(mapView.overlays)
+                mapView.addOverlay(overlay)
+                context.coordinator.currentRouteOverlay = overlay
+                // 用 Timer 手动控制缩放动画，时长 1.5 秒
+                let targetRect = overlay.boundingMapRect
+                let startCenter = mapView.camera.centerCoordinate
+                let startDistance = mapView.camera.centerCoordinateDistance
+                // 从 MKMapRect 精确计算中心和所需距离
+                let topLeft = MKMapPoint(x: targetRect.origin.x, y: targetRect.origin.y).coordinate
+                let bottomRight = MKMapPoint(x: targetRect.origin.x + targetRect.size.width,
+                                             y: targetRect.origin.y + targetRect.size.height).coordinate
+                let targetCenter = CLLocationCoordinate2D(
+                    latitude: (topLeft.latitude + bottomRight.latitude) / 2,
+                    longitude: (topLeft.longitude + bottomRight.longitude) / 2
+                )
+                let latSpan = abs(topLeft.latitude - bottomRight.latitude)
+                let lonSpan = abs(topLeft.longitude - bottomRight.longitude)
+                // centerCoordinateDistance 控制垂直可见范围，需要覆盖最大跨度
+                let targetDistance = max(latSpan, lonSpan) * 111000 * 4.0
+                mapView.allowCameraChange = true
+                let duration: TimeInterval = 1.5
+                let startTime = Date()
+                context.coordinator.routeZoomTimer?.invalidate()
+                context.coordinator.routeZoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak mapView] timer in
+                    guard let mapView = mapView else { timer.invalidate(); return }
+                    let elapsed = Date().timeIntervalSince(startTime)
+                    let t = min(elapsed / duration, 1.0)
+                    let ease = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+                    let lat = startCenter.latitude + (targetCenter.latitude - startCenter.latitude) * ease
+                    let lon = startCenter.longitude + (targetCenter.longitude - startCenter.longitude) * ease
+                    let dist = startDistance + (targetDistance - startDistance) * ease
+                    mapView.allowCameraChange = true
+                    let camera = mapView.camera
+                    camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    camera.centerCoordinateDistance = dist
+                    mapView.camera = camera
+                    if t >= 1.0 {
+                        timer.invalidate()
+                        mapView.allowCameraChange = false
+                    }
+                }
+            }
+        } else if context.coordinator.currentRouteOverlay != nil {
+            mapView.removeOverlays(mapView.overlays)
+            context.coordinator.currentRouteOverlay = nil
+        }
     }
 
     class Coordinator: NSObject, MKMapViewDelegate {
@@ -182,28 +178,330 @@ struct MapView: UIViewRepresentable {
         var isFlying = false
         var hasShownHighAltitude = false
         var hasInitialized = false
+        
+        // 运动检测相关
+        private var speedObserver: AnyCancellable?
+        private var locationObserver: AnyCancellable?
+        private var lastSpeed: Double = 0
+        private var isDriving: Bool = false
+        private var realTimeUpdateTimer: Timer?
+        private var lastCameraUpdateTime: TimeInterval = 0
+        private var isUserInteracting = false
+        private var pendingAutoZoom = false
+        
+        // 驾驶速度阈值（km/h）
+        private let drivingSpeedThreshold: Double = 15
+        
+        // 柔软追踪相关
+        private var softLatVelocity: Double = 0   // 纬度速度（度/帧）
+        private var softLonVelocity: Double = 0   // 经度速度（度/帧）
+        private var softLastGPSTime: TimeInterval = 0
+        private var softTargetCenter: CLLocationCoordinate2D?
+        private var softIsDecelerating = false
+        private var softDecelerationProgress: Double = 0
+        var currentRouteOverlay: MKPolyline?
+        var routeZoomTimer: Timer?
 
         init(_ parent: MapView) {
             self.parent = parent
+            super.init()
+            setupLocationObserver()
+        }
+        
+        deinit {
+            speedObserver?.cancel()
+            locationObserver?.cancel()
+            realTimeUpdateTimer?.invalidate()
+            routeZoomTimer?.invalidate()
+        }
+        
+        private func setupLocationObserver() {
+            speedObserver = parent.locationManager.$speed
+                .dropFirst()
+                .sink { [weak self] newSpeed in
+                    self?.handleSpeedChange(newSpeed)
+                }
+            locationObserver = parent.locationManager.$lastLocation
+                .dropFirst()
+                .compactMap { $0 }
+                .sink { [weak self] location in
+                    guard let self = self, self.isDriving, !self.isFlying, !self.isUserInteracting else { return }
+                    let now = Date().timeIntervalSince1970
+                    let interval: TimeInterval = UserDefaults.standard.bool(forKey: "highFrequencyTracking") ? 0.12 : 0.5
+                    guard now - self.lastCameraUpdateTime >= interval else { return }
+                    self.lastCameraUpdateTime = now
+                    self.smoothUpdateMapPosition(location: location)
+                }
+        }
+        
+        private func handleSpeedChange(_ speed: Double) {
+            let wasDriving = isDriving
+            isDriving = speed >= drivingSpeedThreshold
+            
+            if isDriving && !wasDriving {
+                // 开始驾驶：不取消飞行，让飞行完成到第一个GPS点
+                // 飞行完成后 locationObserver 会自动接管追蹤
+                autoZoomTimer?.invalidate()
+                autoZoomTimer = nil
+                pendingAutoZoom = false
+                mapView?.allowCameraChange = false
+                // 停止smoothPanTimer，让locationObserver接管
+                smoothPanTimer?.invalidate()
+                smoothPanTimer = nil
+            } else if !isDriving && wasDriving {
+                // 停止驾驶，停止实时更新，回到正常模式
+                stopRealTimeUpdates()
+                pendingAutoZoom = true
+            }
+        }
+        
+        private func startRealTimeUpdates() {
+            realTimeUpdateTimer?.invalidate()
+            autoZoomTimer?.invalidate()
+        }
+        
+        private func stopRealTimeUpdates() {
+            realTimeUpdateTimer?.invalidate()
+            realTimeUpdateTimer = nil
+        }
+        
+        private func updateMapPosition() {
+            guard let mapView = mapView,
+                  let location = mapView.userLocation.location,
+                  !isFlying else { return }
+            
+            let targetCenter = CLLocationCoordinate2D(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude
+            )
+            let targetDistance: CLLocationDistance = 800
+            
+            mapView.allowCameraChange = true
+            
+            let camera = mapView.camera
+            camera.centerCoordinate = targetCenter
+            camera.centerCoordinateDistance = targetDistance
+            mapView.setCamera(camera, animated: true)
+            
+            mapView.allowCameraChange = false
         }
 
-        @objc func userTouched() {
-            isFlying = false
-            flyTimer?.invalidate()
-            flyTimer = nil
-            autoZoomTimer?.invalidate()
-            autoZoomTimer = nil
-            hasInitialized = true
-            scheduleAutoZoom()
+        private var smoothPanTimer: Timer?
+        private var smoothFromCenter = CLLocationCoordinate2D()
+        private var smoothToCenter = CLLocationCoordinate2D()
+        private var smoothFromDistance: CLLocationDistance = 800
+        private var smoothToDistance: CLLocationDistance = 800
+        private var smoothFromHeading: CLLocationDirection = 0
+        private var smoothToHeading: CLLocationDirection = 0
+        private var smoothProgress: TimeInterval = 0
+        private let smoothDuration: TimeInterval = 0.6
+
+        private func smoothUpdateMapPosition(location: CLLocation) {
+            guard let mapView = mapView, !isFlying else { return }
+            
+            let useSoft = UserDefaults.standard.integer(forKey: "mapTrackingAnimation") == 1
+            
+            if useSoft {
+                softUpdateMapPosition(location: location)
+            } else {
+                standardUpdateMapPosition(location: location)
+            }
+        }
+        
+        private func standardUpdateMapPosition(location: CLLocation) {
+            guard let mapView = mapView, !isFlying else { return }
+            
+            smoothPanTimer?.invalidate()
+            
+            smoothFromCenter = mapView.camera.centerCoordinate
+            smoothFromDistance = mapView.camera.centerCoordinateDistance
+            smoothFromHeading = mapView.camera.heading
+            smoothToCenter = location.coordinate
+            smoothToDistance = 800
+            smoothToHeading = parent.followHeading ? parent.locationManager.heading : mapView.camera.heading
+            smoothProgress = 0
+            
+            let startTime = Date()
+            smoothPanTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak self] timer in
+                guard let self = self, !self.isUserInteracting else { return }
+                let elapsed = Date().timeIntervalSince(startTime)
+                let t = min(elapsed / self.smoothDuration, 1.0)
+                let ease = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+                
+                let lat = self.smoothFromCenter.latitude + (self.smoothToCenter.latitude - self.smoothFromCenter.latitude) * ease
+                let lon = self.smoothFromCenter.longitude + (self.smoothToCenter.longitude - self.smoothFromCenter.longitude) * ease
+                let dist = self.smoothFromDistance + (self.smoothToDistance - self.smoothFromDistance) * ease
+                let hdg = self.smoothFromHeading + (self.smoothToHeading - self.smoothFromHeading) * ease
+                
+                mapView.allowCameraChange = true
+                let camera = mapView.camera
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinateDistance = dist
+                camera.heading = hdg
+                mapView.setCamera(camera, animated: false)
+                mapView.allowCameraChange = false
+                
+                if t >= 1.0 {
+                    timer.invalidate()
+                    self.smoothPanTimer = nil
+                }
+            }
+        }
+        
+        private func softUpdateMapPosition(location: CLLocation) {
+            guard let mapView = mapView, !isFlying else { return }
+            
+            let now = Date().timeIntervalSince1970
+            softLastGPSTime = now
+            softTargetCenter = location.coordinate
+            softIsDecelerating = false
+            softDecelerationProgress = 0
+            
+            // 如果没有在运行，启动定时器
+            if smoothPanTimer == nil {
+                softStartAnimation()
+            }
+        }
+        
+        private func softStartAnimation() {
+            guard let mapView = mapView else { return }
+            
+            smoothPanTimer?.invalidate()
+            
+            let frameInterval = 1.0 / 60.0
+            smoothPanTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { [weak self] timer in
+                guard let self = self else { timer.invalidate(); return }
+                self.softTick(frameInterval: frameInterval)
+            }
+        }
+        
+        private func softTick(frameInterval: TimeInterval) {
+            guard let mapView = mapView, let target = softTargetCenter, !isUserInteracting else { return }
+            
+            let currentCenter = mapView.camera.centerCoordinate
+            let now = Date().timeIntervalSince1970
+            let timeSinceLastGPS = now - softLastGPSTime
+            
+            // GPS更新频率为0.12s/0.5s，阈值需大于更新间隔
+            if timeSinceLastGPS > 0.5 && !softIsDecelerating {
+                softIsDecelerating = true
+                softDecelerationProgress = 0
+            }
+            
+            if softIsDecelerating {
+                // 减速阶段：2秒内直线减速到目标
+                softDecelerationProgress += frameInterval / 2.0
+                let t = min(softDecelerationProgress, 1.0)
+                let ease = 1 - (1 - t) * (1 - t)  // ease-out: 1-(1-t)^2
+                
+                // 当前速度 = 剩余距离 * ease
+                let remainingLat = target.latitude - currentCenter.latitude
+                let remainingLon = target.longitude - currentCenter.longitude
+                
+                let lat = currentCenter.latitude + remainingLat * ease
+                let lon = currentCenter.longitude + remainingLon * ease
+                
+                mapView.allowCameraChange = true
+                let camera = mapView.camera
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinateDistance = 800
+                if parent.followHeading {
+                    let targetHeading = parent.locationManager.heading
+                    let currentHeading = camera.heading
+                    let headingDiff = targetHeading - currentHeading
+                    let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
+                    camera.heading = currentHeading + normalizedDiff * ease
+                }
+                mapView.setCamera(camera, animated: false)
+                mapView.allowCameraChange = false
+                
+                if t >= 1.0 {
+                    smoothPanTimer?.invalidate()
+                    smoothPanTimer = nil
+                    softIsDecelerating = false
+                    softDecelerationProgress = 0
+                }
+            } else {
+                // 正常阶段：保持当前速度移动
+                let deltaLat = target.latitude - currentCenter.latitude
+                let deltaLon = target.longitude - currentCenter.longitude
+                let distance = sqrt(deltaLat * deltaLat + deltaLon * deltaLon)
+                
+                // 计算目标速度（基于GPS更新频率和距离）
+                let targetSpeed = distance * 4.0  // 约0.25秒到达目标
+                
+                // 平滑调整速度（保持当前速度，渐变到目标速度）
+                let blendFactor = 0.15  // 越小越平滑
+                let newSpeed = softLatVelocity * (1 - blendFactor) + targetSpeed * blendFactor
+                
+                // 计算方向
+                if distance > 0.000001 {
+                    let dirLat = deltaLat / distance
+                    let dirLon = deltaLon / distance
+                    
+                    // 更新速度（保持速度，调整方向）
+                    softLatVelocity = dirLat * newSpeed
+                    softLonVelocity = dirLon * newSpeed
+                }
+                
+                // 应用速度
+                let newLat = currentCenter.latitude + softLatVelocity * frameInterval
+                let newLon = currentCenter.longitude + softLonVelocity * frameInterval
+                
+                mapView.allowCameraChange = true
+                let camera = mapView.camera
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
+                camera.centerCoordinateDistance = 800
+                if parent.followHeading {
+                    let targetHeading = parent.locationManager.heading
+                    let currentHeading = camera.heading
+                    let headingDiff = targetHeading - currentHeading
+                    let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
+                    camera.heading = currentHeading + normalizedDiff * 0.15
+                }
+                mapView.setCamera(camera, animated: false)
+                mapView.allowCameraChange = false
+            }
+        }
+
+        @objc func userTouched(_ gesture: UIGestureRecognizer) {
+            // 正在触摸中：停止所有追蹤
+            if gesture.state == .began || gesture.state == .changed {
+                if !isUserInteracting {
+                    isFlying = false
+                    flyTimer?.invalidate()
+                    flyTimer = nil
+                    autoZoomTimer?.invalidate()
+                    autoZoomTimer = nil
+                    realTimeUpdateTimer?.invalidate()
+                    realTimeUpdateTimer = nil
+                    smoothPanTimer?.invalidate()
+                    smoothPanTimer = nil
+                    mapView?.allowCameraChange = false
+                    pendingAutoZoom = false
+                }
+                isUserInteracting = true
+                return
+            }
+
+            // 手指抬起：清除互動狀態，等地图静止后由 regionDidChangeAnimated 启动倒数
+            if gesture.state == .ended || gesture.state == .cancelled || gesture.state == .failed {
+                hasInitialized = true
+                isUserInteracting = false
+                pendingAutoZoom = true
+            }
         }
 
         func startTracking() {
-            guard let mapView = mapView else { return }
+            guard let mapView = mapView, !isUserInteracting else { return }
             
-            // 如果是第一次，先显示高空视角
             if !hasShownHighAltitude {
                 if let location = mapView.userLocation.location {
-                    showHighAltitudeView(mapView: mapView, location: location)
+                    hasShownHighAltitude = true
+                    hasInitialized = true
+                    parent.savedRegion = mapView.region
+                    // 首次直接飞到用户位置，不显示高空视角
+                    flyToLocation(mapView: mapView, location: location)
                     return
                 } else {
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -220,16 +518,13 @@ struct MapView: UIViewRepresentable {
             if let location = mapView.userLocation.location {
                 flyToLocation(mapView: mapView, location: location)
             } else {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    self.startTracking()
-                }
+                pendingAutoZoom = true
             }
         }
 
         private func showHighAltitudeView(mapView: NonAdjustingMapView, location: CLLocation) {
             hasShownHighAltitude = true
             
-            mapView.unlockCamera()
             mapView.allowCameraChange = true
             
             let camera = mapView.camera
@@ -237,20 +532,19 @@ struct MapView: UIViewRepresentable {
             camera.centerCoordinateDistance = 50000
             mapView.camera = camera
             
-            mapView.lockCamera()
             mapView.allowCameraChange = false
             
             hasInitialized = true
             parent.savedRegion = mapView.region
             
-            scheduleAutoZoom()
+            pendingAutoZoom = true
         }
 
         func scheduleAutoZoom() {
-            guard !isFlying else { return }
+            guard !isFlying && !isDriving && !isUserInteracting else { return }
             autoZoomTimer?.invalidate()
             autoZoomTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
-                guard let self = self, !self.isFlying else { return }
+                guard let self = self, !self.isFlying, !self.isDriving, !self.isUserInteracting else { return }
                 DispatchQueue.main.async {
                     self.startTracking()
                 }
@@ -261,16 +555,16 @@ struct MapView: UIViewRepresentable {
             autoZoomTimer?.invalidate()
             autoZoomTimer = nil
             isFlying = true
-            let landscape = isLandscape
-            let latOffset: CLLocationDegrees = landscape ? 0.00035 : 0
             let targetCenter = CLLocationCoordinate2D(
-                latitude: location.coordinate.latitude + latOffset,
+                latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            let targetDistance: CLLocationDistance = landscape ? 320 : 260
+            let targetDistance: CLLocationDistance = 800
             let startCenter = mapView.centerCoordinate
-            let startDistance = mapView.camera.centerCoordinateDistance
-            mapView.unlockCamera()
+            // 首次从高空飞下来（加载瓦片），后续用当前高度
+            let startDistance: CLLocationDistance = hasShownHighAltitude
+                ? mapView.camera.centerCoordinateDistance
+                : max(mapView.camera.centerCoordinateDistance, 50000)
             mapView.allowCameraChange = true
 
             let duration: TimeInterval = 4.5
@@ -298,10 +592,13 @@ struct MapView: UIViewRepresentable {
                     timer.invalidate()
                     self.flyTimer = nil
                     self.isFlying = false
-                    mapView.lockCamera()
                     mapView.allowCameraChange = false
                     DispatchQueue.main.async {
-                        self.scheduleAutoZoom()
+                        if self.isDriving {
+                            self.startRealTimeUpdates()
+                        } else {
+                            self.pendingAutoZoom = true
+                        }
                     }
                 }
             }
@@ -311,28 +608,46 @@ struct MapView: UIViewRepresentable {
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             if hasInitialized {
                 parent.savedRegion = mapView.region
+                parent.savedCamera = mapView.camera
             }
-            if let nonAdjusting = mapView as? NonAdjustingMapView {
-                nonAdjusting.restoreCamera()
+            // 飞行结束或用户操作结束，地图静止后启动5秒倒数
+            if pendingAutoZoom && !isFlying && !isDriving && !isUserInteracting {
+                pendingAutoZoom = false
+                scheduleAutoZoom()
             }
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             nil
         }
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            if let polyline = overlay as? MKPolyline {
+                let renderer = MKPolylineRenderer(polyline: polyline)
+                renderer.strokeColor = UIColor(hex: "007AFF")
+                renderer.lineWidth = 5
+                renderer.lineCap = .round
+                renderer.lineJoin = .round
+                return renderer
+            }
+            return MKOverlayRenderer(overlay: overlay)
+        }
     }
 }
 
 struct VignetteMapView: View {
     @Binding var savedRegion: MKCoordinateRegion?
+    @Binding var savedCamera: MKMapCamera?
     @Binding var firstFlyTrigger: Int
+    var routeOverlay: MKPolyline?
+    var followHeading: Bool
     @State private var flyTrigger = 0
     @State private var isLandscape = false
     @State private var hasTriggeredFirstTime = false
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, flyTrigger: $flyTrigger, isLandscape: isLandscape)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, followHeading: followHeading)
                 .ignoresSafeArea()
 
             GeometryReader { geo in
@@ -363,10 +678,47 @@ struct VignetteMapView: View {
             .allowsHitTesting(false)
         }
         .onChange(of: firstFlyTrigger) { _, _ in
-            if !hasTriggeredFirstTime {
-                hasTriggeredFirstTime = true
-                flyTrigger += 1
-            }
+            flyTrigger += 1
+        }
+    }
+}
+
+struct ReadOnlyMapView: UIViewRepresentable {
+    let camera: MKMapCamera?
+    @Environment(\.colorScheme) private var colorScheme
+
+    func makeUIView(context: Context) -> NonAdjustingMapView {
+        let mapView = NonAdjustingMapView()
+        mapView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+        mapView.pointOfInterestFilter = .excludingAll
+        mapView.showsUserLocation = true
+        mapView.userTrackingMode = .none
+        mapView.delegate = nil
+        if let camera = camera {
+            mapView.allowCameraChange = true
+            mapView.setCamera(camera, animated: false)
+            mapView.allowCameraChange = false
+        }
+        return mapView
+    }
+
+    func updateUIView(_ mapView: NonAdjustingMapView, context: Context) {
+        let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+        if mapView.overrideUserInterfaceStyle != targetStyle {
+            mapView.overrideUserInterfaceStyle = targetStyle
+        }
+        guard let camera = camera else { return }
+        let current = mapView.camera
+        let needsUpdate =
+            abs(current.centerCoordinate.latitude - camera.centerCoordinate.latitude) > 0.0001 ||
+            abs(current.centerCoordinate.longitude - camera.centerCoordinate.longitude) > 0.0001 ||
+            abs(current.heading - camera.heading) > 1 ||
+            abs(current.pitch - camera.pitch) > 1 ||
+            abs(current.centerCoordinateDistance - camera.centerCoordinateDistance) > 10
+        if needsUpdate {
+            mapView.allowCameraChange = true
+            mapView.setCamera(camera, animated: false)
+            mapView.allowCameraChange = false
         }
     }
 }
