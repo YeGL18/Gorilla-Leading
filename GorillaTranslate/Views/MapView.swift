@@ -34,7 +34,12 @@ struct MapView: UIViewRepresentable {
     @Binding var flyTrigger: Int
     var isLandscape: Bool
     var routeOverlay: MKPolyline?
+    var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
+    var routePriorityToken: UUID?
+    var routePriorityAnchor: CLLocationCoordinate2D?
+    var routeOverlayToken: UUID?
+    var routeOverlayAnimationToken: UUID?
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.colorScheme) private var colorScheme
 
@@ -72,7 +77,7 @@ struct MapView: UIViewRepresentable {
         // 调整指南针位置：下移一个指南针高度 + 12pt
         // 指南针的标准高度大约是 30pt
         let compassHeight: CGFloat = 30
-        let additionalOffset: CGFloat = 12
+        let additionalOffset: CGFloat = 24
         
         // 查找指南针视图并调整其位置
         DispatchQueue.main.async {
@@ -90,6 +95,7 @@ struct MapView: UIViewRepresentable {
     }
 
     func updateUIView(_ mapView: NonAdjustingMapView, context: Context) {
+        context.coordinator.parent = self
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
         
@@ -106,23 +112,52 @@ struct MapView: UIViewRepresentable {
         
         if flyTrigger > 0 && flyTrigger != context.coordinator.lastFlyTrigger {
             context.coordinator.lastFlyTrigger = flyTrigger
-            if landscapeChanged {
-                let coordinator = context.coordinator
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    coordinator.startTracking()
+            if routePriorityToken == nil {
+                if landscapeChanged {
+                    let coordinator = context.coordinator
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        coordinator.startTracking()
+                    }
+                } else {
+                    context.coordinator.startTracking()
                 }
-            } else {
-                context.coordinator.startTracking()
             }
         }
 
         // 路线覆盖层
         if let overlay = routeOverlay {
-            if context.coordinator.currentRouteOverlay == nil ||
-               context.coordinator.currentRouteOverlay !== overlay {
-                mapView.removeOverlays(mapView.overlays)
+            let tokenChanged = context.coordinator.currentRouteToken != routeOverlayToken
+            let overlayChanged = context.coordinator.currentRouteOverlay == nil || context.coordinator.currentRouteOverlay !== overlay
+            let animOverlay = routeAnimationOverlay
+            let animChanged = context.coordinator.currentRouteAnimationOverlay !== animOverlay
+            if tokenChanged || overlayChanged || animChanged {
+                let coordinator = context.coordinator
+                let shouldAnimateRouteZoom = routeOverlayToken != nil && routeOverlayToken == routeOverlayAnimationToken
+                let shouldAnimateDraw = animOverlay != nil
+                coordinator.prepareRouteDrawAnimation(shouldAnimate: shouldAnimateDraw)
+                if let cur = coordinator.currentRouteOverlay {
+                    mapView.removeOverlay(cur)
+                }
+                if let cur = coordinator.currentRouteAnimationOverlay {
+                    mapView.removeOverlay(cur)
+                }
+                coordinator.currentRouteOverlay = overlay
+                coordinator.currentRouteAnimationOverlay = animOverlay
+                coordinator.currentRouteToken = routeOverlayToken
                 mapView.addOverlay(overlay)
-                context.coordinator.currentRouteOverlay = overlay
+                if let animOverlay = animOverlay, shouldAnimateDraw {
+                    mapView.addOverlay(animOverlay)
+                }
+
+                context.coordinator.routeZoomTimer?.invalidate()
+                context.coordinator.routeZoomTimer = nil
+
+                if !shouldAnimateRouteZoom {
+                    mapView.allowCameraChange = false
+                    coordinator.isFlying = false
+                    coordinator.pendingAutoZoom = false
+                    return
+                }
                 // 用 Timer 手动控制缩放动画，时长 1.5 秒
                 let targetRect = overlay.boundingMapRect
                 let startCenter = mapView.camera.centerCoordinate
@@ -139,12 +174,19 @@ struct MapView: UIViewRepresentable {
                 let lonSpan = abs(topLeft.longitude - bottomRight.longitude)
                 // centerCoordinateDistance 控制垂直可见范围，需要覆盖最大跨度
                 let targetDistance = max(latSpan, lonSpan) * 111000 * 4.0
-                mapView.allowCameraChange = true
                 let duration: TimeInterval = 1.5
                 let startTime = Date()
-                context.coordinator.routeZoomTimer?.invalidate()
-                context.coordinator.routeZoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak mapView] timer in
-                    guard let mapView = mapView else { timer.invalidate(); return }
+                coordinator.flyTimer?.invalidate()
+                coordinator.flyTimer = nil
+                coordinator.autoZoomTimer?.invalidate()
+                coordinator.autoZoomTimer = nil
+                coordinator.smoothPanTimer?.invalidate()
+                coordinator.smoothPanTimer = nil
+                coordinator.pendingAutoZoom = false
+                coordinator.isFlying = true
+                mapView.allowCameraChange = true
+                context.coordinator.routeZoomTimer = Timer.scheduledTimer(withTimeInterval: 1.0/60.0, repeats: true) { [weak mapView, weak coordinator] timer in
+                    guard let mapView = mapView, let coordinator = coordinator else { timer.invalidate(); return }
                     let elapsed = Date().timeIntervalSince(startTime)
                     let t = min(elapsed / duration, 1.0)
                     let ease = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
@@ -158,13 +200,47 @@ struct MapView: UIViewRepresentable {
                     mapView.camera = camera
                     if t >= 1.0 {
                         timer.invalidate()
-                        mapView.allowCameraChange = false
+                        if coordinator.isDriving,
+                           coordinator.parent.routePriorityToken != nil,
+                           let anchor = mapView.userLocation.location?.coordinate ?? coordinator.parent.routePriorityAnchor {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                coordinator.flyToCoordinate(mapView: mapView, coordinate: anchor, distance: 800, duration: 1.2)
+                            }
+                        } else {
+                            coordinator.isFlying = false
+                            mapView.allowCameraChange = false
+                            DispatchQueue.main.async {
+                                coordinator.pendingAutoZoom = true
+                                coordinator.scheduleAutoZoom()
+                            }
+                        }
                     }
                 }
             }
+            if context.coordinator.currentRouteAnimationOverlay != nil, routeAnimationOverlay == nil {
+                context.coordinator.prepareRouteDrawAnimation(shouldAnimate: false)
+                if let cur = context.coordinator.currentRouteAnimationOverlay {
+                    mapView.removeOverlay(cur)
+                }
+                context.coordinator.currentRouteAnimationOverlay = nil
+            }
         } else if context.coordinator.currentRouteOverlay != nil {
-            mapView.removeOverlays(mapView.overlays)
+            if let cur = context.coordinator.currentRouteOverlay {
+                mapView.removeOverlay(cur)
+            }
+            if let cur = context.coordinator.currentRouteAnimationOverlay {
+                mapView.removeOverlay(cur)
+            }
             context.coordinator.currentRouteOverlay = nil
+            context.coordinator.currentRouteAnimationOverlay = nil
+            context.coordinator.currentRouteToken = nil
+            context.coordinator.routeZoomTimer?.invalidate()
+            context.coordinator.routeZoomTimer = nil
+            context.coordinator.routeReturnTimer?.invalidate()
+            context.coordinator.routeReturnTimer = nil
+            context.coordinator.isFlying = false
+            context.coordinator.pendingAutoZoom = true
+            context.coordinator.prepareRouteDrawAnimation(shouldAnimate: false)
         }
     }
 
@@ -183,11 +259,11 @@ struct MapView: UIViewRepresentable {
         private var speedObserver: AnyCancellable?
         private var locationObserver: AnyCancellable?
         private var lastSpeed: Double = 0
-        private var isDriving: Bool = false
+        var isDriving: Bool = false
         private var realTimeUpdateTimer: Timer?
         private var lastCameraUpdateTime: TimeInterval = 0
         private var isUserInteracting = false
-        private var pendingAutoZoom = false
+        var pendingAutoZoom = false
         
         // 驾驶速度阈值（km/h）
         private let drivingSpeedThreshold: Double = 15
@@ -200,7 +276,17 @@ struct MapView: UIViewRepresentable {
         private var softIsDecelerating = false
         private var softDecelerationProgress: Double = 0
         var currentRouteOverlay: MKPolyline?
+        var currentRouteAnimationOverlay: MKPolyline?
+        var currentRouteToken: UUID?
         var routeZoomTimer: Timer?
+        var routeReturnTimer: Timer?
+        private var routeDrawTimer: Timer?
+        private weak var routeDrawRenderer: AnimatedPolylineRenderer?
+        private var pendingRouteDrawAnimation = false
+        private weak var routeFullRenderer: MKPolylineRenderer?
+        private var fullRouteAlpha: Double = 1
+        private var animRouteAlpha: Double = 0
+        private var routeFadeTimer: Timer?
 
         init(_ parent: MapView) {
             self.parent = parent
@@ -213,6 +299,101 @@ struct MapView: UIViewRepresentable {
             locationObserver?.cancel()
             realTimeUpdateTimer?.invalidate()
             routeZoomTimer?.invalidate()
+            routeReturnTimer?.invalidate()
+            routeDrawTimer?.invalidate()
+            routeFadeTimer?.invalidate()
+        }
+
+        func prepareRouteDrawAnimation(shouldAnimate: Bool) {
+            routeDrawTimer?.invalidate()
+            routeDrawTimer = nil
+            routeFadeTimer?.invalidate()
+            routeFadeTimer = nil
+            routeDrawRenderer?.progress = 1
+            routeDrawRenderer?.setNeedsDisplay()
+            routeDrawRenderer = nil
+            if shouldAnimate {
+                fullRouteAlpha = 0
+                animRouteAlpha = 1
+            } else {
+                fullRouteAlpha = 1
+                animRouteAlpha = 0
+            }
+            if let renderer = routeFullRenderer {
+                renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(fullRouteAlpha)
+                renderer.setNeedsDisplay()
+            }
+            pendingRouteDrawAnimation = shouldAnimate
+        }
+
+        func attachRouteDrawRenderer(_ renderer: AnimatedPolylineRenderer) {
+            guard pendingRouteDrawAnimation else { return }
+            pendingRouteDrawAnimation = false
+            routeDrawTimer?.invalidate()
+            routeDrawTimer = nil
+            routeDrawRenderer = renderer
+            renderer.progress = 0
+            renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(animRouteAlpha)
+            renderer.setNeedsDisplay()
+            if let renderer = routeFullRenderer {
+                renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(fullRouteAlpha)
+                renderer.setNeedsDisplay()
+            }
+            let duration: TimeInterval = 1.6
+            let start = Date()
+            routeDrawTimer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                guard let self = self, let renderer = self.routeDrawRenderer else { return }
+                let t = min(Date().timeIntervalSince(start) / duration, 1.0)
+                let u: Double
+                if t < 0.5 {
+                    u = 4 * t * t * t
+                } else {
+                    u = 1 - pow(-2 * t + 2, 3) / 2
+                }
+                renderer.progress = u
+                renderer.setNeedsDisplay()
+                if t >= 1.0 {
+                    self.routeDrawTimer?.invalidate()
+                    self.routeDrawTimer = nil
+                    self.startRouteFade()
+                }
+            }
+            if let timer = routeDrawTimer {
+                RunLoop.main.add(timer, forMode: .common)
+            }
+        }
+
+        private func startRouteFade() {
+            routeFadeTimer?.invalidate()
+            routeFadeTimer = nil
+            let duration: TimeInterval = 0.22
+            let start = Date()
+            routeFadeTimer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { [weak self] _ in
+                guard let self = self else { return }
+                let t = min(Date().timeIntervalSince(start) / duration, 1.0)
+                let ease = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+                self.fullRouteAlpha = ease
+                self.animRouteAlpha = 1 - ease
+                if let renderer = self.routeFullRenderer {
+                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(self.fullRouteAlpha)
+                    renderer.setNeedsDisplay()
+                }
+                if let renderer = self.routeDrawRenderer {
+                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(self.animRouteAlpha)
+                    renderer.setNeedsDisplay()
+                }
+                if t >= 1 {
+                    self.routeFadeTimer?.invalidate()
+                    self.routeFadeTimer = nil
+                    self.fullRouteAlpha = 1
+                    self.animRouteAlpha = 0
+                    self.routeDrawRenderer?.progress = 1
+                    self.routeDrawRenderer?.setNeedsDisplay()
+                }
+            }
+            if let timer = routeFadeTimer {
+                RunLoop.main.add(timer, forMode: .common)
+            }
         }
         
         private func setupLocationObserver() {
@@ -230,7 +411,8 @@ struct MapView: UIViewRepresentable {
                     let interval: TimeInterval = UserDefaults.standard.bool(forKey: "highFrequencyTracking") ? 0.12 : 0.5
                     guard now - self.lastCameraUpdateTime >= interval else { return }
                     self.lastCameraUpdateTime = now
-                    self.smoothUpdateMapPosition(location: location)
+                    let effectiveLocation = self.mapView?.userLocation.location ?? location
+                    self.smoothUpdateMapPosition(location: effectiveLocation)
                 }
         }
         
@@ -286,7 +468,7 @@ struct MapView: UIViewRepresentable {
             mapView.allowCameraChange = false
         }
 
-        private var smoothPanTimer: Timer?
+        var smoothPanTimer: Timer?
         private var smoothFromCenter = CLLocationCoordinate2D()
         private var smoothToCenter = CLLocationCoordinate2D()
         private var smoothFromDistance: CLLocationDistance = 800
@@ -605,6 +787,48 @@ struct MapView: UIViewRepresentable {
             RunLoop.main.add(flyTimer!, forMode: .common)
         }
 
+        func flyToCoordinate(mapView: NonAdjustingMapView, coordinate: CLLocationCoordinate2D, distance: CLLocationDistance, duration: TimeInterval) {
+            autoZoomTimer?.invalidate()
+            autoZoomTimer = nil
+            routeReturnTimer?.invalidate()
+            routeReturnTimer = nil
+            isFlying = true
+            let startCenter = mapView.camera.centerCoordinate
+            let startDistance = mapView.camera.centerCoordinateDistance
+            let startHeading = mapView.camera.heading
+            let targetHeading: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : startHeading
+            mapView.allowCameraChange = true
+            let startTime = Date()
+            routeReturnTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in
+                guard let mapView = mapView, let self = self else { timer.invalidate(); return }
+                let elapsed = Date().timeIntervalSince(startTime)
+                let t = min(elapsed / duration, 1.0)
+                let ease = t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
+                let lat = startCenter.latitude + (coordinate.latitude - startCenter.latitude) * ease
+                let lon = startCenter.longitude + (coordinate.longitude - startCenter.longitude) * ease
+                let dist = startDistance + (distance - startDistance) * ease
+                let hdg = startHeading + (targetHeading - startHeading) * ease
+                let camera = mapView.camera
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinateDistance = dist
+                camera.heading = hdg
+                mapView.camera = camera
+                if t >= 1.0 {
+                    timer.invalidate()
+                    self.routeReturnTimer = nil
+                    self.isFlying = false
+                    mapView.allowCameraChange = false
+                    DispatchQueue.main.async {
+                        if self.isDriving {
+                            self.startRealTimeUpdates()
+                        } else {
+                            self.pendingAutoZoom = self.currentRouteOverlay == nil
+                        }
+                    }
+                }
+            }
+        }
+
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
             if hasInitialized {
                 parent.savedRegion = mapView.region
@@ -623,6 +847,24 @@ struct MapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
             if let polyline = overlay as? MKPolyline {
+                if polyline === currentRouteOverlay {
+                    let renderer = MKPolylineRenderer(polyline: polyline)
+                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(fullRouteAlpha)
+                    renderer.lineWidth = 5
+                    renderer.lineCap = .round
+                    renderer.lineJoin = .round
+                    routeFullRenderer = renderer
+                    return renderer
+                }
+                if polyline === currentRouteAnimationOverlay {
+                    let renderer = AnimatedPolylineRenderer(polyline: polyline)
+                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(animRouteAlpha)
+                    renderer.lineWidth = 5
+                    renderer.lineCap = .round
+                    renderer.lineJoin = .round
+                    attachRouteDrawRenderer(renderer)
+                    return renderer
+                }
                 let renderer = MKPolylineRenderer(polyline: polyline)
                 renderer.strokeColor = UIColor(hex: "007AFF")
                 renderer.lineWidth = 5
@@ -635,19 +877,139 @@ struct MapView: UIViewRepresentable {
     }
 }
 
+final class AnimatedPolylineRenderer: MKPolylineRenderer {
+    var progress: Double = 1
+    private let mapPoints: [MKMapPoint]
+    private let cumulative: [Double]
+    private let total: Double
+
+    override init(overlay: MKOverlay) {
+        let polyline = overlay as? MKPolyline
+        let count = polyline?.pointCount ?? 0
+        if let polyline = polyline, count > 0 {
+            let pts = polyline.points()
+            var mp: [MKMapPoint] = []
+            mp.reserveCapacity(count)
+            for i in 0..<count {
+                mp.append(pts[i])
+            }
+            mapPoints = mp
+            var c: [Double] = Array(repeating: 0, count: count)
+            if count > 1 {
+                for i in 1..<count {
+                    c[i] = c[i - 1] + mp[i - 1].distance(to: mp[i])
+                }
+            }
+            cumulative = c
+            total = c.last ?? 0
+        } else {
+            mapPoints = []
+            cumulative = []
+            total = 0
+        }
+        super.init(overlay: overlay)
+    }
+
+    override init(polyline: MKPolyline) {
+        let count = polyline.pointCount
+        if count > 0 {
+            let pts = polyline.points()
+            var mp: [MKMapPoint] = []
+            mp.reserveCapacity(count)
+            for i in 0..<count {
+                mp.append(pts[i])
+            }
+            mapPoints = mp
+            var c: [Double] = Array(repeating: 0, count: count)
+            if count > 1 {
+                for i in 1..<count {
+                    c[i] = c[i - 1] + mp[i - 1].distance(to: mp[i])
+                }
+            }
+            cumulative = c
+            total = c.last ?? 0
+        } else {
+            mapPoints = []
+            cumulative = []
+            total = 0
+        }
+        super.init(polyline: polyline)
+    }
+
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        guard !mapPoints.isEmpty else { return }
+        let t = max(0, min(progress, 1))
+        if t <= 0 { return }
+        if total <= 0 { return }
+        let target = total * t
+
+        var hi = cumulative.count - 1
+        var lo = 0
+        while lo < hi {
+            let mid = (lo + hi) / 2
+            if cumulative[mid] < target {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        let idx = lo
+
+        let path = CGMutablePath()
+        path.move(to: point(for: mapPoints[0]))
+        if idx >= mapPoints.count - 1 {
+            for i in 1..<mapPoints.count {
+                path.addLine(to: point(for: mapPoints[i]))
+            }
+        } else {
+            if idx >= 1 {
+                for i in 1...idx {
+                    path.addLine(to: point(for: mapPoints[i]))
+                }
+            }
+            let prevIndex = max(0, idx - 1)
+            let prevLen = cumulative[prevIndex]
+            let segLen = max(0.000001, cumulative[idx] - prevLen)
+            let segT = max(0, min(1, (target - prevLen) / segLen))
+            let a = mapPoints[prevIndex]
+            let b = mapPoints[idx]
+            let x = a.x + (b.x - a.x) * segT
+            let y = a.y + (b.y - a.y) * segT
+            path.addLine(to: point(for: MKMapPoint(x: x, y: y)))
+        }
+
+        context.addPath(path)
+        if let color = strokeColor?.cgColor {
+            context.setStrokeColor(color)
+        }
+        let scale = UIScreen.main.scale
+        let w = lineWidth
+        let aligned = (w * scale).rounded(.toNearestOrAwayFromZero) / scale
+        context.setLineWidth(aligned)
+        context.setLineCap(.round)
+        context.setLineJoin(.round)
+        context.strokePath()
+    }
+}
+
 struct VignetteMapView: View {
     @Binding var savedRegion: MKCoordinateRegion?
     @Binding var savedCamera: MKMapCamera?
     @Binding var firstFlyTrigger: Int
     var routeOverlay: MKPolyline?
+    var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
+    var routePriorityToken: UUID?
+    var routePriorityAnchor: CLLocationCoordinate2D?
+    var routeOverlayToken: UUID?
+    var routeOverlayAnimationToken: UUID?
     @State private var flyTrigger = 0
     @State private var isLandscape = false
     @State private var hasTriggeredFirstTime = false
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, followHeading: followHeading)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
                 .ignoresSafeArea()
 
             GeometryReader { geo in
@@ -670,7 +1032,9 @@ struct VignetteMapView: View {
                     let landscape = w > h
                     if landscape != isLandscape {
                         isLandscape = landscape
-                        flyTrigger += 1
+                        if routePriorityToken == nil {
+                            flyTrigger += 1
+                        }
                     }
                 }
             }
@@ -678,7 +1042,9 @@ struct VignetteMapView: View {
             .allowsHitTesting(false)
         }
         .onChange(of: firstFlyTrigger) { _, _ in
-            flyTrigger += 1
+            if routePriorityToken == nil {
+                flyTrigger += 1
+            }
         }
     }
 }

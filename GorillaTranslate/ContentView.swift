@@ -7,6 +7,12 @@ import AVFoundation
 import WidgetKit
 
 struct ContentView: View {
+    private struct CapsuleDragState: Equatable {
+        var mode: Int = 0
+        var offset: CGFloat = 0
+        var active: Bool = false
+    }
+
     @StateObject private var viewModel = TranslationViewModel()
     @StateObject private var historyManager = HistoryManager()
     @StateObject private var speechRecognizer = SpeechRecognizer()
@@ -32,6 +38,13 @@ struct ContentView: View {
     @State private var mapCamera: MKMapCamera?
     @State private var hasShownMapFirstTime = false
     @State private var firstMapFlyTrigger = 0
+    @State private var routePriorityToken: UUID?
+    @State private var routePriorityAnchor: CLLocationCoordinate2D?
+    @State private var routeOverlayToken: UUID?
+    @State private var routeOverlayAnimationToken: UUID?
+    @State private var isRerouting = false
+    @State private var lastRerouteRequestAt: Date?
+    @State private var offRouteStrikeCount: Int = 0
     @State private var isCapsuleExpanded = false
     @State private var isParkingMemoryExpanded = false
     @State private var etaText: String?
@@ -40,13 +53,14 @@ struct ContentView: View {
     @State private var capsuleScale: CGFloat = 1.0
     @State private var capsuleOnRight: Bool = false
     @State private var orbOpacity: Double = 1.0
-    @State private var dragOffset: CGFloat = 0
-    @State private var isDragging = false
-    @State private var capsuleTransitionHeight: CGFloat? = nil
+    @GestureState private var capsuleDragState: CapsuleDragState = CapsuleDragState()
+    @State private var capsuleSettleHeight: CGFloat? = nil
+    @State private var capsuleSettleWorkItem: DispatchWorkItem?
     @State private var capsuleAppeared = false
     @State private var roseLoopSpeed: Double = 1.0
     @State private var roseOpacity: Double = 1.0
     @State private var roseBlurRadius: Double = 0.0
+    @State private var addressRevealProgress: Double = 0.0
     @State private var parkingEntryTime: Date = Date()
     @State private var parkingTimer: Timer?
     @State private var parkingElapsed: TimeInterval = 0
@@ -54,6 +68,9 @@ struct ContentView: View {
     @State private var departureTimer: Timer?
     @State private var departureElapsedTimer: Timer?
     @State private var capsuleUpdateTimer: Timer?
+    @State private var stationaryTimer: Timer?
+    @State private var stationaryStartTime: Date?
+    @State private var stationaryElapsed: TimeInterval = 0
     @State private var showCheckmarkAnimation = false
     @State private var departureTimerID: UUID?
     @State private var departureElapsed: TimeInterval = 0
@@ -74,6 +91,7 @@ struct ContentView: View {
     @State private var showingAddDestination = false
     @State private var showingRoute = false
     @State private var routePolyline: MKPolyline?
+    @State private var routeAnimationPolyline: MKPolyline?
     @State private var departureTime: Date?
     @State private var showDepartedLabel = false
     @State private var followHeading = true
@@ -209,6 +227,23 @@ struct ContentView: View {
             guard let location = location else { return }
             timePhaseManager.fetchSunTimes(for: location.coordinate)
         }
+        .onReceive(locationManager.$lastLocation) { location in
+            guard let location = location else { return }
+            guard showingRoute, let polyline = routePolyline else { return }
+            guard locationManager.speed >= 15 else { return }
+            if isRerouting { return }
+            if let last = lastRerouteRequestAt, Date().timeIntervalSince(last) < 8 { return }
+            let distance = distanceFromRoute(location: location, polyline: polyline)
+            if distance > 40 {
+                offRouteStrikeCount += 1
+            } else {
+                offRouteStrikeCount = 0
+            }
+            if offRouteStrikeCount >= 3 {
+                offRouteStrikeCount = 0
+                reroute(from: location.coordinate)
+            }
+        }
         .onReceive(locationManager.$visits) { visits in
             guard let lastVisit = visits.first else { return }
             guard !manualDeparted else { return }
@@ -298,153 +333,154 @@ struct ContentView: View {
     var homeContent: some View {
         GeometryReader { geo in
             let newLandscape = geo.size.width > geo.size.height
-            Color.clear.onAppear { isLandscape = newLandscape }
+            Color.clear.onAppear {
+                isLandscape = newLandscape
+                addressRevealProgress = locationManager.currentAddress.isEmpty ? 0 : 1
+            }
                 .onChange(of: newLandscape) { _, v in isLandscape = v }
                 .onChange(of: locationManager.currentAddress) { _, newAddress in
                     if !newAddress.isEmpty {
-                        // 地址加载出来了，加速玫瑰动画
-                        withAnimation(.easeIn(duration: 0.8)) {
-                            roseLoopSpeed = 8.0
-                        }
-                        // 加速后淡出并模糊
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-                            withAnimation(.easeOut(duration: 0.4)) {
-                                roseOpacity = 0
-                                roseBlurRadius = 20
-                            }
+                        roseLoopSpeed = 8.0
+                        withAnimation(.easeInOut(duration: 0.45)) {
+                            addressRevealProgress = 1
                         }
                     } else {
-                        // 地址清空，重置玫瑰动画
                         roseLoopSpeed = 1.0
                         roseOpacity = 1.0
                         roseBlurRadius = 0
+                        withAnimation(.easeInOut(duration: 0.25)) {
+                            addressRevealProgress = 0
+                        }
                     }
                 }
             ZStack {
             if showMap {
-                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, routeOverlay: routePolyline, followHeading: followHeading)
+                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: followHeading, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
                     .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()
             }
 
-            // 上层 UI：标题、按钮等，永远存在
-            VStack(spacing: 16) {
-                // Header
-                HStack(alignment: .center) {
-                    Text("Gorilla Leading")
-                        .font(.largeTitle.bold())
-                        .foregroundStyle(adaptiveTextColor())
-                    Spacer()
-                    gpsStatusBadge
+            ZStack {
+                VStack(spacing: 0) {
+                    HStack(alignment: .center) {
+                        Text("Gorilla Leading")
+                            .font(.largeTitle.bold())
+                            .foregroundStyle(adaptiveTextColor())
+                        Spacer()
+                        gpsStatusBadge
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, isLandscape ? 43 : 30)
+                    .frame(height: 44)
+
+                    Spacer(minLength: 0)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, isLandscape ? 43 : 30)
-                .frame(height: 44)
 
-                Spacer()
+                VStack(spacing: 0) {
+                    Spacer(minLength: 0)
 
-                // Left Side Buttons
-                let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -408 : (isCapsuleExpanded ? -140 : 0)) : 0
-                HStack {
-                    VStack(spacing: 10) {
-                        if showMap {
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    followHeading.toggle()
+                    let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -408 : (isCapsuleExpanded ? -140 : 0)) : 0
+                    let landscapeButtonOffset: CGFloat = (isLandscape && showMap) ? 20 : 0
+                    HStack {
+                        VStack(spacing: 10) {
+                            if showMap {
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.2)) {
+                                        followHeading.toggle()
+                                    }
+                                } label: {
+                                    Image(systemName: followHeading ? "location.north.fill" : "location.north")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(followHeading ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
+                                        .frame(width: 44, height: 44)
                                 }
-                            } label: {
-                                Image(systemName: followHeading ? "location.north.fill" : "location.north")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(followHeading ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
-                                    .frame(width: 44, height: 44)
+                                .buttonStyle(.glass)
+                                .transition(.blurReplace())
                             }
-                            .buttonStyle(.glass)
-                            .transition(.blurReplace())
-                        }
 
-                        Menu {
-                            Button {
-                                showingAddDestination = true
-                            } label: {
-                                Label("新增目的地", systemImage: "plus")
-                            }
-                            
-                            if !destinationManager.destinations.isEmpty {
-                                Divider()
-                                ForEach(destinationManager.destinations) { destination in
-                                    Button {
-                                        destinationManager.selectDestination(destination)
-                                        if isCapsuleExpanded {
-                                            refreshETA()
-                                        }
-                                        if showingRoute {
-                                            recalculateRoute()
-                                        }
-                                    } label: {
-                                        HStack {
-                                            Circle()
-                                                .fill(destination.color)
-                                                .frame(width: 8, height: 8)
-                                            Text(destination.name)
+                            Menu {
+                                Button {
+                                    showingAddDestination = true
+                                } label: {
+                                    Label("新增目的地", systemImage: "plus")
+                                }
+
+                                if !destinationManager.destinations.isEmpty {
+                                    Divider()
+                                    ForEach(destinationManager.destinations) { destination in
+                                        Button {
+                                            destinationManager.selectDestination(destination)
+                                            if isCapsuleExpanded {
+                                                refreshETA()
+                                            }
+                                            if showingRoute {
+                                                recalculateRoute()
+                                            }
+                                        } label: {
+                                            HStack {
+                                                Circle()
+                                                    .fill(destination.color)
+                                                    .frame(width: 8, height: 8)
+                                                Text(destination.name)
+                                            }
                                         }
                                     }
                                 }
+                            } label: {
+                                Image(systemName: "magnifyingglass")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(adaptiveTextColor())
+                                    .frame(width: 44, height: 44)
                             }
-                        } label: {
-                            Image(systemName: "magnifyingglass")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(adaptiveTextColor())
-                                .frame(width: 44, height: 44)
-                        }
-                        .buttonStyle(.glass)
+                            .buttonStyle(.glass)
 
-                        Button(action: {
-                            withAnimation(.easeInOut(duration: 0.3)) {
-                                showMap.toggle()
+                            Button(action: {
+                                withAnimation(.easeInOut(duration: 0.3)) {
+                                    showMap.toggle()
+                                }
+                            }) {
+                                Image(systemName: showMap ? "map.fill" : "map")
+                                    .font(.system(size: 20, weight: .medium))
+                                    .foregroundStyle(adaptiveTextColor())
+                                    .frame(width: 44, height: 44)
                             }
-                        }) {
-                            Image(systemName: showMap ? "map.fill" : "map")
-                                .font(.system(size: 20, weight: .medium))
-                                .foregroundStyle(adaptiveTextColor())
-                                .frame(width: 44, height: 44)
+                            .buttonStyle(.glass)
                         }
-                        .buttonStyle(.glass)
+                        .padding(.leading, 16)
+                        .padding(.bottom, 72)
+                        .offset(y: buttonOffset + landscapeButtonOffset)
+
+                        Spacer()
                     }
-                    .padding(.leading, 16)
-                    .padding(.bottom, 72)
-                    .offset(y: buttonOffset)
-                    Spacer()
                 }
             }
 
             // Address bar：放在底部，TabView 导航栏上方，永远显示
-            VStack {
-                Spacer()
-                addressCapsule
-                    .blur(radius: capsuleAppeared ? 0 : 30)
-                    .opacity(capsuleAppeared ? 1 : 0)
-                    .padding(.bottom, 20)
-                    .offset(x: isLandscape && capsuleOnRight ? (isParkingMemoryExpanded ? 135 : 210) : 0)
-                    .animation(.spring(response: 0.4, dampingFraction: 0.85), value: capsuleOnRight)
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 30)
-                            .onEnded { value in
-                                guard isLandscape && (isCapsuleExpanded || isParkingMemoryExpanded) else { return }
-                                let horizontal = value.translation.width
-                                let vertical = value.translation.height
-                                // 只在水平移动明显大于垂直移动时响应
-                                guard abs(horizontal) > abs(vertical) * 2 else { return }
-                                if horizontal > 30 && !capsuleOnRight {
-                                    withAnimation { capsuleOnRight = true }
-                                } else if horizontal < -30 && capsuleOnRight {
-                                    withAnimation { capsuleOnRight = false }
-                                }
+            addressCapsule
+                .blur(radius: capsuleAppeared ? 0 : 30)
+                .opacity(capsuleAppeared ? 1 : 0)
+                .padding(.bottom, 20)
+                .offset(x: isLandscape && capsuleOnRight ? (isParkingMemoryExpanded ? 135 : 210) : 0)
+                .animation(.spring(response: 0.4, dampingFraction: 0.85), value: capsuleOnRight)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 30)
+                        .onEnded { value in
+                            guard isLandscape && (isCapsuleExpanded || isParkingMemoryExpanded) else { return }
+                            let horizontal = value.translation.width
+                            let vertical = value.translation.height
+                            guard abs(horizontal) > abs(vertical) * 2 else { return }
+                            if horizontal > 30 && !capsuleOnRight {
+                                withAnimation { capsuleOnRight = true }
+                            } else if horizontal < -30 && capsuleOnRight {
+                                withAnimation { capsuleOnRight = false }
                             }
-                    )
-            }
+                        }
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
         }
+        .frame(width: geo.size.width, height: geo.size.height)
         .onChange(of: showMap) { _, newValue in
             if newValue {
                 if !hasShownMapFirstTime {
@@ -485,13 +521,22 @@ struct ContentView: View {
             if isParkingMemoryExpanded {
                 return isLandscape ? 296 : 450
             }
-            if isDragging {
-                return max(44, min(baseHeight + dragOffset, 182))
+            let raw: CGFloat
+            if capsuleDragState.active {
+                if capsuleDragState.mode == -1 {
+                    raw = 44 + min(capsuleDragState.offset, 138)
+                } else if capsuleDragState.mode == 1 {
+                    raw = 182 - min(capsuleDragState.offset, 138)
+                } else {
+                    raw = baseHeight
+                }
+            } else if let settleHeight = capsuleSettleHeight {
+                raw = settleHeight
+            } else {
+                raw = baseHeight
             }
-            if let transition = capsuleTransitionHeight {
-                return transition
-            }
-            return baseHeight
+            let scale = UIScreen.main.scale
+            return (raw * scale).rounded() / scale
         }()
         let dragProgress: CGFloat = isParkingMemoryExpanded ? 1.0 : max(0, min((capsuleHeight - 44) / 138, 1))
         let capsuleWidth: CGFloat = {
@@ -511,27 +556,28 @@ struct ContentView: View {
                     .id(parkingStartTime)
                     .transition(.opacity)
             } else {
-                if locationManager.currentAddress.isEmpty {
+                let addressReveal = locationManager.currentAddress.isEmpty ? 0 : addressRevealProgress
+                ZStack {
                     RoseFourView(
                         loop: roseLoopSpeed,
-                        opacity: roseOpacity,
-                        blurRadius: roseBlurRadius
+                        opacity: roseOpacity * (1 - addressReveal),
+                        blurRadius: roseBlurRadius + 20 * addressReveal
                     )
                     .frame(width: 50, height: 50)
                     .padding(.horizontal, 6)
-                } else {
+
                     ZStack {
                         if showSpeedInfo {
                             HStack(spacing: 16) {
                                 Text("\(Int(locationManager.speed)) km/h")
                                     .font(.body.bold())
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(adaptiveTextColor())
                                     .contentTransition(.numericText())
                                     .animation(.easeInOut(duration: 0.15), value: Int(locationManager.speed))
                                 if let eta = drivingETASeconds {
                                     Text(formatCompactETA(eta))
                                         .font(.body.bold())
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(adaptiveTextColor())
                                         .contentTransition(.numericText())
                                 }
                             }
@@ -545,11 +591,13 @@ struct ContentView: View {
                                 .transition(.blurReplace())
                         }
                     }
+                    .opacity(addressReveal)
+                    .blur(radius: 20 * (1 - addressReveal))
                     .animation(.easeInOut(duration: 0.3), value: showSpeedInfo)
                 }
             }
         }
-        .frame(maxWidth: capsuleWidth)
+        .frame(width: capsuleWidth)
         .frame(height: capsuleHeight)
         .background {
             orbBackground
@@ -558,51 +606,71 @@ struct ContentView: View {
         .clipShape(.rect(cornerRadius: 34))
         .contentShape(Rectangle())
         .scaleEffect(capsuleScale)
-        .animation(isDragging ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isCapsuleExpanded)
-        .animation(isDragging ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isParkingMemoryExpanded)
+        .animation(capsuleDragState.active ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isCapsuleExpanded)
+        .animation(capsuleDragState.active ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isParkingMemoryExpanded)
         .animation(.easeInOut(duration: 0.4), value: orbOpacity)
         .gesture(
             DragGesture()
-                .onChanged { value in
+                .updating($capsuleDragState) { value, state, _ in
                     guard !isParkingMemoryExpanded else { return }
                     let dy = value.translation.height
-                    if !isCapsuleExpanded {
-                        guard dy < 0 else { return }
-                        isDragging = true
-                        dragOffset = -dy
+                    if state.mode == 0 {
+                        if !isCapsuleExpanded, dy < 0 {
+                            state.mode = -1
+                        } else if isCapsuleExpanded, dy > 0 {
+                            state.mode = 1
+                        } else {
+                            state.active = false
+                            state.offset = 0
+                            return
+                        }
+                    }
+                    state.active = state.mode != 0
+                    if state.mode == -1 {
+                        let next = min(-dy, 138)
+                        state.offset = max(state.offset, max(0, next))
+                    } else if state.mode == 1 {
+                        let next = min(dy, 138)
+                        state.offset = max(state.offset, max(0, next))
                     } else {
-                        guard dy > 0 else { return }
-                        isDragging = true
-                        dragOffset = -dy
+                        state.offset = 0
                     }
                 }
+                .onChanged { _ in
+                    capsuleSettleWorkItem?.cancel()
+                    capsuleSettleWorkItem = nil
+                    capsuleSettleHeight = nil
+                }
                 .onEnded { value in
-                    guard isDragging else { return }
-                    isDragging = false
                     let dy = value.translation.height
-                    let pulled = abs(dy)
+                    let predictedDY = value.predictedEndTranslation.height
                     let threshold: CGFloat = 50
-                    let releasedHeight = max(44, min((isCapsuleExpanded ? 182 : 44) - dy, 182))
-
-                    capsuleTransitionHeight = releasedHeight
-
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    let shouldExpand = (!isCapsuleExpanded) && (dy < -threshold || predictedDY < -threshold)
+                    let shouldCollapse = isCapsuleExpanded && (dy > threshold || predictedDY > threshold)
+                    let targetExpanded: Bool = shouldExpand ? true : (shouldCollapse ? false : isCapsuleExpanded)
+                    let releasedHeight: CGFloat = {
                         if !isCapsuleExpanded {
-                            if pulled > threshold {
-                                isCapsuleExpanded = true
-                                orbOpacity = 0.5
-                            }
+                            return 44 + min(max(0, -dy), 138)
                         } else {
-                            if pulled > threshold {
-                                isCapsuleExpanded = false
-                                orbOpacity = 1.0
-                                capsuleOnRight = false
-                            }
+                            return 182 - min(max(0, dy), 138)
                         }
-                        capsuleTransitionHeight = nil
-                        dragOffset = 0
+                    }()
+                    capsuleSettleWorkItem?.cancel()
+                    capsuleSettleWorkItem = nil
+                    capsuleSettleHeight = releasedHeight
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        isCapsuleExpanded = targetExpanded
+                        orbOpacity = targetExpanded ? 0.5 : 1.0
+                        if !targetExpanded {
+                            capsuleOnRight = false
+                        }
+                        capsuleSettleHeight = targetExpanded ? 182 : 44
                     }
-
+                    let workItem = DispatchWorkItem {
+                        capsuleSettleHeight = nil
+                    }
+                    capsuleSettleWorkItem = workItem
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: workItem)
                     if isCapsuleExpanded {
                         updateVisitStatus()
                         refreshETA()
@@ -610,7 +678,7 @@ struct ContentView: View {
                 }
         )
         .onTapGesture {
-            guard !isDragging else { return }
+            guard !capsuleDragState.active, capsuleSettleHeight == nil else { return }
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                 isCapsuleExpanded.toggle()
                 isParkingMemoryExpanded = false
@@ -632,6 +700,22 @@ struct ContentView: View {
         .onChange(of: showDepartedLabel) { _, _ in
             if isCapsuleExpanded {
                 updateVisitStatus()
+            }
+        }
+        .onChange(of: visitStatus) { oldStatus, newStatus in
+            guard hasDeparted else {
+                stopStationaryTimer()
+                return
+            }
+            if newStatus == "已停留", oldStatus != "已停留" {
+                startStationaryTimer()
+            } else if newStatus != "已停留", oldStatus == "已停留" {
+                stopStationaryTimer()
+            }
+        }
+        .onChange(of: hasDeparted) { _, departed in
+            if !departed {
+                stopStationaryTimer()
             }
         }
         .onChange(of: isCapsuleExpanded) { _, expanded in
@@ -764,11 +848,11 @@ struct ContentView: View {
                             Text("\(visitStatus):")
                                 .font(.body.bold())
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                            Text(hasDeparted ? formatDepartureDuration() : formatCapsuleDuration())
+                            Text(hasDeparted ? (visitStatus == "已停留" ? formatStationaryDuration() : formatDepartureDuration()) : formatCapsuleDuration())
                                 .font(.system(size: 22, weight: .bold))
                                 .foregroundStyle(adaptiveTextColor())
                                 .contentTransition(.numericText())
-                                .animation(.easeInOut(duration: 0.15), value: hasDeparted ? departureElapsed : capsuleDuration)
+                                .animation(.easeInOut(duration: 0.15), value: hasDeparted ? (visitStatus == "已停留" ? stationaryElapsed : departureElapsed) : capsuleDuration)
                         }
                     }
                 }
@@ -807,15 +891,27 @@ struct ContentView: View {
 
                     Button(action: {
                         if showingRoute {
-                            // 关闭路线
                             withAnimation {
                                 showingRoute = false
                                 routePolyline = nil
+                                routeAnimationPolyline = nil
                             }
+                            routePriorityToken = nil
+                            routePriorityAnchor = nil
+                            routeOverlayToken = nil
+                            routeOverlayAnimationToken = nil
+                            isRerouting = false
+                            lastRerouteRequestAt = nil
+                            offRouteStrikeCount = 0
                         } else {
-                            // 开启路线：切换到地图 + 计算路线
                             guard let destination = destinationManager.selectedDestination else { return }
                             guard let currentLocation = locationManager.lastLocation else { return }
+                            let routeToken = UUID()
+                            routePriorityToken = routeToken
+                            routePriorityAnchor = currentLocation.coordinate
+                            let overlayToken = UUID()
+                            routeOverlayToken = overlayToken
+                            routeOverlayAnimationToken = overlayToken
                             if !showMap {
                                 withAnimation(.easeInOut(duration: 0.3)) {
                                     showMap = true
@@ -828,11 +924,30 @@ struct ContentView: View {
                             request.requestsAlternateRoutes = false
                             let directions = MKDirections(request: request)
                             directions.calculate { response, error in
-                                guard let route = response?.routes.first, error == nil else { return }
+                                guard let route = response?.routes.first, error == nil else {
+                                    DispatchQueue.main.async {
+                                        routePriorityToken = nil
+                                        routePriorityAnchor = nil
+                                        routeOverlayToken = nil
+                                        routeOverlayAnimationToken = nil
+                                    }
+                                    return
+                                }
                                 DispatchQueue.main.async {
                                     withAnimation {
                                         showingRoute = true
                                         routePolyline = route.polyline
+                                        routeAnimationPolyline = simplifiedRoutePolyline(route.polyline, maxPoints: 220)
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                                        guard showingRoute, routePriorityToken == routeToken else { return }
+                                        routePriorityToken = nil
+                                        routePriorityAnchor = nil
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
+                                        guard showingRoute, routeOverlayToken == overlayToken else { return }
+                                        routeOverlayAnimationToken = nil
+                                        routeAnimationPolyline = nil
                                     }
                                 }
                             }
@@ -966,7 +1081,7 @@ struct ContentView: View {
                                 }) {
                                     Image(systemName: "minus")
                                         .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(adaptiveTextColor())
                                         .frame(width: 28, height: 28)
                                         .glassEffect(.regular, in: .rect(cornerRadius: 8))
                                 }
@@ -979,7 +1094,7 @@ struct ContentView: View {
                                 }) {
                                     Image(systemName: "plus")
                                         .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(adaptiveTextColor())
                                         .frame(width: 28, height: 28)
                                         .glassEffect(.regular, in: .rect(cornerRadius: 8))
                                 }
@@ -1158,7 +1273,7 @@ struct ContentView: View {
                         }) {
                             Image(systemName: "minus")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(adaptiveTextColor())
                                 .frame(width: 32, height: 32)
                                 .glassEffect(.regular, in: .rect(cornerRadius: 8))
                         }
@@ -1171,7 +1286,7 @@ struct ContentView: View {
                         }) {
                             Image(systemName: "plus")
                                 .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(adaptiveTextColor())
                                 .frame(width: 32, height: 32)
                                 .glassEffect(.regular, in: .rect(cornerRadius: 8))
                         }
@@ -1302,6 +1417,14 @@ struct ContentView: View {
         return String(format: "%d:%02d:%02d", hours, mins, secs)
     }
 
+    private func formatStationaryDuration() -> String {
+        let interval = stationaryElapsed
+        let hours = Int(interval / 3600)
+        let mins = Int(interval.truncatingRemainder(dividingBy: 3600) / 60)
+        let secs = Int(interval.truncatingRemainder(dividingBy: 60))
+        return String(format: "%d:%02d:%02d", hours, mins, secs)
+    }
+
     private func formatCompactETA(_ seconds: TimeInterval) -> String {
         let mins = Int(seconds / 60)
         if mins < 60 {
@@ -1310,6 +1433,107 @@ struct ContentView: View {
         let hrs = mins / 60
         let remainMins = mins % 60
         return remainMins > 0 ? "\(hrs)h\(remainMins)m" : "\(hrs)h"
+    }
+
+    private func distanceFromRoute(location: CLLocation, polyline: MKPolyline) -> CLLocationDistance {
+        let p = MKMapPoint(location.coordinate)
+        let points = polyline.points()
+        guard polyline.pointCount >= 2 else { return .greatestFiniteMagnitude }
+        var best = CLLocationDistance.greatestFiniteMagnitude
+        for i in 0..<(polyline.pointCount - 1) {
+            let a = points[i]
+            let b = points[i + 1]
+            let abx = b.x - a.x
+            let aby = b.y - a.y
+            let apx = p.x - a.x
+            let apy = p.y - a.y
+            let ab2 = abx * abx + aby * aby
+            let t = ab2 > 0 ? max(0, min(1, (apx * abx + apy * aby) / ab2)) : 0
+            let proj = MKMapPoint(x: a.x + abx * t, y: a.y + aby * t)
+            let d = p.distance(to: proj)
+            if d < best { best = d }
+        }
+        return best
+    }
+
+    private func simplifiedRoutePolyline(_ polyline: MKPolyline, maxPoints: Int) -> MKPolyline {
+        let count = polyline.pointCount
+        guard count > maxPoints, maxPoints >= 2 else { return polyline }
+        let pts = polyline.points()
+        var mp: [MKMapPoint] = []
+        mp.reserveCapacity(count)
+        for i in 0..<count {
+            mp.append(pts[i])
+        }
+        var cumulative: [Double] = Array(repeating: 0, count: count)
+        if count > 1 {
+            for i in 1..<count {
+                cumulative[i] = cumulative[i - 1] + mp[i - 1].distance(to: mp[i])
+            }
+        }
+        let total = cumulative.last ?? 0
+        if total <= 0 { return polyline }
+
+        let targetCount = maxPoints
+        let step = total / Double(targetCount - 1)
+        var sampled: [MKMapPoint] = []
+        sampled.reserveCapacity(targetCount)
+        sampled.append(mp[0])
+
+        func pointAt(_ dist: Double) -> MKMapPoint {
+            var lo = 0
+            var hi = cumulative.count - 1
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if cumulative[mid] < dist {
+                    lo = mid + 1
+                } else {
+                    hi = mid
+                }
+            }
+            let idx = lo
+            if idx <= 0 { return mp[0] }
+            if idx >= mp.count { return mp.last ?? mp[0] }
+            let prev = idx - 1
+            let prevLen = cumulative[prev]
+            let segLen = max(0.000001, cumulative[idx] - prevLen)
+            let t = max(0, min(1, (dist - prevLen) / segLen))
+            let a = mp[prev]
+            let b = mp[idx]
+            return MKMapPoint(x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t)
+        }
+
+        for i in 1..<(targetCount - 1) {
+            sampled.append(pointAt(Double(i) * step))
+        }
+        sampled.append(mp[count - 1])
+
+        return MKPolyline(points: sampled, count: sampled.count)
+    }
+
+    private func reroute(from coordinate: CLLocationCoordinate2D) {
+        guard let destination = destinationManager.selectedDestination else { return }
+        isRerouting = true
+        lastRerouteRequestAt = Date()
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = false
+        let directions = MKDirections(request: request)
+        directions.calculate { response, error in
+            DispatchQueue.main.async {
+                defer { isRerouting = false }
+                guard let route = response?.routes.first, error == nil else { return }
+                routeOverlayToken = UUID()
+                routeOverlayAnimationToken = nil
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    routePolyline = route.polyline
+                    routeAnimationPolyline = nil
+                    showingRoute = true
+                }
+            }
+        }
     }
 
     private static let appGroupDefaults = UserDefaults(suiteName: "group.com.gorilla.translate")
@@ -1346,6 +1570,28 @@ struct ContentView: View {
             }
             WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
         }
+    }
+
+    private func startStationaryTimer() {
+        stationaryTimer?.invalidate()
+        let start = Date()
+        stationaryStartTime = start
+        stationaryElapsed = 0
+        let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
+            let e = Date().timeIntervalSince(start)
+            DispatchQueue.main.async {
+                stationaryElapsed = e
+            }
+        }
+        stationaryTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func stopStationaryTimer() {
+        stationaryTimer?.invalidate()
+        stationaryTimer = nil
+        stationaryStartTime = nil
+        stationaryElapsed = 0
     }
 
     private func startDepartureCountdown() {
@@ -1553,9 +1799,12 @@ struct ContentView: View {
         directions.calculate { response, error in
             guard let route = response?.routes.first, error == nil else { return }
             DispatchQueue.main.async {
+                routeOverlayToken = UUID()
+                routeOverlayAnimationToken = nil
                 withAnimation {
                     showingRoute = true
                     routePolyline = route.polyline
+                    routeAnimationPolyline = nil
                 }
             }
         }
