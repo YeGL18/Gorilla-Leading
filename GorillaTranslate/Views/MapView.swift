@@ -36,6 +36,7 @@ struct MapView: UIViewRepresentable {
     var routeOverlay: MKPolyline?
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
+    var northOverrideTrackingToken: Int
     var routePriorityToken: UUID?
     var routePriorityAnchor: CLLocationCoordinate2D?
     var routeOverlayToken: UUID?
@@ -51,6 +52,7 @@ struct MapView: UIViewRepresentable {
         let mapView = NonAdjustingMapView()
         mapView.showsUserLocation = true
         mapView.userTrackingMode = .none
+        mapView.showsCompass = false
         mapView.pointOfInterestFilter = .excludingAll
         mapView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         mapView.delegate = context.coordinator
@@ -74,28 +76,27 @@ struct MapView: UIViewRepresentable {
         mapView.addGestureRecognizer(pinch)
         mapView.addGestureRecognizer(rotate)
 
-        // 调整指南针位置：下移一个指南针高度 + 12pt
-        // 指南针的标准高度大约是 30pt
-        let compassHeight: CGFloat = 30
-        let additionalOffset: CGFloat = 24
-        
-        // 查找指南针视图并调整其位置
-        DispatchQueue.main.async {
-            for subview in mapView.subviews {
-                if NSStringFromClass(type(of: subview)).contains("Compass") {
-                    var frame = subview.frame
-                    frame.origin.y += compassHeight + additionalOffset
-                    subview.frame = frame
-                    break
-                }
-            }
-        }
+        let compassButton = MKCompassButton(mapView: mapView)
+        compassButton.compassVisibility = .visible
+        compassButton.translatesAutoresizingMaskIntoConstraints = false
+        mapView.addSubview(compassButton)
+        let top = compassButton.topAnchor.constraint(equalTo: mapView.safeAreaLayoutGuide.topAnchor, constant: 70)
+        NSLayoutConstraint.activate([
+            top,
+            compassButton.trailingAnchor.constraint(equalTo: mapView.safeAreaLayoutGuide.trailingAnchor, constant: -16)
+        ])
+        context.coordinator.compassButton = compassButton
+        context.coordinator.compassTopConstraint = top
 
         return mapView
     }
 
     func updateUIView(_ mapView: NonAdjustingMapView, context: Context) {
         context.coordinator.parent = self
+        if context.coordinator.lastNorthOverrideTrackingToken != northOverrideTrackingToken {
+            context.coordinator.lastNorthOverrideTrackingToken = northOverrideTrackingToken
+            context.coordinator.northOverrideArmed = true
+        }
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
         
@@ -254,6 +255,10 @@ struct MapView: UIViewRepresentable {
         var isFlying = false
         var hasShownHighAltitude = false
         var hasInitialized = false
+        var lastNorthOverrideTrackingToken: Int = 0
+        var northOverrideArmed = false
+        weak var compassButton: MKCompassButton?
+        var compassTopConstraint: NSLayoutConstraint?
         
         // 运动检测相关
         private var speedObserver: AnyCancellable?
@@ -743,6 +748,8 @@ struct MapView: UIViewRepresentable {
             )
             let targetDistance: CLLocationDistance = 800
             let startCenter = mapView.centerCoordinate
+            let startHeading = mapView.camera.heading
+            let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? parent.locationManager.heading : startHeading)
             // 首次从高空飞下来（加载瓦片），后续用当前高度
             let startDistance: CLLocationDistance = hasShownHighAltitude
                 ? mapView.camera.centerCoordinateDistance
@@ -768,12 +775,16 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
+                let headingDiff = targetHeading - startHeading
+                let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
+                camera.heading = startHeading + normalizedDiff * posEase
                 mapView.camera = camera
 
                 if t >= 1.0 {
                     timer.invalidate()
                     self.flyTimer = nil
                     self.isFlying = false
+                    self.northOverrideArmed = false
                     mapView.allowCameraChange = false
                     DispatchQueue.main.async {
                         if self.isDriving {
@@ -996,6 +1007,8 @@ struct VignetteMapView: View {
     @Binding var savedRegion: MKCoordinateRegion?
     @Binding var savedCamera: MKMapCamera?
     @Binding var firstFlyTrigger: Int
+    var stationaryTrackingTrigger: Int
+    var northOverrideTrackingToken: Int
     var routeOverlay: MKPolyline?
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
@@ -1009,7 +1022,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
                 .ignoresSafeArea()
 
             GeometryReader { geo in
@@ -1042,6 +1055,11 @@ struct VignetteMapView: View {
             .allowsHitTesting(false)
         }
         .onChange(of: firstFlyTrigger) { _, _ in
+            if routePriorityToken == nil {
+                flyTrigger += 1
+            }
+        }
+        .onChange(of: stationaryTrackingTrigger) { _, _ in
             if routePriorityToken == nil {
                 flyTrigger += 1
             }

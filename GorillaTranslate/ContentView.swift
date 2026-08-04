@@ -95,6 +95,8 @@ struct ContentView: View {
     @State private var departureTime: Date?
     @State private var showDepartedLabel = false
     @State private var followHeading = true
+    @State private var stationaryTrackingTrigger = 0
+    @State private var northOverrideTrackingToken = 0
     @State private var showSpeedInfo = false
     @State private var speedInfoTimer: Timer?
     @State private var randomInfoTimer: Timer?
@@ -355,7 +357,7 @@ struct ContentView: View {
                 }
             ZStack {
             if showMap {
-                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: followHeading, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
+                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: followHeading, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
                     .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
@@ -708,6 +710,8 @@ struct ContentView: View {
                 return
             }
             if newStatus == "已停留", oldStatus != "已停留" {
+                stationaryTrackingTrigger &+= 1
+                northOverrideTrackingToken &+= 1
                 startStationaryTimer()
             } else if newStatus != "已停留", oldStatus == "已停留" {
                 stopStationaryTimer()
