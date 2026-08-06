@@ -4,11 +4,18 @@ import MapKit
 struct SpeedView: View {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var timePhaseManager = TimePhaseManager()
+    @StateObject private var sfxPlayer = SFXPlayer()
+    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
     @Environment(\.colorScheme) private var colorScheme
+    
+    @State private var accelArmedFromStop: Bool = true
+    @State private var lastSpeedSample: Double = 0
+    @State private var lastSpeedSampleAt: Date = Date()
+    @State private var accelerationCooldownUntil: Date = .distantPast
 
     let showMap: Bool
     let animationClock: AnimationClock
@@ -93,6 +100,33 @@ struct SpeedView: View {
         }
         .onDisappear {
             timePhaseManager.stop()
+        }
+        .onReceive(locationManager.$speed) { newSpeed in
+            guard sfxAccelerationEnabled else { return }
+            let now = Date()
+            let dt = now.timeIntervalSince(lastSpeedSampleAt)
+            let prev = lastSpeedSample
+            lastSpeedSampleAt = now
+            lastSpeedSample = newSpeed
+            
+            if newSpeed <= 1 {
+                accelArmedFromStop = true
+                return
+            }
+            
+            guard accelArmedFromStop else { return }
+            guard now >= accelerationCooldownUntil else { return }
+            guard dt > 0.05, dt < 2.0 else { return }
+            
+            let dv = newSpeed - prev
+            guard dv > 3 else { return }
+            
+            let accel = dv / dt
+            if newSpeed >= 6, accel >= 6 {
+                accelArmedFromStop = false
+                accelerationCooldownUntil = now.addingTimeInterval(1.6)
+                sfxPlayer.playAccelerationBurst()
+            }
         }
     }
 

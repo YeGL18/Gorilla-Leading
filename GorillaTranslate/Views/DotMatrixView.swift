@@ -221,8 +221,3 @@ struct DotMatrixWebView: UIViewRepresentable {
         """
     }
 }
-
-#Preview {
-    DotMatrixView(speed: .constant(120))
-        .frame(height: 400)
-}

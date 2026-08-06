@@ -231,6 +231,7 @@ struct SunPosition {
 
 class TimePhaseManager: ObservableObject {
     @Published var currentPhase: TimePhase = .deepNight
+    @Published var phaseTransitionProgress: Double = 0
     @Published var blendedColors: BlendedPhaseColors
     @Published var sunPosition: SunPosition = SunPosition(x: 0.5, y: 0.5, visible: false, scale: 0.5, blur: 80)
     
@@ -307,22 +308,24 @@ class TimePhaseManager: ObservableObject {
     private func updateDynamicTimes() {
         let sunTimes = weatherService.getCurrentSunTimes()
         
-        let dawn = sunTimes.civilDawnHour       // 黎明前
-        let sunrise = sunTimes.sunriseHour       // 日出
-        let sunriseEnd = sunrise + 2.0           // 日出后（日出后2小时）
-        let noon = 12.0                          // 中午（固定）
-        let sunsetStart = sunTimes.sunsetHour - 0.5  // 日落前30分钟
-        let sunset = sunTimes.sunsetHour         // 日落时分
-        let nightStart = min(sunset + 1.0, 21.0) // 日落后1小时进入深夜，最晚21:00
+        // 关键：深夜拉長，日出漸變推遲，夜晚感受更長
+        let deepNightEnd = sunTimes.civilDawnHour + 0.75   // 黎明前仍保留深黑夜色多 45 分鐘
+        let preDawn = deepNightEnd                          // 黎明前（微亮）
+        let sunrise = sunTimes.sunriseHour - 0.15          // 日出略為提前進入
+        let sunriseEnd = sunrise + 2.0                      // 日出后（日出后2小時）
+        let noon = 12.0                                     // 中午（固定）
+        let sunsetStart = sunTimes.sunsetHour - 0.5
+        let sunset = sunTimes.sunsetHour
+        let nightStart = min(sunset + 0.5, 20.0)           // 日落後 0.5h 即入深夜（之前係 1.0h）
         
         dynamicStartHours = [
-            nightStart,     // 深夜（日落后1.5小时开始）
-            dawn,           // 黎明前
-            sunrise,        // 日出
-            sunriseEnd,     // 日出后（蓝天）
-            noon,           // 接近下午
-            sunsetStart,    // 黄昏后
-            sunset          // 日落时分
+            nightStart,     // 0 深夜（日落後0.5h開始，拉長深夜）
+            preDawn,        // 1 黎明前（dawn+45min，之前係 dawn）
+            sunrise,        // 2 日出
+            sunriseEnd,     // 3 日出后（藍天）
+            noon,           // 4 接近下午
+            sunsetStart,    // 5 黃昏後
+            sunset          // 6 日落時分
         ]
     }
     
@@ -338,8 +341,8 @@ class TimePhaseManager: ObservableObject {
         
         // 如果动态时间还没准备好，使用默认值
         if dynamicStartHours.isEmpty {
-            // 默认值：日落18:00，深夜从19:30开始
-            dynamicStartHours = [19.5, 4, 5, 7, 12, 17, 18]
+            // 默认值：日落18:00，深夜從18:30開始，preDawn 4:45，日出 4:51
+            dynamicStartHours = [18.5, 4.75, 4.85, 6.85, 12, 17, 18]
         }
         
         // 找到当前和下一个阶段
@@ -359,11 +362,22 @@ class TimePhaseManager: ObservableObject {
                     currentPhaseIndex = i
                     nextPhaseIndex = nextIndex
                     let rawProgress = (hour - startHour) / (endHour - startHour)
-                    // 前80%保持纯色，后20%快速过渡
-                    if rawProgress < 0.8 {
+                    // 不同階段用唔同 hold/transition split：
+                    // - 深夜 → 黎明前（i==0）+ 黎明前 → 日出（i==1）：90/10，壓縮漸變，夜晚更長
+                    // - 日出 → 早上（i==2）：65/35，漸變更平滑
+                    // - 其他（下午/日落等）：保留 80/20
+                    let (holdFraction, _): (Double, Double) = {
+                        switch i {
+                        case 0: return (0.92, 0.08)
+                        case 1: return (0.88, 0.12)
+                        case 2: return (0.65, 0.35)
+                        default: return (0.80, 0.20)
+                        }
+                    }()
+                    if rawProgress < holdFraction {
                         progress = 0
                     } else {
-                        progress = (rawProgress - 0.8) / 0.2
+                        progress = (rawProgress - holdFraction) / (1 - holdFraction)
                     }
                     break
                 }
@@ -378,11 +392,12 @@ class TimePhaseManager: ObservableObject {
                     } else {
                         rawProgress = (24 - startHour + hour) / (24 - startHour + endHour)
                     }
-                    // 前80%保持纯色，后20%快速过渡
-                    if rawProgress < 0.8 {
+                    // 深夜跨午夜段（i==6, sunset→deepNight）亦採用 92/8 壓縮漸變
+                    let holdFraction: Double = (i == 6) ? 0.92 : 0.80
+                    if rawProgress < holdFraction {
                         progress = 0
                     } else {
-                        progress = (rawProgress - 0.8) / 0.2
+                        progress = (rawProgress - holdFraction) / (1 - holdFraction)
                     }
                     break
                 }
@@ -403,5 +418,6 @@ class TimePhaseManager: ObservableObject {
         sunPosition = SunPosition.calculate(hour: hour)
         
         currentPhase = fromPhase
+        phaseTransitionProgress = progress
     }
 }

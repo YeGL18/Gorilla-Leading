@@ -80,15 +80,52 @@ struct Destination: Identifiable, Codable, Equatable {
 }
 
 class DestinationManager: ObservableObject {
+    static let shared = DestinationManager()
+
     @Published var destinations: [Destination] = []
     @Published var selectedDestination: Destination?
-    
+
     private let destinationsKey = "saved_destinations"
-    
+
     init() {
         loadDestinations()
     }
-    
+
+    // MARK: - Trip Predictor integration helpers
+
+    @discardableResult
+    @MainActor
+    func findOrCreateDestination(for place: PlaceInfo) -> Destination {
+        let coord = place.coordinate
+        // 1. exact name match
+        if let m = destinations.first(where: { $0.name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == place.displayName.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }) {
+            return m
+        }
+        // 2. nearest within 200m and name contains the place prefix
+        let nearby = destinations
+            .map { ($0, CLLocation(latitude: $0.coordinate.latitude, longitude: $0.coordinate.longitude)
+                .distance(from: CLLocation(latitude: coord.latitude, longitude: coord.longitude))) }
+            .filter { $0.1 <= 200 }
+            .sorted { $0.1 < $1.1 }
+        if let nb = nearby.first { return nb.0 }
+        // 3. create new with default ocean color
+        let d = Destination(
+            name: place.displayName,
+            coordinate: coord,
+            colorHex: "#0098FF"
+        )
+        addDestination(d)
+        return d
+    }
+
+    @discardableResult
+    @MainActor
+    func applyAutoPrediction(_ prediction: PendingTripPrediction) -> Destination {
+        let dest = findOrCreateDestination(for: prediction.predicted)
+        selectDestination(dest)
+        return dest
+    }
+
     func addDestination(_ destination: Destination) {
         destinations.append(destination)
         saveDestinations()

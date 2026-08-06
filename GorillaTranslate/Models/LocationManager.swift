@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import CoreMotion
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private(set) var manager = CLLocationManager()
@@ -60,6 +61,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var heading: Double = 0
 
     private let visitsKey = "visit_records"
+
+    // TripPredictor dedupe：一條 visit 只會 learning departure 一次、predict arrival 一次
+    private var learnedDepartureVisits: Set<UUID> = []
+    private var predictedArrivalVisits: Set<UUID> = []
 
     override init() {
         super.init()
@@ -131,8 +136,23 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         )
 
         let location = CLLocation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude)
+        DispatchQueue.main.async {
+            let matched = self.matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: visit.coordinate)
+            let id = matched != nil ? self.visits[matched!].id : record.id
+            let base = VisitRecord(
+                id: id,
+                address: "",
+                latitude: record.latitude,
+                longitude: record.longitude,
+                arrivalDate: record.arrivalDate,
+                departureDate: record.departureDate,
+                transportType: record.transportType
+            )
+            self.upsertVisitRecord(base)
+        }
+        
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
-            guard let self = self else { return }
+            guard let self else { return }
             var addr = ""
             if let placemark = placemarks?.first {
                 var parts: [String] = []
@@ -144,19 +164,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 addr = parts.joined(separator: " ")
             }
             DispatchQueue.main.async {
-                var updated = record
-                updated = VisitRecord(
-                    id: record.id,
+                let matched = self.matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: visit.coordinate)
+                let id = matched != nil ? self.visits[matched!].id : record.id
+                let updated = VisitRecord(
+                    id: id,
                     address: addr.isEmpty ? "Unknown" : addr,
                     latitude: record.latitude,
                     longitude: record.longitude,
                     arrivalDate: record.arrivalDate,
-                    departureDate: (record.departureDate != nil && record.departureDate!.timeIntervalSince(record.arrivalDate) < 7 * 24 * 3600) ? record.departureDate : nil,
+                    departureDate: record.departureDate,
                     transportType: record.transportType
                 )
-                self.visits.insert(updated, at: 0)
-                self.visits.sort { $0.arrivalDate > $1.arrivalDate }
-                self.saveVisits()
+                self.upsertVisitRecord(updated)
             }
         }
     }
@@ -173,6 +192,96 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                     parts.append(street)
                 }
                 self?.currentAddress = parts.joined(separator: " ")
+            }
+        }
+    }
+
+    private func matchVisitIndex(arrivalDate: Date, coordinate: CLLocationCoordinate2D) -> Int? {
+        let target = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        for (idx, v) in visits.enumerated() {
+            if abs(v.arrivalDate.timeIntervalSince(arrivalDate)) > 2.0 { continue }
+            let d = target.distance(from: CLLocation(latitude: v.latitude, longitude: v.longitude))
+            if d < 60 { return idx }
+        }
+        return nil
+    }
+    
+    private func upsertVisitRecord(_ record: VisitRecord) {
+        let previousCurDep: Date?
+        let matchedIdx: Int? = matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: CLLocationCoordinate2D(latitude: record.latitude, longitude: record.longitude))
+        if let idx = matchedIdx {
+            var cur = visits[idx]
+            previousCurDep = cur.departureDate
+
+            if let newDep = record.departureDate {
+                if let oldDep = cur.departureDate {
+                    cur.departureDate = max(oldDep, newDep)
+                } else {
+                    cur.departureDate = newDep
+                }
+            }
+
+            if !record.address.isEmpty, cur.address.isEmpty || cur.address == "Unknown" {
+                cur = VisitRecord(
+                    id: cur.id,
+                    address: record.address,
+                    latitude: cur.latitude,
+                    longitude: cur.longitude,
+                    arrivalDate: cur.arrivalDate,
+                    departureDate: cur.departureDate,
+                    transportType: cur.transportType
+                )
+            }
+
+            visits[idx] = cur
+        } else {
+            previousCurDep = nil
+            visits.insert(record, at: 0)
+        }
+
+        visits.sort {
+            if $0.arrivalDate != $1.arrivalDate { return $0.arrivalDate > $1.arrivalDate }
+            if ($0.departureDate != nil) != ($1.departureDate != nil) { return $0.departureDate != nil }
+            if let d0 = $0.departureDate, let d1 = $1.departureDate, d0 != d1 { return d0 > d1 }
+            return $0.id.uuidString > $1.id.uuidString
+        }
+        saveVisits()
+
+        // MARK: TripPredictor: arrival / departure 掛鉤
+        Task { @MainActor in
+            // 1) Arrival Predict：新 visit（matched==nil）且 address 非空 → predictNext
+            let latest = self.visits.first(where: { $0.id == record.id }) ?? record
+            if matchedIdx == nil,
+               !latest.address.isEmpty, latest.address != "Unknown",
+               !self.predictedArrivalVisits.contains(latest.id) {
+                self.predictedArrivalVisits.insert(latest.id)
+                let coord = CLLocationCoordinate2D(latitude: latest.latitude, longitude: latest.longitude)
+                let place = ParkingFloorStore.shared.resolvePlace(coordinate: coord, address: latest.address)
+                let _ = TripPredictor.shared.predictNext(currentPlace: place, atDate: latest.arrivalDate)
+            }
+            // 2) Departure Learning：previous dep nil → 而家有 dep，且 fromPlace 搵得到
+            if let dep = latest.departureDate, previousCurDep == nil,
+               !latest.address.isEmpty, latest.address != "Unknown",
+               !self.learnedDepartureVisits.contains(latest.id) {
+                self.learnedDepartureVisits.insert(latest.id)
+                // 搵上一個 complete visit（arrival 早過呢個 arrival 且 dep!=nil）作為 fromPlace
+                let fromVisit = self.visits
+                    .filter { $0.id != latest.id && $0.departureDate != nil && $0.arrivalDate < latest.arrivalDate }
+                    .sorted { $0.arrivalDate > $1.arrivalDate }
+                    .first
+                let coord = CLLocationCoordinate2D(latitude: latest.latitude, longitude: latest.longitude)
+                let toPlace = ParkingFloorStore.shared.resolvePlace(coordinate: coord, address: latest.address)
+                let fromPlace: PlaceInfo?
+                if let fv = fromVisit, !fv.address.isEmpty, fv.address != "Unknown" {
+                    let fcoord = CLLocationCoordinate2D(latitude: fv.latitude, longitude: fv.longitude)
+                    fromPlace = ParkingFloorStore.shared.resolvePlace(coordinate: fcoord, address: fv.address)
+                } else {
+                    fromPlace = nil
+                }
+                TripPredictor.shared.recordLearning(
+                    fromPlace: fromPlace, toPlace: toPlace,
+                    atDate: dep
+                )
             }
         }
     }
@@ -212,10 +321,585 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let data = UserDefaults.standard.data(forKey: visitsKey),
               let decoded = try? JSONDecoder().decode([VisitRecord].self, from: data) else { return }
         visits = decoded.sorted { $0.arrivalDate > $1.arrivalDate }
+        for v in visits {
+            if v.departureDate != nil {
+                learnedDepartureVisits.insert(v.id)
+            }
+            if !v.address.isEmpty && v.address != "Unknown" {
+                predictedArrivalVisits.insert(v.id)
+            }
+        }
     }
 
     func clearVisits() {
         visits = []
         UserDefaults.standard.removeObject(forKey: visitsKey)
+    }
+}
+
+struct ParkingPointRecord: Identifiable, Codable, Hashable {
+    var id: UUID
+    var address: String
+    var latitude: Double
+    var longitude: Double
+    var createdAt: Date
+    var predictedFloorIndex: Int?
+    var manualFloorIndex: Int?
+    var confidence: Double?
+    var barometerAltitudeDeltaMeters: Double?
+    var barometerSampleCount: Int?
+    var barometerReferenceAltitude: Double?
+    var barometerFinalAltitude: Double?
+    var barometerPressureKPa: Double?
+    var predictedFromLotLearned: Bool?
+    
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+    
+    var displayFloor: String? {
+        if let manualFloorIndex {
+            return ParkingFloorStore.formatFloor(manualFloorIndex)
+        }
+        if let predictedFloorIndex {
+            return ParkingFloorStore.formatFloor(predictedFloorIndex)
+        }
+        return "未知(\(ParkingFloorStore.formatFloor(0)))"
+    }
+}
+
+struct ParkingLotFloorLearning: Codable, Hashable {
+    var createdAt: Date
+    var manualFloorIndex: Int
+    var altitudeDeltaMeters: Double
+    var metersPerFloor: Double
+    var lotID: UUID
+    var pointID: UUID
+}
+
+struct ParkingLotRecord: Identifiable, Codable, Hashable {
+    var id: UUID
+    var name: String?
+    var centerLatitude: Double
+    var centerLongitude: Double
+    var radiusMeters: Double
+    var createdAt: Date
+    var updatedAt: Date
+    var points: [ParkingPointRecord]
+    var learnedMetersPerFloor: Double?
+    var learnedOffsetMeters: Double?
+    var learnedConfidence: Double?
+    var floorLearningHistory: [ParkingLotFloorLearning]?
+
+    var centerCoordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: centerLatitude, longitude: centerLongitude)
+    }
+
+    func centerDistance(to coordinate: CLLocationCoordinate2D) -> Double {
+        let a = CLLocation(latitude: centerLatitude, longitude: centerLongitude)
+        let b = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return a.distance(from: b)
+    }
+}
+
+final class ParkingFloorStore: ObservableObject {
+    static let defaultRadiusMeters: Double = 180
+    static let defaultMetersPerFloor: Double = 3.0
+
+    static let shared = ParkingFloorStore()
+
+    @Published private(set) var lots: [ParkingLotRecord] = []
+
+    private let storeKey = "parking_floor_store_v1"
+    private let defaults: UserDefaults
+
+    let barometer = BarometerSessionManager()
+
+    init() {
+        defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
+        load()
+    }
+
+    // TripPredictor place resolution helper
+    @MainActor
+    func resolvePlace(coordinate: CLLocationCoordinate2D, address: String) -> PlaceInfo {
+        TripPredictor.shared.resolvePlace(
+            coordinate: coordinate,
+            address: address,
+            parkingLots: lots
+        )
+    }
+    
+    var allPoints: [ParkingPointRecord] {
+        lots.flatMap { $0.points }.sorted { $0.createdAt > $1.createdAt }
+    }
+    
+    var lotNameByPointID: [UUID: String] {
+        var result: [UUID: String] = [:]
+        for lot in lots {
+            let name = lot.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            guard !name.isEmpty else { continue }
+            for p in lot.points {
+                result[p.id] = name
+            }
+        }
+        return result
+    }
+    
+    func clearAll() {
+        lots = []
+        persist()
+    }
+    
+    func recordParkingPoint(from visit: LocationManager.VisitRecord) {
+        let coordinate = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
+        let window = barometer.altitudeWindow(around: visit.arrivalDate,
+                                              before: 4 * 60,
+                                              after: 1 * 60)
+        let predicted = predictFloor(
+            near: coordinate,
+            createdAt: visit.arrivalDate,
+            altitudeDelta: window?.deltaMeters,
+            sampleCount: window?.samples,
+            referenceAlt: window?.referenceAlt,
+            finalAlt: window?.finalAlt,
+            pressure: window?.finalPressure
+        )
+        recordParkingPoint(
+            coordinate: coordinate,
+            address: visit.address,
+            createdAt: visit.arrivalDate,
+            predictedFloorIndex: predicted.floorIndex,
+            manualFloorIndex: nil,
+            confidence: predicted.confidence,
+            altitudeDelta: window?.deltaMeters,
+            sampleCount: window?.samples,
+            referenceAlt: window?.referenceAlt,
+            finalAlt: window?.finalAlt,
+            pressure: window?.finalPressure,
+            predictedFromLotLearned: predicted.fromLotLearned
+        )
+    }
+    
+    func recordParkingPoint(
+        coordinate: CLLocationCoordinate2D,
+        address: String,
+        createdAt: Date,
+        predictedFloorIndex: Int?,
+        manualFloorIndex: Int?,
+        confidence: Double?
+    ) {
+        recordParkingPoint(
+            coordinate: coordinate,
+            address: address,
+            createdAt: createdAt,
+            predictedFloorIndex: predictedFloorIndex,
+            manualFloorIndex: manualFloorIndex,
+            confidence: confidence,
+            altitudeDelta: nil,
+            sampleCount: nil,
+            referenceAlt: nil,
+            finalAlt: nil,
+            pressure: nil,
+            predictedFromLotLearned: nil
+        )
+    }
+    
+    private func recordParkingPoint(
+        coordinate: CLLocationCoordinate2D,
+        address: String,
+        createdAt: Date,
+        predictedFloorIndex: Int?,
+        manualFloorIndex: Int?,
+        confidence: Double?,
+        altitudeDelta: Double?,
+        sampleCount: Int?,
+        referenceAlt: Double?,
+        finalAlt: Double?,
+        pressure: Double?,
+        predictedFromLotLearned: Bool?
+    ) {
+        let now = Date()
+        let inserting = ParkingPointRecord(
+            id: UUID(),
+            address: address,
+            latitude: coordinate.latitude,
+            longitude: coordinate.longitude,
+            createdAt: createdAt,
+            predictedFloorIndex: predictedFloorIndex,
+            manualFloorIndex: manualFloorIndex,
+            confidence: confidence,
+            barometerAltitudeDeltaMeters: altitudeDelta,
+            barometerSampleCount: sampleCount,
+            barometerReferenceAltitude: referenceAlt,
+            barometerFinalAltitude: finalAlt,
+            barometerPressureKPa: pressure,
+            predictedFromLotLearned: predictedFromLotLearned
+        )
+        
+        if let idx = findLotIndex(near: coordinate, radiusMeters: Self.defaultRadiusMeters) {
+            var lot = lots[idx]
+            let dup = lot.points.contains { p in
+                abs(p.createdAt.timeIntervalSince(createdAt)) < 30 &&
+                CLLocation(latitude: p.latitude, longitude: p.longitude).distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) < 10
+            }
+            guard !dup else { return }
+            lot.points.insert(inserting, at: 0)
+            lot.updatedAt = now
+            lots[idx] = lot
+        } else {
+            let lot = ParkingLotRecord(
+                id: UUID(),
+                name: nil,
+                centerLatitude: coordinate.latitude,
+                centerLongitude: coordinate.longitude,
+                radiusMeters: Self.defaultRadiusMeters,
+                createdAt: now,
+                updatedAt: now,
+                points: [inserting],
+                learnedMetersPerFloor: nil,
+                learnedOffsetMeters: nil,
+                learnedConfidence: nil,
+                floorLearningHistory: nil
+            )
+            lots.insert(lot, at: 0)
+        }
+        
+        persist()
+    }
+    
+    func setManualFloor(pointID: UUID, floorIndex: Int?) {
+        var changed = false
+        for i in lots.indices {
+            if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
+                let before = lots[i].points[pIndex].manualFloorIndex
+                lots[i].points[pIndex].manualFloorIndex = floorIndex
+                lots[i].updatedAt = Date()
+                changed = true
+                
+                if floorIndex != before,
+                   let newIdx = floorIndex,
+                   let delta = lots[i].points[pIndex].barometerAltitudeDeltaMeters {
+                    applyFloorLearning(
+                        lotIndex: i,
+                        pointID: pointID,
+                        manualFloorIndex: newIdx,
+                        altitudeDeltaMeters: delta
+                    )
+                }
+                
+                if floorIndex != before {
+                    lots[i] = rerunPredictions(lot: lots[i])
+                }
+                
+                break
+            }
+        }
+        if changed {
+            persist()
+        }
+    }
+    
+    private func applyFloorLearning(
+        lotIndex: Int,
+        pointID: UUID,
+        manualFloorIndex: Int,
+        altitudeDeltaMeters: Double
+    ) {
+        let lotID = lots[lotIndex].id
+        let delta = altitudeDeltaMeters
+        let floorIdx = manualFloorIndex
+        let metersPerFloor = floorIdx == 0 ? 0 : (delta / Double(floorIdx))
+        
+        let learning = ParkingLotFloorLearning(
+            createdAt: Date(),
+            manualFloorIndex: manualFloorIndex,
+            altitudeDeltaMeters: delta,
+            metersPerFloor: metersPerFloor,
+            lotID: lotID,
+            pointID: pointID
+        )
+        if lots[lotIndex].floorLearningHistory == nil {
+            lots[lotIndex].floorLearningHistory = []
+        }
+        lots[lotIndex].floorLearningHistory!.append(learning)
+        
+        let history = lots[lotIndex].floorLearningHistory ?? []
+        let valid = history.filter {
+            $0.manualFloorIndex != 0 && $0.altitudeDeltaMeters != 0
+        }
+        if valid.count >= 1 {
+            var mean = valid.reduce(0.0) { $0 + abs($1.metersPerFloor) } / Double(valid.count)
+            if mean < 2.0 { mean = 2.0 }
+            if mean > 6.0 { mean = 6.0 }
+            lots[lotIndex].learnedMetersPerFloor = mean
+            
+            let std = sqrt(valid.reduce(0.0) { sum, x in
+                let d = abs(x.metersPerFloor) - mean
+                return sum + d * d
+            } / max(1.0, Double(valid.count)))
+            let coef = std / max(0.1, mean)
+            let conf: Double = max(0.1, min(0.98, 1.0 - coef))
+            let sampleBoost = min(1.0, Double(valid.count) / 4.0)
+            lots[lotIndex].learnedConfidence = 0.3 + 0.7 * (0.6 * conf + 0.4 * sampleBoost)
+        }
+        
+        let offsets: [Double] = history.compactMap { h in
+            guard h.manualFloorIndex != 0 else { return nil }
+            return h.altitudeDeltaMeters - Double(h.manualFloorIndex) * (lots[lotIndex].learnedMetersPerFloor ?? Self.defaultMetersPerFloor)
+        }
+        if !offsets.isEmpty {
+            lots[lotIndex].learnedOffsetMeters = offsets.reduce(0.0, +) / Double(offsets.count)
+        }
+    }
+    
+    private func rerunPredictions(lot: ParkingLotRecord) -> ParkingLotRecord {
+        var copy = lot
+        let mpF = copy.learnedMetersPerFloor ?? Self.defaultMetersPerFloor
+        let offset = copy.learnedOffsetMeters ?? 0.0
+        let lotConf = copy.learnedConfidence ?? 0.0
+        
+        for i in copy.points.indices {
+            let p = copy.points[i]
+            guard p.manualFloorIndex == nil else { continue }
+            guard let delta = p.barometerAltitudeDeltaMeters,
+                  let samples = p.barometerSampleCount else { continue }
+            let adjustedDelta = max(0.0, delta - offset)
+            let raw = (adjustedDelta / mpF).rounded(.toNearestOrAwayFromZero)
+            var predicted: Int? = Int(raw)
+            if predicted ?? 0 < 0 { predicted = 0 }
+            if (predicted ?? 0) > 30 { predicted = 30 }
+            
+            let sampleFactor: Double = samples >= 40 ? 1.0 : (Double(samples) / 40.0)
+            let learnedFactor: Double = (copy.learnedMetersPerFloor != nil) ? 1.0 : 0.35
+            var conf: Double = 0.15 + 0.85 * (0.55 * lotConf + 0.25 * sampleFactor + 0.2 * learnedFactor)
+            if abs((Double(predicted ?? 0) * mpF) - adjustedDelta) > mpF * 0.5 {
+                conf *= 0.7
+            }
+            conf = max(0.1, min(0.98, conf))
+            
+            copy.points[i].predictedFloorIndex = predicted
+            copy.points[i].confidence = conf
+            copy.points[i].predictedFromLotLearned = copy.learnedMetersPerFloor != nil
+        }
+        return copy
+    }
+    
+    private func predictFloor(
+        near coordinate: CLLocationCoordinate2D,
+        createdAt: Date,
+        altitudeDelta: Double?,
+        sampleCount: Int?,
+        referenceAlt: Double?,
+        finalAlt: Double?,
+        pressure: Double?
+    ) -> (floorIndex: Int?, confidence: Double?, fromLotLearned: Bool) {
+        let lotIdx = findLotIndex(near: coordinate, radiusMeters: Self.defaultRadiusMeters)
+        let mpF: Double
+        let offset: Double
+        let lotConf: Double
+        let fromLearned: Bool
+        if let idx = lotIdx, let learned = lots[idx].learnedMetersPerFloor {
+            mpF = learned
+            offset = lots[idx].learnedOffsetMeters ?? 0.0
+            lotConf = lots[idx].learnedConfidence ?? 0.0
+            fromLearned = true
+        } else {
+            mpF = Self.defaultMetersPerFloor
+            offset = 0.0
+            lotConf = 0.0
+            fromLearned = false
+        }
+        guard let delta = altitudeDelta, let samples = sampleCount else {
+            return (nil, nil, fromLearned)
+        }
+        let adjustedDelta = max(0.0, delta - offset)
+        let raw = (adjustedDelta / mpF).rounded(.toNearestOrAwayFromZero)
+        var predicted = Int(raw)
+        if predicted < 0 { predicted = 0 }
+        if predicted > 30 { predicted = 30 }
+        
+        let sampleFactor: Double = samples >= 40 ? 1.0 : (Double(samples) / 40.0)
+        let learnedFactor: Double = fromLearned ? 1.0 : 0.35
+        var conf: Double = 0.15 + 0.85 * (0.55 * lotConf + 0.25 * sampleFactor + 0.2 * learnedFactor)
+        if abs((Double(predicted) * mpF) - adjustedDelta) > mpF * 0.5 {
+            conf *= 0.7
+        }
+        conf = max(0.1, min(0.98, conf))
+        
+        return (predicted, conf, fromLearned)
+    }
+
+    func setPointCoordinate(pointID: UUID, coordinate: CLLocationCoordinate2D) {
+        var changed = false
+        for i in lots.indices {
+            if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
+                lots[i].points[pIndex].latitude = coordinate.latitude
+                lots[i].points[pIndex].longitude = coordinate.longitude
+                lots[i].updatedAt = Date()
+                changed = true
+                break
+            }
+        }
+        if changed {
+            persist()
+        }
+    }
+
+    func setLotName(lotID: UUID, name: String?) {
+        guard let idx = lots.firstIndex(where: { $0.id == lotID }) else { return }
+        lots[idx].name = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : name
+        lots[idx].updatedAt = Date()
+        persist()
+    }
+
+    func nudgePoint(pointID: UUID, northMeters: Double, eastMeters: Double) {
+        guard northMeters != 0 || eastMeters != 0 else { return }
+        for lotIndex in lots.indices {
+            guard let pIndex = lots[lotIndex].points.firstIndex(where: { $0.id == pointID }) else { continue }
+            let lat = lots[lotIndex].points[pIndex].latitude
+            let lon = lots[lotIndex].points[pIndex].longitude
+            let latRad = lat * Double.pi / 180
+            let dLat = northMeters / 111_000.0
+            let dLon = eastMeters / (111_000.0 * max(0.2, cos(latRad)))
+            let newCoord = CLLocationCoordinate2D(latitude: lat + dLat, longitude: lon + dLon)
+            lots[lotIndex].points[pIndex].latitude = newCoord.latitude
+            lots[lotIndex].points[pIndex].longitude = newCoord.longitude
+            lots[lotIndex].updatedAt = Date()
+            persist()
+            break
+        }
+    }
+    
+    private func findLotIndex(near coordinate: CLLocationCoordinate2D, radiusMeters: Double) -> Int? {
+        let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        for (idx, lot) in lots.enumerated() {
+            let c = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+            if c.distance(from: loc) <= min(radiusMeters, lot.radiusMeters) {
+                return idx
+            }
+        }
+        return nil
+    }
+    
+    private func persist() {
+        do {
+            let data = try JSONEncoder().encode(lots)
+            defaults.set(data, forKey: storeKey)
+        } catch {
+            defaults.removeObject(forKey: storeKey)
+        }
+    }
+    
+    private func load() {
+        guard let data = defaults.data(forKey: storeKey) else { return }
+        guard let decoded = try? JSONDecoder().decode([ParkingLotRecord].self, from: data) else { return }
+        lots = decoded.map { rerunPredictions(lot: $0) }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+    
+    static func formatFloor(_ idx: Int) -> String {
+        if idx == 0 { return "G" }
+        if idx < 0 { return "B\(abs(idx))" }
+        return "\(idx)"
+    }
+}
+
+struct BarometerSample: Hashable {
+    let timestamp: Date
+    let relativeAltitude: Double
+    let pressure: Double
+}
+
+final class BarometerSessionManager: NSObject {
+    private let altimeter = CMAltimeter()
+    private let queue = OperationQueue()
+    @Published private(set) var samples: [BarometerSample] = []
+    private var isUpdating = false
+    
+    var isAvailable: Bool { CMAltimeter.isRelativeAltitudeAvailable() }
+    
+    var isAuthorized: Bool { CMAltimeter.authorizationStatus() == .authorized }
+    
+    var authorizationLabel: String {
+        switch CMAltimeter.authorizationStatus() {
+        case .notDetermined: return "未決定"
+        case .restricted: return "限制"
+        case .denied: return "拒絕"
+        case .authorized: return "已授權"
+        @unknown default: return "未知"
+        }
+    }
+    
+    override init() {
+        super.init()
+        queue.maxConcurrentOperationCount = 1
+        queue.name = "BarometerSessionManager.queue"
+    }
+    
+    deinit {
+        if isUpdating {
+            altimeter.stopRelativeAltitudeUpdates()
+            isUpdating = false
+        }
+    }
+    
+    @discardableResult
+    func startIfAuthorized() -> Bool {
+        guard isAvailable else { return false }
+        guard isAuthorized else { return false }
+        guard !isUpdating else { return true }
+        isUpdating = true
+        let altimeter = self.altimeter
+        altimeter.startRelativeAltitudeUpdates(to: queue) { [weak self] data, _ in
+            guard let self = self, let data = data else { return }
+            let sample = BarometerSample(
+                timestamp: Date(),
+                relativeAltitude: data.relativeAltitude.doubleValue,
+                pressure: data.pressure.doubleValue
+            )
+            DispatchQueue.main.async {
+                self.samples.append(sample)
+                if self.samples.count > 10000 {
+                    self.samples.removeFirst(self.samples.count - 10000)
+                }
+            }
+        }
+        return true
+    }
+    
+    func stop() {
+        if isUpdating {
+            altimeter.stopRelativeAltitudeUpdates()
+            isUpdating = false
+        }
+    }
+    
+    struct WindowResult {
+        var samples: Int
+        var deltaMeters: Double
+        var referenceAlt: Double
+        var finalAlt: Double
+        var finalPressure: Double?
+    }
+    
+    func altitudeWindow(around date: Date, before: TimeInterval, after: TimeInterval) -> WindowResult? {
+        guard !samples.isEmpty else { return nil }
+        let start = date.addingTimeInterval(-before)
+        let end = date.addingTimeInterval(after)
+        let candidates = samples.filter {
+            $0.timestamp >= start && $0.timestamp <= end
+        }
+        guard candidates.count >= 3 else { return nil }
+        let firstHalf = candidates.prefix(max(1, candidates.count / 2))
+        let last = candidates.last!
+        let ref = firstHalf.reduce(0.0) { $0 + $1.relativeAltitude } / Double(firstHalf.count)
+        let delta = max(0.0, last.relativeAltitude - ref)
+        return WindowResult(
+            samples: candidates.count,
+            deltaMeters: delta,
+            referenceAlt: ref,
+            finalAlt: last.relativeAltitude,
+            finalPressure: last.pressure
+        )
     }
 }

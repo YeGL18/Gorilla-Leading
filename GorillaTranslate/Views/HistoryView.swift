@@ -64,8 +64,3 @@ struct HistoryView: View {
         }
     }
 }
-
-#Preview {
-    HistoryView()
-        .environmentObject(HistoryManager())
-}

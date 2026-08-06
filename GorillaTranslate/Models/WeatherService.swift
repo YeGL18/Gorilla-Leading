@@ -52,7 +52,7 @@ private struct SunriseSunsetResult: Codable {
 // MARK: - Weather Service
 
 class WeatherService: ObservableObject {
-    static let shared = WeatherService()
+    nonisolated(unsafe) static let shared = WeatherService()
     
     @Published var sunTimes: SunTimes?
     @Published var isLoading = false

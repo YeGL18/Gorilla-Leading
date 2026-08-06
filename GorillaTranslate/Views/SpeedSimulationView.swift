@@ -32,9 +32,3 @@ struct SpeedSimulationView: View {
         }
     }
 }
-
-#Preview {
-    SpeedSimulationView(speed: .constant(120), triggerSpeed: 240)
-        .frame(height: 260)
-        .padding()
-}

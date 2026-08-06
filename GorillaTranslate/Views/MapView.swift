@@ -28,6 +28,21 @@ class NonAdjustingMapView: MKMapView {
     }
 }
 
+final class ParkingPointAnnotation: NSObject, MKAnnotation {
+    let pointID: UUID
+    dynamic var coordinate: CLLocationCoordinate2D
+    dynamic var title: String?
+    dynamic var subtitle: String?
+    
+    init(pointID: UUID, coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?) {
+        self.pointID = pointID
+        self.coordinate = coordinate
+        self.title = title
+        self.subtitle = subtitle
+        super.init()
+    }
+}
+
 struct MapView: UIViewRepresentable {
     @Binding var savedRegion: MKCoordinateRegion?
     @Binding var savedCamera: MKMapCamera?
@@ -37,6 +52,11 @@ struct MapView: UIViewRepresentable {
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
     var northOverrideTrackingToken: Int
+    var parkingPoints: [ParkingPointRecord]
+    var parkingPointTitlePrefixesByID: [UUID: String]
+    var selectedParkingPointID: UUID?
+    var onSelectParkingPoint: (UUID?) -> Void
+    var onMoveParkingPoint: (UUID, CLLocationCoordinate2D) -> Void
     var routePriorityToken: UUID?
     var routePriorityAnchor: CLLocationCoordinate2D?
     var routeOverlayToken: UUID?
@@ -75,6 +95,12 @@ struct MapView: UIViewRepresentable {
         mapView.addGestureRecognizer(pan)
         mapView.addGestureRecognizer(pinch)
         mapView.addGestureRecognizer(rotate)
+        
+        let parkingDrag = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleParkingDrag(_:)))
+        parkingDrag.minimumPressDuration = 0.12
+        parkingDrag.allowableMovement = 1000
+        parkingDrag.cancelsTouchesInView = false
+        mapView.addGestureRecognizer(parkingDrag)
 
         let compassButton = MKCompassButton(mapView: mapView)
         compassButton.compassVisibility = .visible
@@ -205,7 +231,7 @@ struct MapView: UIViewRepresentable {
                            coordinator.parent.routePriorityToken != nil,
                            let anchor = mapView.userLocation.location?.coordinate ?? coordinator.parent.routePriorityAnchor {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                coordinator.flyToCoordinate(mapView: mapView, coordinate: anchor, distance: 800, duration: 1.2)
+                                coordinator.flyToCoordinate(mapView: mapView, coordinate: anchor, distance: coordinator.drivingTrackingDistance, duration: 1.2)
                             }
                         } else {
                             coordinator.isFlying = false
@@ -243,6 +269,9 @@ struct MapView: UIViewRepresentable {
             context.coordinator.pendingAutoZoom = true
             context.coordinator.prepareRouteDrawAnimation(shouldAnimate: false)
         }
+        
+        context.coordinator.syncParkingAnnotations(parkingPoints: parkingPoints, titlePrefixesByID: parkingPointTitlePrefixesByID)
+        context.coordinator.applyParkingSelection(selectedParkingPointID: selectedParkingPointID)
     }
 
     class Coordinator: NSObject, MKMapViewDelegate {
@@ -272,6 +301,8 @@ struct MapView: UIViewRepresentable {
         
         // 驾驶速度阈值（km/h）
         private let drivingSpeedThreshold: Double = 15
+        fileprivate let drivingTrackingDistance: CLLocationDistance = 1200
+        fileprivate let idleTrackingDistance: CLLocationDistance = 800
         
         // 柔软追踪相关
         private var softLatVelocity: Double = 0   // 纬度速度（度/帧）
@@ -292,6 +323,15 @@ struct MapView: UIViewRepresentable {
         private var fullRouteAlpha: Double = 1
         private var animRouteAlpha: Double = 0
         private var routeFadeTimer: Timer?
+        private var parkingAnnotationHash: Int = 0
+        private var parkingAnnotationsByID: [UUID: ParkingPointAnnotation] = [:]
+        private var isApplyingParkingSelection = false
+        private var lastAppliedSelectedParkingPointID: UUID?
+        private var isParkingPointDragging = false
+        private var draggingParkingPointID: UUID?
+        private weak var draggingParkingAnnotation: ParkingPointAnnotation?
+        private var dragTargetCoordinate: CLLocationCoordinate2D?
+        private var parkingDragTimer: Timer?
 
         init(_ parent: MapView) {
             self.parent = parent
@@ -307,6 +347,7 @@ struct MapView: UIViewRepresentable {
             routeReturnTimer?.invalidate()
             routeDrawTimer?.invalidate()
             routeFadeTimer?.invalidate()
+            parkingDragTimer?.invalidate()
         }
 
         func prepareRouteDrawAnimation(shouldAnimate: Bool) {
@@ -461,7 +502,7 @@ struct MapView: UIViewRepresentable {
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            let targetDistance: CLLocationDistance = 800
+            let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             
             mapView.allowCameraChange = true
             
@@ -504,7 +545,7 @@ struct MapView: UIViewRepresentable {
             smoothFromDistance = mapView.camera.centerCoordinateDistance
             smoothFromHeading = mapView.camera.heading
             smoothToCenter = location.coordinate
-            smoothToDistance = 800
+            smoothToDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             smoothToHeading = parent.followHeading ? parent.locationManager.heading : mapView.camera.heading
             smoothProgress = 0
             
@@ -591,7 +632,7 @@ struct MapView: UIViewRepresentable {
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                camera.centerCoordinateDistance = 800
+                camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
                 if parent.followHeading {
                     let targetHeading = parent.locationManager.heading
                     let currentHeading = camera.heading
@@ -638,7 +679,7 @@ struct MapView: UIViewRepresentable {
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
-                camera.centerCoordinateDistance = 800
+                camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
                 if parent.followHeading {
                     let targetHeading = parent.locationManager.heading
                     let currentHeading = camera.heading
@@ -676,6 +717,105 @@ struct MapView: UIViewRepresentable {
                 hasInitialized = true
                 isUserInteracting = false
                 pendingAutoZoom = true
+            }
+        }
+
+        @objc func handleParkingDrag(_ gesture: UILongPressGestureRecognizer) {
+            guard let mapView else { return }
+            let pt = gesture.location(in: mapView)
+            
+            func beginUserInteractionIfNeeded() {
+                if !isUserInteracting {
+                    isFlying = false
+                    flyTimer?.invalidate()
+                    flyTimer = nil
+                    autoZoomTimer?.invalidate()
+                    autoZoomTimer = nil
+                    realTimeUpdateTimer?.invalidate()
+                    realTimeUpdateTimer = nil
+                    smoothPanTimer?.invalidate()
+                    smoothPanTimer = nil
+                    mapView.allowCameraChange = false
+                    pendingAutoZoom = false
+                }
+                isUserInteracting = true
+            }
+            
+            func nearestParkingAnnotation(at point: CGPoint) -> ParkingPointAnnotation? {
+                let candidates = mapView.annotations.compactMap { $0 as? ParkingPointAnnotation }
+                var best: (anno: ParkingPointAnnotation, dist: CGFloat)?
+                for a in candidates {
+                    guard let view = mapView.view(for: a) else { continue }
+                    let d = hypot(view.center.x - point.x, view.center.y - point.y)
+                    if d <= 44 {
+                        if let cur = best {
+                            if d < cur.dist { best = (a, d) }
+                        } else {
+                            best = (a, d)
+                        }
+                    }
+                }
+                return best?.anno
+            }
+            
+            switch gesture.state {
+            case .began:
+                guard let anno = nearestParkingAnnotation(at: pt) else { return }
+                beginUserInteractionIfNeeded()
+                parent.onSelectParkingPoint(nil)
+                isParkingPointDragging = true
+                draggingParkingPointID = anno.pointID
+                draggingParkingAnnotation = anno
+                dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
+                mapView.isScrollEnabled = false
+                mapView.isRotateEnabled = false
+                mapView.isZoomEnabled = false
+                mapView.isPitchEnabled = false
+                
+                parkingDragTimer?.invalidate()
+                parkingDragTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+                    guard let self else { return }
+                    guard self.isParkingPointDragging, let anno = self.draggingParkingAnnotation, let target = self.dragTargetCoordinate else { return }
+                    let cur = anno.coordinate
+                    let a = 0.18
+                    let lat = cur.latitude + (target.latitude - cur.latitude) * a
+                    let lon = cur.longitude + (target.longitude - cur.longitude) * a
+                    anno.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                }
+                RunLoop.current.add(parkingDragTimer!, forMode: .common)
+                
+            case .changed:
+                guard isParkingPointDragging else { return }
+                dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
+                
+            case .ended, .cancelled, .failed:
+                guard isParkingPointDragging else { return }
+                isParkingPointDragging = false
+                hasInitialized = true
+                isUserInteracting = false
+                pendingAutoZoom = true
+                mapView.isScrollEnabled = true
+                mapView.isRotateEnabled = true
+                mapView.isZoomEnabled = true
+                mapView.isPitchEnabled = true
+                
+                parkingDragTimer?.invalidate()
+                parkingDragTimer = nil
+                
+                if let id = draggingParkingPointID, let anno = draggingParkingAnnotation {
+                    parent.onMoveParkingPoint(id, anno.coordinate)
+                }
+                draggingParkingPointID = nil
+                draggingParkingAnnotation = nil
+                dragTargetCoordinate = nil
+                
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+                    guard let self else { return }
+                    self.scheduleAutoZoom()
+                }
+                
+            default:
+                break
             }
         }
 
@@ -746,7 +886,7 @@ struct MapView: UIViewRepresentable {
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            let targetDistance: CLLocationDistance = 800
+            let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             let startCenter = mapView.centerCoordinate
             let startHeading = mapView.camera.heading
             let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? parent.locationManager.heading : startHeading)
@@ -852,8 +992,125 @@ struct MapView: UIViewRepresentable {
             }
         }
 
+        func syncParkingAnnotations(parkingPoints: [ParkingPointRecord], titlePrefixesByID: [UUID: String]) {
+            guard let mapView else { return }
+            var hasher = Hasher()
+            for p in parkingPoints {
+                hasher.combine(p.id)
+                hasher.combine(p.latitude)
+                hasher.combine(p.longitude)
+                hasher.combine(p.createdAt.timeIntervalSince1970)
+                hasher.combine(p.predictedFloorIndex)
+                hasher.combine(p.manualFloorIndex)
+                hasher.combine(titlePrefixesByID[p.id] ?? "")
+                if let c = p.confidence {
+                    hasher.combine(c)
+                }
+            }
+            let h = hasher.finalize()
+            guard h != parkingAnnotationHash else { return }
+            parkingAnnotationHash = h
+
+            var next: [UUID: ParkingPointAnnotation] = [:]
+            next.reserveCapacity(parkingPoints.count)
+            for p in parkingPoints {
+                let anno: ParkingPointAnnotation
+                if let existing = parkingAnnotationsByID[p.id] {
+                    anno = existing
+                } else {
+                    anno = ParkingPointAnnotation(
+                        pointID: p.id,
+                        coordinate: CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude),
+                        title: nil,
+                        subtitle: nil
+                    )
+                    mapView.addAnnotation(anno)
+                }
+                anno.coordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
+                let floor = p.displayFloor ?? "未知"
+                let suffix = (floor == "未知") ? "未知" : (floor.contains("/") ? floor : "\(floor)/F")
+                let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                let baseTitle = prefix.isEmpty ? "停車點" : "\(prefix)停車點"
+                anno.title = "\(baseTitle) \(suffix)"
+                anno.subtitle = p.address.isEmpty ? nil : p.address
+                next[p.id] = anno
+            }
+            for (id, anno) in parkingAnnotationsByID where next[id] == nil {
+                mapView.removeAnnotation(anno)
+            }
+            parkingAnnotationsByID = next
+        }
+
+        func applyParkingSelection(selectedParkingPointID: UUID?) {
+            guard let mapView else { return }
+            guard !isParkingPointDragging else { return }
+            if selectedParkingPointID == lastAppliedSelectedParkingPointID { return }
+            lastAppliedSelectedParkingPointID = selectedParkingPointID
+
+            isApplyingParkingSelection = true
+            defer { isApplyingParkingSelection = false }
+
+            let selectedParkingAnno = mapView.selectedAnnotations.first(where: { $0 is ParkingPointAnnotation })
+
+            guard let id = selectedParkingPointID else {
+                if let a = selectedParkingAnno {
+                    mapView.deselectAnnotation(a, animated: true)
+                }
+                return
+            }
+
+            if let current = selectedParkingAnno as? ParkingPointAnnotation, current.pointID == id {
+                return
+            }
+
+            if let a = selectedParkingAnno {
+                mapView.deselectAnnotation(a, animated: true)
+            }
+            if let target = parkingAnnotationsByID[id] {
+                mapView.selectAnnotation(target, animated: true)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            if isApplyingParkingSelection { return }
+            if let anno = view.annotation as? ParkingPointAnnotation {
+                parent.onSelectParkingPoint(anno.pointID)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, didDeselect view: MKAnnotationView) {
+            if isApplyingParkingSelection { return }
+            if view.annotation is ParkingPointAnnotation {
+                parent.onSelectParkingPoint(nil)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView, didChange newState: MKAnnotationView.DragState, fromOldState oldState: MKAnnotationView.DragState) {
+            guard let anno = view.annotation as? ParkingPointAnnotation else { return }
+            if newState == .ending || newState == .canceling {
+                parent.onMoveParkingPoint(anno.pointID, anno.coordinate)
+                view.dragState = .none
+            }
+        }
+
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
-            nil
+            if annotation is MKUserLocation {
+                return nil
+            }
+            if let parking = annotation as? ParkingPointAnnotation {
+                let reuseID = "ParkingPointAnnotationView"
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MKMarkerAnnotationView) ?? MKMarkerAnnotationView(annotation: parking, reuseIdentifier: reuseID)
+                view.annotation = parking
+                view.canShowCallout = false
+                view.markerTintColor = UIColor.systemOrange
+                view.glyphText = "P"
+                view.titleVisibility = .visible
+                view.subtitleVisibility = .visible
+                view.isDraggable = false
+                view.centerOffset = CGPoint(x: 0, y: -10)
+                return view
+            }
+            return nil
         }
 
         func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
@@ -1012,6 +1269,11 @@ struct VignetteMapView: View {
     var routeOverlay: MKPolyline?
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
+    var parkingPoints: [ParkingPointRecord]
+    var parkingPointTitlePrefixesByID: [UUID: String]
+    var selectedParkingPointID: UUID?
+    var onSelectParkingPoint: (UUID?) -> Void
+    var onMoveParkingPoint: (UUID, CLLocationCoordinate2D) -> Void
     var routePriorityToken: UUID?
     var routePriorityAnchor: CLLocationCoordinate2D?
     var routeOverlayToken: UUID?
@@ -1022,7 +1284,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
                 .ignoresSafeArea()
 
             GeometryReader { geo in

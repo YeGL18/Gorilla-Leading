@@ -105,11 +105,3 @@ struct AnimatedBackground: View {
         .ignoresSafeArea()
     }
 }
-
-#Preview {
-    AnimatedBackground(clock: {
-        let c = AnimationClock()
-        c.start()
-        return c
-    }())
-}

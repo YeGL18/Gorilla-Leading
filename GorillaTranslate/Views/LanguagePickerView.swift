@@ -41,12 +41,3 @@ struct LanguagePickerView: View {
         .presentationDragIndicator(.visible)
     }
 }
-
-#Preview {
-    LanguagePickerView(
-        languages: Language.allCases,
-        selectedLanguage: .english,
-        onSelect: { _ in },
-        isPresented: .constant(true)
-    )
-}
