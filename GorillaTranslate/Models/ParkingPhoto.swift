@@ -29,6 +29,7 @@ class PhotoStorage: ObservableObject {
     private static let photosKey = "parking_photos_list"
 
     @Published var photos: [ParkingPhoto] = []
+    private var hasLoaded = false
 
     static var directoryURL: URL {
         let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -39,9 +40,16 @@ class PhotoStorage: ObservableObject {
         directoryURL.appendingPathComponent(fileName)
     }
 
-    init() {
-        Self.ensureDirectoryExists()
-        load()
+    init() {}
+
+    func prepare() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            Self.ensureDirectoryExists()
+            load()
+        }
     }
 
     static func ensureDirectoryExists() {

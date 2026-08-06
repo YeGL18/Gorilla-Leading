@@ -412,7 +412,7 @@ final class ParkingFloorStore: ObservableObject {
     static let defaultRadiusMeters: Double = 180
     static let defaultMetersPerFloor: Double = 3.0
 
-    static let shared = ParkingFloorStore()
+    nonisolated(unsafe) static let shared = ParkingFloorStore()
 
     @Published private(set) var lots: [ParkingLotRecord] = []
 
@@ -420,10 +420,19 @@ final class ParkingFloorStore: ObservableObject {
     private let defaults: UserDefaults
 
     let barometer = BarometerSessionManager()
+    private var hasLoaded = false
 
     init() {
         defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
-        load()
+    }
+
+    func prepare() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            load()
+        }
     }
 
     // TripPredictor place resolution helper

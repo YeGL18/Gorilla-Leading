@@ -23,9 +23,17 @@ class HistoryManager: ObservableObject {
     @Published var records: [TranslationRecord] = []
     
     private let storageKey = "translation_history"
+    private var hasLoaded = false
     
-    init() {
-        load()
+    init() {}
+    
+    func prepare() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            load()
+        }
     }
     
     func add(inputText: String, outputText: String, sourceLanguage: String, targetLanguage: String) {

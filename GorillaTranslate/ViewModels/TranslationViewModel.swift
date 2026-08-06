@@ -13,12 +13,20 @@ class TranslationViewModel: ObservableObject {
     
     private var session: LanguageModelSession?
     private var translateTask: Task<Void, Never>?
+    private var hasPrepared = false
     
-    init() {
-        checkModelAvailability()
+    init() {}
+    
+    func prepare() {
+        guard !hasPrepared else { return }
+        hasPrepared = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 200_000_000)
+            checkModelAvailability()
+        }
     }
     
-    func checkModelAvailability() {
+    private func checkModelAvailability() {
         let model = SystemLanguageModel.default
         
         switch model.availability {

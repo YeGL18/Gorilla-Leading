@@ -80,15 +80,23 @@ struct Destination: Identifiable, Codable, Equatable {
 }
 
 class DestinationManager: ObservableObject {
-    static let shared = DestinationManager()
+    nonisolated(unsafe) static let shared = DestinationManager()
 
     @Published var destinations: [Destination] = []
     @Published var selectedDestination: Destination?
 
     private let destinationsKey = "saved_destinations"
+    private var hasLoaded = false
 
-    init() {
-        loadDestinations()
+    init() {}
+
+    func prepare() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            loadDestinations()
+        }
     }
 
     // MARK: - Trip Predictor integration helpers

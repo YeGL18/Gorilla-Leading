@@ -240,6 +240,13 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 locationManager.startLocationServicesIfNeeded()
                 refreshVisitAndTimersForForeground()
+                viewModel.prepare()
+                sfxPlayer.prepare()
+                photoStorage.prepare()
+            }
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 200_000_000)
+                await historyManager.prepare()
             }
         }
         .onDisappear {

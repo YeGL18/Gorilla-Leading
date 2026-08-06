@@ -122,7 +122,7 @@ struct PendingTripPrediction: Identifiable, Equatable {
 // MARK: - TripPredictor (main ObservableObject)
 @MainActor
 final class TripPredictor: ObservableObject {
-    static let shared = TripPredictor()
+    nonisolated(unsafe) static let shared = TripPredictor()
 
     @Published var placeCatalog: [String: PlaceInfo] = [:]
     @Published var patterns: [String: TripPatternRecord] = [:]
@@ -137,9 +137,17 @@ final class TripPredictor: ObservableObject {
     private let historyKey = "trip_predict_recent_history_v1"
 
     private let maxHistoryLength = 10
+    private var hasLoaded = false
 
-    private init() {
-        loadState()
+    private init() {}
+
+    func prepare() {
+        guard !hasLoaded else { return }
+        hasLoaded = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            loadState()
+        }
     }
 
     // MARK: - Public APIs

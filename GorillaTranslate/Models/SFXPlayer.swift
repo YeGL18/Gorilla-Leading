@@ -14,12 +14,20 @@ final class SFXPlayer: ObservableObject {
     private var accelerationFadeInTimer: Timer?
     
     private let baseVolume: Float = 1.0
+    private var hasPrepared = false
     
-    init() {
-        configureAudioSession()
-        stationaryPlayer = loadPlayer(name: "sfx_enter_stationary", volume: baseVolume)
-        drivingPlayer = loadPlayer(name: "sfx_enter_driving", volume: baseVolume)
-        accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: min(1.0, baseVolume * 0.95))
+    init() {}
+    
+    func prepare() {
+        guard !hasPrepared else { return }
+        hasPrepared = true
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 300_000_000)
+            configureAudioSession()
+            stationaryPlayer = loadPlayer(name: "sfx_enter_stationary", volume: baseVolume)
+            drivingPlayer = loadPlayer(name: "sfx_enter_driving", volume: baseVolume)
+            accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: min(1.0, baseVolume * 0.95))
+        }
     }
     
     func playEnterStationary() {
