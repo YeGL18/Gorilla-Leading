@@ -237,14 +237,20 @@ struct ContentView: View {
             animationClock.start()
             timePhaseManager.start()
             UIApplication.shared.isIdleTimerDisabled = true
-            refreshVisitAndTimersForForeground()
+            DispatchQueue.main.async {
+                locationManager.startLocationServicesIfNeeded()
+                refreshVisitAndTimersForForeground()
+            }
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
-                refreshVisitAndTimersForForeground()
+                DispatchQueue.main.async {
+                    locationManager.startLocationServicesIfNeeded()
+                    refreshVisitAndTimersForForeground()
+                }
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
@@ -1210,7 +1216,12 @@ struct ContentView: View {
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
-                            .glassEffect(.regular.tint(Color(hex: "46ADB8").opacity(0.8)), in: .capsule)
+                            .glassEffect(.regular, in: .capsule)
+                            .background(
+                                Color(hex: "46ADB8").opacity(0.36)
+                                    .clipShape(Capsule())
+                                    .allowsHitTesting(false)
+                            )
                     }
                     .opacity(timerRunning ? 1.0 : 0.5)
 
@@ -1282,7 +1293,12 @@ struct ContentView: View {
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
-                            .glassEffect(.regular.tint(Color(hex: "BCBA1E").opacity(0.8)), in: .capsule)
+                            .glassEffect(.regular, in: .capsule)
+                            .background(
+                                Color(hex: "BCBA1E").opacity(0.36)
+                                    .clipShape(Capsule())
+                                    .allowsHitTesting(false)
+                            )
                     }
                     .opacity(showingRoute ? 1.0 : 0.5)
                 }

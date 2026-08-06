@@ -8,6 +8,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var recentQualities: [GPSQuality] = []
     private let requiredSamples = 5
     private var lastGeocodeLocation: CLLocation?
+    private var locationServicesStarted = false
 
     enum GPSQuality {
         case good
@@ -73,13 +74,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
+        loadVisits()
+    }
+
+    func startLocationServicesIfNeeded() {
+        guard !locationServicesStarted else { return }
+        locationServicesStarted = true
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
         manager.startMonitoringVisits()
         if CLLocationManager.headingAvailable() {
             manager.startUpdatingHeading()
         }
-        loadVisits()
     }
 
     private func quality(from accuracy: CLLocationAccuracy) -> GPSQuality {

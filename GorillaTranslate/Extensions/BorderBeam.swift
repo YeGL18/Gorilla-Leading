@@ -335,4 +335,21 @@ extension View {
                                     enableRotate: enableRotate,
                                     enablePulse: enablePulse))
     }
+
+    @ViewBuilder
+    func safeGlassEffect<S: Shape>(tint tintColor: Color? = nil, in shape: S) -> some View {
+        if let tint = tintColor {
+            ZStack {
+                self
+                    .glassEffect(.regular, in: shape)
+                tint
+                    .opacity(0.45)
+                    .mask(shape.fill())
+                    .allowsHitTesting(false)
+            }
+            .compositingGroup()
+        } else {
+            self.glassEffect(.regular, in: shape)
+        }
+    }
 }

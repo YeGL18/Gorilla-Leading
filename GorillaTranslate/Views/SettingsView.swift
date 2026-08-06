@@ -1637,7 +1637,12 @@ struct AddDestinationView: View {
                                     .foregroundStyle(.white)
                                     .padding(.horizontal, 16)
                                     .padding(.vertical, 11)
-                                    .glassEffect(.regular.tint(Color(hex: "46ADB8")), in: .capsule)
+                                    .glassEffect(.regular, in: .capsule)
+                                    .background(
+                                        Color(hex: "46ADB8").opacity(0.45)
+                                            .clipShape(Capsule())
+                                            .allowsHitTesting(false)
+                                    )
                             }
                             .transition(.scale.combined(with: .opacity))
                         }
