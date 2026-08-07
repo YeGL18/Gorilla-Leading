@@ -1225,12 +1225,16 @@ struct ContentView: View {
                             .frame(width: 126, height: 54)
                             .glassEffect(.regular, in: .capsule)
                             .background(
-                                Color(hex: "46ADB8").opacity(0.36)
+                                Color(hex: "46ADB8").opacity(
+                                    timerRunning
+                                        ? (colorScheme == .dark ? 0.68 : 0.78)
+                                        : (colorScheme == .dark ? 0.32 : 0.26)
+                                )
                                     .clipShape(Capsule())
                                     .allowsHitTesting(false)
                             )
                     }
-                    .opacity(timerRunning ? 1.0 : 0.5)
+                    .opacity(timerRunning ? 1.0 : 0.7)
 
                     Button(action: {
                         if showingRoute {
@@ -1302,12 +1306,16 @@ struct ContentView: View {
                             .frame(width: 126, height: 54)
                             .glassEffect(.regular, in: .capsule)
                             .background(
-                                Color(hex: "BCBA1E").opacity(0.36)
+                                Color(hex: "BCBA1E").opacity(
+                                    showingRoute
+                                        ? (colorScheme == .dark ? 0.68 : 0.78)
+                                        : (colorScheme == .dark ? 0.32 : 0.26)
+                                )
                                     .clipShape(Capsule())
                                     .allowsHitTesting(false)
                             )
                     }
-                    .opacity(showingRoute ? 1.0 : 0.5)
+                    .opacity(showingRoute ? 1.0 : 0.7)
                 }
             }
             .padding(.horizontal, 20)
