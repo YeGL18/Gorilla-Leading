@@ -9,8 +9,26 @@ struct ParkingPhoto: Identifiable, Codable {
     let offsetX: Double
     let offsetY: Double
 
+    // In-memory image cache — avoids disk reads on every SwiftUI body pass
+    private static var imageCache: [String: UIImage] = [:]
+
     var image: UIImage? {
-        UIImage(contentsOfFile: PhotoStorage.fileURL(for: fileName).path)
+        if let cached = Self.imageCache[fileName] {
+            return cached
+        }
+        guard let loaded = UIImage(contentsOfFile: PhotoStorage.fileURL(for: fileName).path) else {
+            return nil
+        }
+        Self.imageCache[fileName] = loaded
+        return loaded
+    }
+
+    static func evictCache(for fileName: String) {
+        imageCache.removeValue(forKey: fileName)
+    }
+
+    static func evictAllCache() {
+        imageCache.removeAll()
     }
 
     init(fileName: String, rotation: Double, offsetX: Double, offsetY: Double) {
@@ -83,6 +101,7 @@ class PhotoStorage: ObservableObject {
         for photo in photos {
             let url = Self.fileURL(for: photo.fileName)
             try? fm.removeItem(at: url)
+            ParkingPhoto.evictCache(for: photo.fileName)
         }
         photos = []
         saveToDefaults()
@@ -92,6 +111,7 @@ class PhotoStorage: ObservableObject {
         let fm = FileManager.default
         let url = Self.fileURL(for: photo.fileName)
         try? fm.removeItem(at: url)
+        ParkingPhoto.evictCache(for: photo.fileName)
         photos.removeAll { $0.id == photo.id }
         saveToDefaults()
     }

@@ -100,11 +100,24 @@ struct ContentView: View {
     @State private var timerRunning = false
     @State private var animatingPhotoID: UUID?
     @State private var animatingPhotoImage: UIImage?
+    @State private var animatingPhotoPhase: Int = 0  // 0 = full size, 1 = shrunk to thumbnail
+    @State private var animatingPhotoOffsetX: CGFloat = 0
+    @State private var animatingPhotoOffsetY: CGFloat = 0
     @State private var isCapturing = false
     @State private var showingExpandedPhotos = false
     @State private var selectedPhotoIndex: Int?
     @State private var showDeleteButton = false
     @State private var isCapturePressed = false
+    // TILT center-lift animation state (per photo index)
+    @State private var tiltAngleX: [Int: Double] = [:]
+    @State private var tiltAngleY: [Int: Double] = [:]
+    // Smoky Dissolve delete animation state
+    @State private var deletingPhotoID: UUID? = nil
+    @State private var deletingIndex: Int? = nil       // tilt lookup only
+    @State private var deletingImage: UIImage? = nil    // snapshot — survives disk/cache eviction
+    @State private var deleteBlur: CGFloat = 0
+    @State private var deleteOpacity: Double = 1.0
+    @State private var deleteOffsetY: CGFloat = 0
     @State private var showingAddDestination = false
     @State private var showingRoute = false
     @State private var routePolyline: MKPolyline?
@@ -263,9 +276,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
             if let photo = notification.object as? UIImage {
                 guard photoStorage.photos.count < PhotoStorage.maxPhotos else { return }
-                if let saved = photoStorage.savePhoto(photo) {
-                    startCaptureAnimation(photo: photo)
-                }
+                startCaptureAnimation(photo: photo)
             }
         }
         .onReceive(locationManager.$lastLocation) { location in
@@ -364,14 +375,8 @@ struct ContentView: View {
             }
         }
         .onChange(of: selectedPhotoIndex) { _, newIndex in
-            if newIndex != nil {
-                showDeleteButton = false
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        showDeleteButton = true
-                    }
-                }
-            } else {
+            // Hide delete button on deselect — show is handled by tap/drag/dissolve handlers
+            if newIndex == nil {
                 showDeleteButton = false
             }
         }
@@ -391,6 +396,17 @@ struct ContentView: View {
                         roseLoopSpeed = 8.0
                         withAnimation(.easeInOut(duration: 0.45)) {
                             addressRevealProgress = 1
+                            // Force address display for 5s when it first loads
+                            if showSpeedInfo {
+                                showSpeedInfo = false
+                                stopRandomInfoTimer()
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showSpeedInfo = true
+                                    }
+                                    startRandomInfoTimer()
+                                }
+                            }
                         }
                     } else {
                         roseLoopSpeed = 1.0
@@ -1394,6 +1410,11 @@ struct ContentView: View {
                                     timeAdjustText = nil
                                     showingExpandedPhotos = false
                                     selectedPhotoIndex = nil
+                                    tiltAngleX = [:]
+                                    tiltAngleY = [:]
+                                    deletingPhotoID = nil
+                                    deletingIndex = nil
+                                    deletingImage = nil
                                 }
                             }) {
                                 Image(systemName: "chevron.left.circle.fill")
@@ -1577,6 +1598,11 @@ struct ContentView: View {
                             timeAdjustText = nil
                             showingExpandedPhotos = false
                             selectedPhotoIndex = nil
+                            tiltAngleX = [:]
+                            tiltAngleY = [:]
+                            deletingPhotoID = nil
+                            deletingIndex = nil
+                            deletingImage = nil
                         }
                     }) {
                         Image(systemName: "chevron.left.circle.fill")
@@ -2327,13 +2353,34 @@ struct ContentView: View {
     }
 
     private func startCaptureAnimation(photo: UIImage) {
-        let tempID = UUID()
+        // Save photo first so we know its exact position (random offset)
+        guard let saved = photoStorage.savePhoto(photo) else { return }
+        let tempID = saved.id
         animatingPhotoID = tempID
         animatingPhotoImage = photo
+        animatingPhotoPhase = 0
+        // Compute exact thumbnail offset (matches CameraPhotoItem compact layout)
+        let thumbOX: CGFloat = -(338.0 / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
+        let thumbOY: CGFloat = -(190.0 / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
+        animatingPhotoOffsetX = 0
+        animatingPhotoOffsetY = 0
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        // Start shrink animation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            withAnimation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.45)) {
+                animatingPhotoPhase = 1
+                animatingPhotoOffsetX = thumbOX
+                animatingPhotoOffsetY = thumbOY
+            }
+        }
+
+        // Clean up overlay after animation settles
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             animatingPhotoID = nil
             animatingPhotoImage = nil
+            animatingPhotoPhase = 0
+            animatingPhotoOffsetX = 0
+            animatingPhotoOffsetY = 0
         }
     }
 
@@ -2524,18 +2571,10 @@ struct ContentView: View {
             cameraButton
 
             // Delete button on selected photo (positioned at photo's top-left corner)
-            if let idx = selectedPhotoIndex, idx < photoStorage.photos.count, showDeleteButton {
+            if let idx = selectedPhotoIndex, idx < photoStorage.photos.count,
+               showDeleteButton, deletingPhotoID == nil {
                 Button {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
-                        let photo = photoStorage.photos[idx]
-                        photoStorage.deletePhoto(photo)
-                        if photoStorage.photos.isEmpty {
-                            selectedPhotoIndex = nil
-                            showingExpandedPhotos = false
-                        } else if idx >= photoStorage.photos.count {
-                            selectedPhotoIndex = photoStorage.photos.count - 1
-                        }
-                    }
+                    triggerSmokyDissolve(index: idx)
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .bold))
@@ -2565,25 +2604,27 @@ struct ContentView: View {
     }
 
     private var cameraDimOverlay: some View {
-        Group {
-            if showingExpandedPhotos {
-                let dimOpacity = selectedPhotoIndex != nil ? 0.65 : 0.45
-                Color.black.opacity(dimOpacity)
-                    .frame(width: 338, height: 190)
-                    .clipShape(RoundedRectangle(cornerRadius: 37))
-                    .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
-                    .onTapGesture {
-                        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                            if selectedPhotoIndex != nil {
-                                selectedPhotoIndex = nil
-                            } else {
-                                showingExpandedPhotos = false
-                                selectedPhotoIndex = nil
-                            }
-                        }
+        let dimOpacity = showingExpandedPhotos ? (selectedPhotoIndex != nil ? 0.65 : 0.45) : 0
+        return Color.black.opacity(dimOpacity)
+            .frame(width: 338, height: 190)
+            .clipShape(RoundedRectangle(cornerRadius: 37))
+            .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
+            .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                guard showingExpandedPhotos else { return }
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                    if let idx = selectedPhotoIndex {
+                        resetTilt(index: idx)
+                        selectedPhotoIndex = nil
+                    } else {
+                        showingExpandedPhotos = false
+                        selectedPhotoIndex = nil
                     }
+                    tiltAngleX = [:]
+                    tiltAngleY = [:]
+                }
             }
-        }
     }
 
     private var cameraPhotoStack: some View {
@@ -2591,21 +2632,50 @@ struct ContentView: View {
         let count = photos.count
         return ZStack {
             ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
-                CameraPhotoItem(
-                    photo: photo,
-                    index: index,
-                    totalCount: count,
-                    isExpanded: showingExpandedPhotos,
-                    isSelected: selectedPhotoIndex == index
-                )
-                .onTapGesture {
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
-                        if showingExpandedPhotos {
-                            selectedPhotoIndex = (selectedPhotoIndex == index) ? nil : index
+                // Skip by ID — an index-based check would wrongly hide the next
+                // photo when indices shift after the deleted one is removed
+                if photo.id != deletingPhotoID {
+                    CameraPhotoItem(
+                        photo: photo,
+                        index: index,
+                        totalCount: count,
+                        isExpanded: showingExpandedPhotos,
+                        isSelected: selectedPhotoIndex == index,
+                        tiltX: tiltAngleX[index] ?? 0,
+                        tiltY: tiltAngleY[index] ?? 0
+                    )
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                            if showingExpandedPhotos {
+                                let wasSelected = selectedPhotoIndex == index
+                                if wasSelected {
+                                    // Deselect — reset tilt
+                                    resetTilt(index: index)
+                                    selectedPhotoIndex = nil
+                                } else {
+                                    // Select new — reset old, trigger TILT on new
+                                    if let oldIdx = selectedPhotoIndex {
+                                        resetTilt(index: oldIdx)
+                                    }
+                                    selectedPhotoIndex = index
+                                    triggerTiltEffect(index: index)
+                                    // Show delete button after selection settles
+                                    showDeleteButton = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                            if selectedPhotoIndex == index, deletingPhotoID == nil {
+                                                showDeleteButton = true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
+            // Smoky Dissolve overlay — inside the same ZStack/frame so positioning matches exactly
+            cameraDissolveOverlay
         }
         .frame(width: 338, height: 190, alignment: .center)
         .gesture(
@@ -2615,19 +2685,34 @@ struct ContentView: View {
                     let horizontal = value.translation.width
                     guard abs(horizontal) > abs(value.translation.height) else { return }
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                        // Reset tilt on old photo
+                        if let cur = selectedPhotoIndex {
+                            resetTilt(index: cur)
+                        }
                         if horizontal < 0 {
-                            // Swipe left → next photo (wraps to first)
                             if let cur = selectedPhotoIndex {
                                 selectedPhotoIndex = (cur + 1) % photos.count
                             } else {
                                 selectedPhotoIndex = 0
                             }
                         } else {
-                            // Swipe right → previous photo (wraps to last)
                             if let cur = selectedPhotoIndex {
                                 selectedPhotoIndex = (cur - 1 + photos.count) % photos.count
                             } else {
                                 selectedPhotoIndex = photos.count - 1
+                            }
+                        }
+                        // Trigger TILT on new photo
+                        if let newIdx = selectedPhotoIndex {
+                            triggerTiltEffect(index: newIdx)
+                            // Show delete button after selection settles
+                            showDeleteButton = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    if selectedPhotoIndex == newIdx, deletingPhotoID == nil {
+                                        showDeleteButton = true
+                                    }
+                                }
                             }
                         }
                     }
@@ -2635,17 +2720,60 @@ struct ContentView: View {
         )
     }
 
+    // MARK: - Smoky Dissolve overlay — matches selected photo exactly, including in-flight TILT
+    private var cameraDissolveOverlay: some View {
+        Group {
+            if deletingPhotoID != nil, let img = deletingImage {
+                let expandedH: CGFloat = 32 * 3.8
+                let selectedScale: CGFloat = (190 - 24) / expandedH
+                let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
+                let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
+                let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003
+                let delTiltShadow: CGFloat = abs(delTiltX) * 0.5
+                let delTiltLiftY: CGFloat = -abs(delTiltX) * 0.3
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 46 * 3.8, height: expandedH)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(1.0), lineWidth: 2.0 / selectedScale)
+                    )
+                    // Same TILT transform as CameraPhotoItem — seamless handoff
+                    .shadow(color: .black.opacity(0.4), radius: delTiltShadow, y: delTiltShadow * 0.5)
+                    .scaleEffect(delTiltScale)
+                    .offset(y: delTiltLiftY)
+                    .rotation3DEffect(.degrees(delTiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+                    .rotation3DEffect(.degrees(delTiltY), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                    .scaleEffect(selectedScale)
+                    .blur(radius: deleteBlur)
+                    .opacity(deleteOpacity)
+                    .offset(y: deleteOffsetY)
+                    .allowsHitTesting(false)
+                    .zIndex(200)
+            }
+        }
+    }
+
     private var captureAnimationOverlay: some View {
         Group {
             if animatingPhotoID != nil, let img = animatingPhotoImage {
+                let isShrunk = animatingPhotoPhase == 1
+                let cr: CGFloat = isShrunk ? 5 : 37
+                let sc: CGFloat = isShrunk ? 46.0 / 338.0 : 1.0
+                let lw: CGFloat = isShrunk ? 1.0 / (46.0 / 338.0) : 4
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
                     .frame(width: 338, height: 190)
-                    .clipShape(RoundedRectangle(cornerRadius: 37))
-                    .scaleEffect(0.2)
-                    .offset(x: -130, y: -70)
-                    .rotationEffect(.degrees(photoStorage.photos.last?.rotation ?? 0))
+                    .clipShape(RoundedRectangle(cornerRadius: cr))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cr)
+                            .stroke(Color.white.opacity(0.8), lineWidth: lw)
+                    )
+                    .scaleEffect(sc)
+                    .offset(x: animatingPhotoOffsetX, y: animatingPhotoOffsetY)
                     .allowsHitTesting(false)
                     .zIndex(100)
             }
@@ -2907,6 +3035,102 @@ struct ContentView: View {
                 isVoiceRecording = true
             }
             triggerVoiceStartEffect()
+        }
+    }
+
+    // MARK: - TILT center-lift trigger
+    /// Triggers a center-lift animation on the selected photo.
+    /// Phase 1: center rises sharply (like grabbing the middle of a towel).
+    /// Phase 2: corners catch up — paper settles flat with a bounce.
+    private func triggerTiltEffect(index: Int) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.4)) {
+            tiltAngleX[index] = -18
+            tiltAngleY[index] = Double.random(in: -8...8)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
+                self.tiltAngleX[index] = 0
+                self.tiltAngleY[index] = 0
+            }
+        }
+    }
+
+    private func resetTilt(index: Int) {
+        tiltAngleX[index] = 0
+        tiltAngleY[index] = 0
+    }
+
+    // MARK: - Smoky Dissolve delete — dissolve → 0.5s → remove + auto-select next
+    private func triggerSmokyDissolve(index: Int) {
+        guard index < photoStorage.photos.count else { return }
+        let photo = photoStorage.photos[index]
+        let targetID = photo.id
+        // Snapshot the image — deletePhoto evicts cache AND deletes file
+        deletingImage = photo.image
+        deletingPhotoID = targetID
+        deletingIndex = index
+        showDeleteButton = false
+        // Do NOT reset tilt — the overlay reads live values and settles naturally
+
+        // Start dissolve animation
+        withAnimation(.easeOut(duration: 0.85)) {
+            deleteBlur = 20
+            deleteOpacity = 0
+            deleteOffsetY = 25
+        }
+
+        // After 0.5s — dissolve is ~87% done (opacity ≈ 0.13)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                // Remove photo from storage
+                photoStorage.deletePhoto(photo)
+                // Re-index tilt dicts
+                let idx = index
+                var newTiltAngleX: [Int: Double] = [:]
+                var newTiltAngleY: [Int: Double] = [:]
+                for (k, v) in tiltAngleX where k < idx {
+                    newTiltAngleX[k] = v
+                }
+                for (k, v) in tiltAngleX where k > idx {
+                    newTiltAngleX[k - 1] = v
+                }
+                for (k, v) in tiltAngleY where k < idx {
+                    newTiltAngleY[k] = v
+                }
+                for (k, v) in tiltAngleY where k > idx {
+                    newTiltAngleY[k - 1] = v
+                }
+                tiltAngleX = newTiltAngleX
+                tiltAngleY = newTiltAngleY
+                // Auto-select the next photo (the one that shifts into the deleted slot)
+                if photoStorage.photos.isEmpty {
+                    selectedPhotoIndex = nil
+                    showingExpandedPhotos = false
+                } else {
+                    selectedPhotoIndex = min(idx, photoStorage.photos.count - 1)
+                }
+            }
+            // TILT flourish on the auto-selected photo
+            if !photoStorage.photos.isEmpty {
+                let newIdx = min(index, photoStorage.photos.count - 1)
+                triggerTiltEffect(index: newIdx)
+                // Show delete button after selection settles
+                showDeleteButton = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        if selectedPhotoIndex != nil, deletingPhotoID == nil {
+                            showDeleteButton = true
+                        }
+                    }
+                }
+            }
+            // Clean up dissolve state
+            deletingPhotoID = nil
+            deletingIndex = nil
+            deletingImage = nil
+            deleteBlur = 0
+            deleteOpacity = 1.0
+            deleteOffsetY = 0
         }
     }
 }
@@ -3184,6 +3408,8 @@ struct CameraPhotoItem: View {
     let totalCount: Int
     let isExpanded: Bool
     let isSelected: Bool
+    var tiltX: Double = 0
+    var tiltY: Double = 0
 
     private let baseW: CGFloat = 46
     private let baseH: CGFloat = 32
@@ -3191,6 +3417,17 @@ struct CameraPhotoItem: View {
     private let expandedH: CGFloat = 32 * 3.8
     private let thumbOffsetX: CGFloat = -(338 / 2 - 20 - 46 / 2)
     private let thumbOffsetY: CGFloat = -(190 / 2 - 18 - 32 / 2)
+
+    // TILT helpers — center-lift effect
+    private var tiltScale: CGFloat {
+        1.0 + abs(tiltX) * 0.003
+    }
+    private var tiltShadow: CGFloat {
+        abs(tiltX) * 0.5
+    }
+    private var tiltLiftY: CGFloat {
+        -abs(tiltX) * 0.3
+    }
 
     var body: some View {
         if let img = photo.image {
@@ -3240,6 +3477,13 @@ struct CameraPhotoItem: View {
                     RoundedRectangle(cornerRadius: cr)
                         .stroke(Color.white.opacity(borderOpacity), lineWidth: borderW)
                 )
+                // Center-lift TILT: shadow grows, scale rises, slight upward offset
+                .shadow(color: .black.opacity(0.4), radius: tiltShadow, y: tiltShadow * 0.5)
+                .scaleEffect(tiltScale)
+                .offset(y: tiltLiftY)
+                .rotation3DEffect(.degrees(tiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+                .rotation3DEffect(.degrees(tiltY), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                // Existing transforms
                 .rotationEffect(.degrees(finalRotation))
                 .offset(x: finalOffsetX, y: finalOffsetY)
                 .scaleEffect(photoScale)

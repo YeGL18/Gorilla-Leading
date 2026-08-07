@@ -617,37 +617,37 @@ struct MapView: UIViewRepresentable {
             }
             
             if softIsDecelerating {
+                // 减速阶段: 2秒内直线减速到目标
                 softDecelerationProgress += frameInterval / 2.0
                 let t = min(softDecelerationProgress, 1.0)
+                let ease = 1 - (1 - t) * (1 - t)  // ease-out: 1-(1-t)^2
 
-                if t < 1.0 {
-                    let ease = 1 - (1 - t) * (1 - t)
-                    let remainingLat = target.latitude - currentCenter.latitude
-                    let remainingLon = target.longitude - currentCenter.longitude
-                    let lat = currentCenter.latitude + remainingLat * ease
-                    let lon = currentCenter.longitude + remainingLon * ease
+                // 当前速度 = 剩余距离 * ease
+                let remainingLat = target.latitude - currentCenter.latitude
+                let remainingLon = target.longitude - currentCenter.longitude
 
-                    mapView.allowCameraChange = true
-                    let camera = mapView.camera
-                    camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                    camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-                    if parent.followHeading {
-                        let targetHeading = parent.locationManager.heading
-                        let currentHeading = camera.heading
-                        let headingDiff = targetHeading - currentHeading
-                        let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
-                        camera.heading = currentHeading + normalizedDiff * ease
-                    }
-                    mapView.setCamera(camera, animated: false)
-                    mapView.allowCameraChange = false
-                } else {
+                let lat = currentCenter.latitude + remainingLat * ease
+                let lon = currentCenter.longitude + remainingLon * ease
+
+                mapView.allowCameraChange = true
+                let camera = mapView.camera
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+                if parent.followHeading {
+                    let targetHeading = parent.locationManager.heading
+                    let currentHeading = camera.heading
+                    let headingDiff = targetHeading - currentHeading
+                    let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
+                    camera.heading = currentHeading + normalizedDiff * ease
+                }
+                mapView.setCamera(camera, animated: false)
+                mapView.allowCameraChange = false
+
+                if t >= 1.0 {
+                    smoothPanTimer?.invalidate()
+                    smoothPanTimer = nil
                     softIsDecelerating = false
                     softDecelerationProgress = 0
-                    if !parent.followHeading {
-                        smoothPanTimer?.invalidate()
-                        smoothPanTimer = nil
-                        return
-                    }
                 }
             } else if parent.followHeading {
                 mapView.allowCameraChange = true
