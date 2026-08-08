@@ -842,7 +842,7 @@ struct ContentView: View {
         let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isCapsuleExpanded ? 182 : 44)
         let capsuleHeight: CGFloat = {
             if isParkingMemoryExpanded {
-                return isLandscape ? 341 : 495
+                return isLandscape ? 296 : 495
             }
             let raw: CGFloat
             if capsuleDragState.active {
@@ -864,7 +864,7 @@ struct ContentView: View {
         let dragProgress: CGFloat = isParkingMemoryExpanded ? 1.0 : max(0, min((capsuleHeight - 44) / 138, 1))
         let capsuleWidth: CGFloat = {
             if isLandscape {
-                if isParkingMemoryExpanded { return 560 }
+                if isParkingMemoryExpanded { return 525 }
                 if isCapsuleExpanded { return 370 }
             }
             return isCapsuleExpanded ? 370 : (270 + 100 * dragProgress)
@@ -1396,7 +1396,7 @@ struct ContentView: View {
         VStack(spacing: 0) {
             if isLandscape {
                 // 横屏：标题行横跨顶部，下方左相机右按钮
-                VStack(spacing: 20) {
+                VStack(spacing: 10) {
                     // 顶部：返回 + 泊車記憶 + 入場時間 + 加减按钮（横跨全宽）
                     HStack {
                         Button(action: {
@@ -1423,7 +1423,13 @@ struct ContentView: View {
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                         Spacer()
-                        // 入場時間 + 加减按钮
+                        // 入場時間 + 调整文字 + 加减按钮
+                        if let text = timeAdjustText {
+                            Text(text)
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                                .transition(.opacity)
+                        }
                         HStack(spacing: 4) {
                             Text("入場時間")
                                 .font(.system(size: 12, weight: .bold))
@@ -1468,26 +1474,20 @@ struct ContentView: View {
                                     .frame(width: 28, height: 28)
                                     .glassEffect(.regular, in: .rect(cornerRadius: 8))
                             }
-                            if let text = timeAdjustText {
-                                Text(text)
-                                    .font(.system(size: 11, weight: .bold))
-                                    .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                                    .transition(.opacity)
-                            }
                         }
                     }
                     .padding(.horizontal, 20)
-                    .padding(.top, 20)
+                    .padding(.top, 18)
 
                     // 下方：左相机 + 右按钮
-                    HStack(alignment: .top, spacing: 0) {
+                    HStack(alignment: .bottom, spacing: 20) {
                         // 左边：相机预览
                         VStack(spacing: 0) {
                             cameraSection
                         }
-                        .frame(width: 370)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 20)
+                        .frame(width: isLandscape ? 304 : 370)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
 
                         // 右边：离场 + 入场计时
                         VStack(spacing: 16) {
@@ -1575,13 +1575,12 @@ struct ContentView: View {
                             }
                             }
                         }
-                        .frame(width: 190)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
                         .padding(.bottom, 20)
+                        .frame(width: isLandscape ? 161 : 190)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
                     }
                 }
                 .padding(.horizontal, 20)
-                .padding(.bottom, 20)
             } else {
                 // 竖屏：原有布局
                 // Back button + Title
@@ -2358,8 +2357,10 @@ struct ContentView: View {
         animatingPhotoImage = photo
         animatingPhotoPhase = 0
         // Compute exact thumbnail offset (matches CameraPhotoItem compact layout)
-        let thumbOX: CGFloat = -(338.0 / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
-        let thumbOY: CGFloat = -(235.0 / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
+        let camW: CGFloat = isLandscape ? 304.0 : 338.0
+        let camH: CGFloat = isLandscape ? 211.0 : 235.0
+        let thumbOX: CGFloat = -(camW / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
+        let thumbOY: CGFloat = -(camH / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
         animatingPhotoOffsetX = 0
         animatingPhotoOffsetY = 0
 
@@ -2554,12 +2555,15 @@ struct ContentView: View {
     
     // MARK: - Camera Section
     private var cameraSection: some View {
-        ZStack(alignment: .topLeading) {
+        let camW: CGFloat = isLandscape ? 304 : 338
+        let camH: CGFloat = isLandscape ? 211 : 235
+        let camCR: CGFloat = isLandscape ? 33 : 37
+        return ZStack(alignment: .topLeading) {
             CameraPreviewView(isLandscape: isLandscape)
-                .frame(width: 338, height: 235)
-                .clipShape(RoundedRectangle(cornerRadius: 37))
+                .frame(width: camW, height: camH)
+                .clipShape(RoundedRectangle(cornerRadius: camCR))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 37)
+                    RoundedRectangle(cornerRadius: camCR)
                         .stroke(Color.white.opacity(0.8), lineWidth: 4)
                 )
 
@@ -2581,14 +2585,14 @@ struct ContentView: View {
                         .background(.ultraThinMaterial, in: .circle)
                         .glassEffect(.regular, in: .circle)
                 }
-                .position(x: 72, y: 34)
+                .position(x: 40, y: 34)
                 .transition(.opacity)
             }
 
             // Thumbnail-only tap area for expanding (top-left, matching thumb position)
             if !showingExpandedPhotos {
                 Color.clear
-                    .frame(width: 80, height: 70)
+                    .frame(width: isLandscape ? 72 : 80, height: isLandscape ? 63 : 70)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
@@ -2598,14 +2602,17 @@ struct ContentView: View {
                     }
             }
         }
-        .frame(width: 338, height: 235)
+        .frame(width: camW, height: camH)
     }
 
     private var cameraDimOverlay: some View {
         let dimOpacity = showingExpandedPhotos ? (selectedPhotoIndex != nil ? 0.65 : 0.45) : 0
+        let camW: CGFloat = isLandscape ? 304 : 338
+        let camH: CGFloat = isLandscape ? 211 : 235
+        let camCR: CGFloat = isLandscape ? 33 : 37
         return Color.black.opacity(dimOpacity)
-            .frame(width: 338, height: 235)
-            .clipShape(RoundedRectangle(cornerRadius: 37))
+            .frame(width: camW, height: camH)
+            .clipShape(RoundedRectangle(cornerRadius: camCR))
             .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
             .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
             .contentShape(Rectangle())
@@ -2640,7 +2647,8 @@ struct ContentView: View {
                         isExpanded: showingExpandedPhotos,
                         isSelected: selectedPhotoIndex == index,
                         tiltX: tiltAngleX[index] ?? 0,
-                        tiltY: tiltAngleY[index] ?? 0
+                        tiltY: tiltAngleY[index] ?? 0,
+                        isLandscape: isLandscape
                     )
                     .onTapGesture {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
@@ -2675,7 +2683,7 @@ struct ContentView: View {
             // Smoky Dissolve overlay — inside the same ZStack/frame so positioning matches exactly
             cameraDissolveOverlay
         }
-        .frame(width: 338, height: 235, alignment: .center)
+        .frame(width: isLandscape ? 304 : 338, height: isLandscape ? 211 : 235, alignment: .center)
         .gesture(
             DragGesture(minimumDistance: 30)
                 .onEnded { value in
@@ -2723,7 +2731,7 @@ struct ContentView: View {
         Group {
             if deletingPhotoID != nil, let img = deletingImage {
                 let expandedH: CGFloat = 32 * 3.8
-                let selectedScale: CGFloat = (235 - 24) / expandedH
+                let selectedScale: CGFloat = ((isLandscape ? 211 : 235) - 24) / expandedH
                 let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
                 let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
                 let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003
@@ -2755,16 +2763,18 @@ struct ContentView: View {
     }
 
     private var captureAnimationOverlay: some View {
-        Group {
+        let camW: CGFloat = isLandscape ? 304 : 338
+        let camH: CGFloat = isLandscape ? 211 : 235
+        return Group {
             if animatingPhotoID != nil, let img = animatingPhotoImage {
                 let isShrunk = animatingPhotoPhase == 1
-                let cr: CGFloat = isShrunk ? 5 : 37
-                let sc: CGFloat = isShrunk ? 46.0 / 338.0 : 1.0
-                let lw: CGFloat = isShrunk ? 1.0 / (46.0 / 338.0) : 4
+                let cr: CGFloat = isShrunk ? 5 : (isLandscape ? 33 : 37)
+                let sc: CGFloat = isShrunk ? 46.0 / camW : 1.0
+                let lw: CGFloat = isShrunk ? 1.0 / (46.0 / camW) : 4
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 338, height: 235)
+                    .frame(width: camW, height: camH)
                     .clipShape(RoundedRectangle(cornerRadius: cr))
                     .overlay(
                         RoundedRectangle(cornerRadius: cr)
@@ -2781,9 +2791,9 @@ struct ContentView: View {
     private var cameraButton: some View {
         Button(action: { capturePhoto() }) {
             ZStack {
-                RoundedRectangle(cornerRadius: 25)
-                    .frame(width: 65, height: 164)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 25))
+                RoundedRectangle(cornerRadius: 22)
+                    .frame(width: 59, height: 148)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
                     .tint(.clear)
                 GeometryReader { geo in
                     let w = geo.size.width
@@ -2810,9 +2820,9 @@ struct ContentView: View {
                                     y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 45)
                     }
                 }
-                .frame(width: 57, height: 156)
-                .clipShape(.rect(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white, lineWidth: 1.6))
+                .frame(width: 51, height: 140)
+                .clipShape(.rect(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white, lineWidth: 1.6))
                 Image(systemName: "camera.fill")
                     .font(.system(size: 24))
                     .foregroundStyle(.white)
@@ -3175,21 +3185,26 @@ struct CameraPreviewView: UIViewRepresentable {
 
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
-        previewLayer.cornerRadius = 37
+        let camW: CGFloat = isLandscape ? 304 : 338
+        let camH: CGFloat = isLandscape ? 211 : 235
+        previewLayer.cornerRadius = isLandscape ? 33 : 37
         previewLayer.masksToBounds = true
-        previewLayer.frame = CGRect(x: 0, y: 0, width: 338, height: 235)
-        
-        // 横屏时旋转相机画面90度并放大填满
-        if isLandscape {
-            previewLayer.setAffineTransform(CGAffineTransform(rotationAngle: -.pi / 2).scaledBy(x: 1.8, y: 1.8))
+        previewLayer.frame = CGRect(x: 0, y: 0, width: camW, height: camH)
+
+        // 横屏时设置真正的横屏输出方向（不再旋转）
+        if isLandscape, let connection = previewLayer.connection {
+            if connection.isVideoOrientationSupported {
+                connection.videoOrientation = .landscapeRight
+            }
         }
-        
+
         view.layer.addSublayer(previewLayer)
         view.clipsToBounds = true
 
         context.coordinator.session = session
         context.coordinator.previewLayer = previewLayer
         context.coordinator.output = output
+        context.coordinator.isLandscape = isLandscape
 
         DispatchQueue.global(qos: .userInitiated).async {
             session.startRunning()
@@ -3199,7 +3214,9 @@ struct CameraPreviewView: UIViewRepresentable {
         #endif
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {}
+    func updateUIView(_ uiView: UIView, context: Context) {
+        context.coordinator.isLandscape = isLandscape
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -3209,6 +3226,7 @@ struct CameraPreviewView: UIViewRepresentable {
         var session: AVCaptureSession?
         var previewLayer: AVCaptureVideoPreviewLayer?
         var output: AVCapturePhotoOutput?
+        var isLandscape: Bool = false
 
         override init() {
             super.init()
@@ -3226,6 +3244,12 @@ struct CameraPreviewView: UIViewRepresentable {
 
         func capturePhoto() {
             guard let output = output else { return }
+            // 横屏时设置拍照输出方向
+            if let connection = output.connection(with: .video) {
+                if connection.isVideoOrientationSupported {
+                    connection.videoOrientation = isLandscape ? .landscapeRight : .portrait
+                }
+            }
             let settings = AVCapturePhotoSettings()
             output.capturePhoto(with: settings, delegate: CameraPhotoDelegate.shared)
         }
@@ -3408,13 +3432,20 @@ struct CameraPhotoItem: View {
     let isSelected: Bool
     var tiltX: Double = 0
     var tiltY: Double = 0
+    var isLandscape: Bool = false
 
     private let baseW: CGFloat = 46
     private let baseH: CGFloat = 32
     private let expandedW: CGFloat = 46 * 3.8
     private let expandedH: CGFloat = 32 * 3.8
-    private let thumbOffsetX: CGFloat = -(338 / 2 - 20 - 46 / 2)
-    private let thumbOffsetY: CGFloat = -(235 / 2 - 18 - 32 / 2)
+    private var thumbOffsetX: CGFloat {
+        -(cameraWidth / 2 - 20 - 46 / 2)
+    }
+    private var thumbOffsetY: CGFloat {
+        -(cameraHeight / 2 - 18 - 32 / 2)
+    }
+    private var cameraWidth: CGFloat { isLandscape ? 304 : 338 }
+    private var cameraHeight: CGFloat { isLandscape ? 211 : 235 }
 
     // TILT helpers — center-lift effect
     private var tiltScale: CGFloat {
@@ -3431,14 +3462,14 @@ struct CameraPhotoItem: View {
         if let img = photo.image {
             let photoW = isExpanded ? expandedW : baseW
             let photoH = isExpanded ? expandedH : baseH
-            let selectedScale: CGFloat = (235 - 24) / expandedH
+            let selectedScale: CGFloat = (cameraHeight - 24) / expandedH
             let photoScale: CGFloat = isSelected ? selectedScale : (isExpanded ? 0.85 : 1.0)
 
             let finalOffsetX: CGFloat = {
                 if isSelected { return 0 }
                 if isExpanded {
                     let raw = CGFloat(photo.offsetX) * 22
-                    let maxX: CGFloat = (338 - expandedW) / 2 - 12
+                    let maxX: CGFloat = (cameraWidth - expandedW) / 2 - 12
                     return max(-maxX, min(maxX, raw))
                 }
                 return thumbOffsetX + CGFloat(photo.offsetX)
