@@ -451,7 +451,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
 
-                    let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -408 : (isCapsuleExpanded ? -140 : 0)) : 0
+                    let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isCapsuleExpanded ? -140 : 0)) : 0
                     let landscapeButtonOffset: CGFloat = (isLandscape && showMap) ? 20 : 0
                     HStack {
                         VStack(spacing: 10) {
@@ -839,10 +839,10 @@ struct ContentView: View {
 
     // MARK: - Address Capsule
     private var addressCapsule: some View {
-        let baseHeight: CGFloat = isParkingMemoryExpanded ? 450 : (isCapsuleExpanded ? 182 : 44)
+        let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isCapsuleExpanded ? 182 : 44)
         let capsuleHeight: CGFloat = {
             if isParkingMemoryExpanded {
-                return isLandscape ? 296 : 450
+                return isLandscape ? 341 : 495
             }
             let raw: CGFloat
             if capsuleDragState.active {
@@ -1395,44 +1395,38 @@ struct ContentView: View {
     private var parkingMemoryContent: some View {
         VStack(spacing: 0) {
             if isLandscape {
-                // 横屏：左右排布，左边370保持原有内容，右边190放按钮
-                HStack(alignment: .top, spacing: 0) {
-                    // 左边：原有内容，370宽度居中
-                    VStack(spacing: 0) {
-                        // Row 1: Back button + Title
-                        HStack {
-                            Button(action: {
-                                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                    isParkingMemoryExpanded = false
-                                    orbOpacity = 1.0
-                                    capsuleOnRight = false
-                                    timeAdjustAccumulated = 0
-                                    timeAdjustText = nil
-                                    showingExpandedPhotos = false
-                                    selectedPhotoIndex = nil
-                                    tiltAngleX = [:]
-                                    tiltAngleY = [:]
-                                    deletingPhotoID = nil
-                                    deletingIndex = nil
-                                    deletingImage = nil
-                                }
-                            }) {
-                                Image(systemName: "chevron.left.circle.fill")
-                                    .font(.system(size: 32))
-                                    .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                // 横屏：标题行横跨顶部，下方左相机右按钮
+                VStack(spacing: 20) {
+                    // 顶部：返回 + 泊車記憶 + 入場時間 + 加减按钮（横跨全宽）
+                    HStack {
+                        Button(action: {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                isParkingMemoryExpanded = false
+                                orbOpacity = 1.0
+                                capsuleOnRight = false
+                                timeAdjustAccumulated = 0
+                                timeAdjustText = nil
+                                showingExpandedPhotos = false
+                                selectedPhotoIndex = nil
+                                tiltAngleX = [:]
+                                tiltAngleY = [:]
+                                deletingPhotoID = nil
+                                deletingIndex = nil
+                                deletingImage = nil
                             }
-                            Text("泊車記憶")
-                                .font(.system(size: 24, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor())
-                            Spacer()
+                        }) {
+                            Image(systemName: "chevron.left.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-
-                        // Row 2: 入場時間 + 日期时间 + 加减按钮（同一行）
-                        HStack {
+                        Text("泊車記憶")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(adaptiveTextColor())
+                        Spacer()
+                        // 入場時間 + 加减按钮
+                        HStack(spacing: 4) {
                             Text("入場時間")
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                             let cal = Calendar.current
                             let d = cal.component(.day, from: parkingEntryTime)
@@ -1441,92 +1435,92 @@ struct ContentView: View {
                             let hr = cal.component(.hour, from: parkingEntryTime)
                             let mi = cal.component(.minute, from: parkingEntryTime)
                             Text(String(format: "%02d/%02d/%04d %02d:%02d", d, m, y, hr, mi))
-                                .font(.system(size: 14, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(adaptiveTextColor())
                                 .monospacedDigit()
                                 .contentTransition(.numericText())
                                 .animation(.easeInOut(duration: 0.15), value: parkingEntryTime)
-                            Spacer()
-                            // 加减按钮在最右，文字在加号右手边
-                            HStack(spacing: 6) {
-                                Button(action: {
-                                    timeAdjustAccumulated -= 1
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        parkingEntryTime = parkingEntryTime.addingTimeInterval(-60)
-                                    }
-                                    showAdjustText()
-                                }) {
-                                    Image(systemName: "minus")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(adaptiveTextColor())
-                                        .frame(width: 28, height: 28)
-                                        .glassEffect(.regular, in: .rect(cornerRadius: 8))
+                        }
+                        HStack(spacing: 6) {
+                            Button(action: {
+                                timeAdjustAccumulated -= 1
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    parkingEntryTime = parkingEntryTime.addingTimeInterval(-60)
                                 }
-                                Button(action: {
-                                    timeAdjustAccumulated += 1
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        parkingEntryTime = parkingEntryTime.addingTimeInterval(60)
-                                    }
-                                    showAdjustText()
-                                }) {
-                                    Image(systemName: "plus")
-                                        .font(.system(size: 14, weight: .bold))
-                                        .foregroundStyle(adaptiveTextColor())
-                                        .frame(width: 28, height: 28)
-                                        .glassEffect(.regular, in: .rect(cornerRadius: 8))
+                                showAdjustText()
+                            }) {
+                                Image(systemName: "minus")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(adaptiveTextColor())
+                                    .frame(width: 28, height: 28)
+                                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
+                            }
+                            Button(action: {
+                                timeAdjustAccumulated += 1
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    parkingEntryTime = parkingEntryTime.addingTimeInterval(60)
                                 }
-                                if let text = timeAdjustText {
-                                    Text(text)
-                                        .font(.system(size: 11, weight: .bold))
-                                        .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                                        .transition(.opacity)
-                                }
+                                showAdjustText()
+                            }) {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundStyle(adaptiveTextColor())
+                                    .frame(width: 28, height: 28)
+                                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
+                            }
+                            if let text = timeAdjustText {
+                                Text(text)
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                                    .transition(.opacity)
                             }
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-
-                        // Camera preview
-                        cameraSection
-                            .padding(.top, 10)
-                            .padding(.leading, -1)
                     }
-                    .frame(width: 370)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 16)
+                    .padding(.horizontal, 20)
+                    .padding(.top, 20)
 
-                    // 右边：按钮区域（190pt），底部与相机预览框底部对齐
-                    VStack(spacing: 16) {
-                        // 離場 button
-                        Button(action: {
-                            startDepartureCountdown()
-                        }) {
-                            ZStack {
-                                RoundedRectangle(cornerRadius: 25)
-                                    .fill(Color(hex: "D2251F"))
-                                    .frame(width: 161, height: 70)
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 25)
-                                            .stroke(Color.white.opacity(0.8), lineWidth: 4)
-                                    )
-                                if let countdown = parkingCountdown {
-                                    Text("\(countdown)")
-                                        .font(.system(size: 40, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .contentTransition(.numericText())
-                                        .animation(.easeInOut(duration: 0.15), value: parkingCountdown)
-                                } else if parkingDeparted {
-                                    AnimatedCheckmarkView()
-                                } else {
-                                    Text("離場")
-                                        .font(.system(size: 22, weight: .bold))
-                                        .foregroundStyle(.white)
+                    // 下方：左相机 + 右按钮
+                    HStack(alignment: .top, spacing: 0) {
+                        // 左边：相机预览
+                        VStack(spacing: 0) {
+                            cameraSection
+                        }
+                        .frame(width: 370)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 20)
+
+                        // 右边：离场 + 入场计时
+                        VStack(spacing: 16) {
+                            // 離場 button
+                            Button(action: {
+                                startDepartureCountdown()
+                            }) {
+                                ZStack {
+                                    RoundedRectangle(cornerRadius: 25)
+                                        .fill(Color(hex: "D2251F"))
+                                        .frame(width: 161, height: 70)
+                                        .overlay(
+                                            RoundedRectangle(cornerRadius: 25)
+                                                .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                                        )
+                                    if let countdown = parkingCountdown {
+                                        Text("\(countdown)")
+                                            .font(.system(size: 40, weight: .bold))
+                                            .foregroundStyle(.white)
+                                            .contentTransition(.numericText())
+                                            .animation(.easeInOut(duration: 0.15), value: parkingCountdown)
+                                    } else if parkingDeparted {
+                                        AnimatedCheckmarkView()
+                                    } else {
+                                        Text("離場")
+                                            .font(.system(size: 22, weight: .bold))
+                                            .foregroundStyle(.white)
+                                    }
                                 }
                             }
-                        }
 
-                        // 入场计时
-                        ZStack {
+                            // 入场计时
+                            ZStack {
                             GeometryReader { geo in
                                 let w = geo.size.width
                                 let h = geo.size.height
@@ -1579,12 +1573,15 @@ struct ContentView: View {
                                     .contentTransition(.numericText())
                                     .animation(.easeInOut(duration: 0.15), value: parkingElapsed)
                             }
+                            }
                         }
+                        .frame(width: 190)
+                        .frame(maxHeight: .infinity, alignment: .bottom)
+                        .padding(.bottom, 20)
                     }
-                    .frame(width: 190)
-                    .frame(maxHeight: .infinity, alignment: .bottom)
-                    .padding(.bottom, 16)
                 }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
             } else {
                 // 竖屏：原有布局
                 // Back button + Title
@@ -1681,7 +1678,8 @@ struct ContentView: View {
                 cameraSection
                     .padding(.top, 14)
 
-                Spacer(minLength: 0)
+                Spacer()
+                    .frame(height: 20)
 
                 // Bottom: 離場 button + entry timer
                 HStack(spacing: 14) {
@@ -2361,7 +2359,7 @@ struct ContentView: View {
         animatingPhotoPhase = 0
         // Compute exact thumbnail offset (matches CameraPhotoItem compact layout)
         let thumbOX: CGFloat = -(338.0 / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
-        let thumbOY: CGFloat = -(190.0 / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
+        let thumbOY: CGFloat = -(235.0 / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
         animatingPhotoOffsetX = 0
         animatingPhotoOffsetY = 0
 
@@ -2558,7 +2556,7 @@ struct ContentView: View {
     private var cameraSection: some View {
         ZStack(alignment: .topLeading) {
             CameraPreviewView(isLandscape: isLandscape)
-                .frame(width: 338, height: 190)
+                .frame(width: 338, height: 235)
                 .clipShape(RoundedRectangle(cornerRadius: 37))
                 .overlay(
                     RoundedRectangle(cornerRadius: 37)
@@ -2600,13 +2598,13 @@ struct ContentView: View {
                     }
             }
         }
-        .frame(width: 338, height: 190)
+        .frame(width: 338, height: 235)
     }
 
     private var cameraDimOverlay: some View {
         let dimOpacity = showingExpandedPhotos ? (selectedPhotoIndex != nil ? 0.65 : 0.45) : 0
         return Color.black.opacity(dimOpacity)
-            .frame(width: 338, height: 190)
+            .frame(width: 338, height: 235)
             .clipShape(RoundedRectangle(cornerRadius: 37))
             .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
             .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
@@ -2677,7 +2675,7 @@ struct ContentView: View {
             // Smoky Dissolve overlay — inside the same ZStack/frame so positioning matches exactly
             cameraDissolveOverlay
         }
-        .frame(width: 338, height: 190, alignment: .center)
+        .frame(width: 338, height: 235, alignment: .center)
         .gesture(
             DragGesture(minimumDistance: 30)
                 .onEnded { value in
@@ -2725,7 +2723,7 @@ struct ContentView: View {
         Group {
             if deletingPhotoID != nil, let img = deletingImage {
                 let expandedH: CGFloat = 32 * 3.8
-                let selectedScale: CGFloat = (190 - 24) / expandedH
+                let selectedScale: CGFloat = (235 - 24) / expandedH
                 let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
                 let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
                 let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003
@@ -2766,7 +2764,7 @@ struct ContentView: View {
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
-                    .frame(width: 338, height: 190)
+                    .frame(width: 338, height: 235)
                     .clipShape(RoundedRectangle(cornerRadius: cr))
                     .overlay(
                         RoundedRectangle(cornerRadius: cr)
@@ -3179,7 +3177,7 @@ struct CameraPreviewView: UIViewRepresentable {
         previewLayer.videoGravity = .resizeAspectFill
         previewLayer.cornerRadius = 37
         previewLayer.masksToBounds = true
-        previewLayer.frame = CGRect(x: 0, y: 0, width: 338, height: 190)
+        previewLayer.frame = CGRect(x: 0, y: 0, width: 338, height: 235)
         
         // 横屏时旋转相机画面90度并放大填满
         if isLandscape {
@@ -3416,7 +3414,7 @@ struct CameraPhotoItem: View {
     private let expandedW: CGFloat = 46 * 3.8
     private let expandedH: CGFloat = 32 * 3.8
     private let thumbOffsetX: CGFloat = -(338 / 2 - 20 - 46 / 2)
-    private let thumbOffsetY: CGFloat = -(190 / 2 - 18 - 32 / 2)
+    private let thumbOffsetY: CGFloat = -(235 / 2 - 18 - 32 / 2)
 
     // TILT helpers — center-lift effect
     private var tiltScale: CGFloat {
@@ -3433,7 +3431,7 @@ struct CameraPhotoItem: View {
         if let img = photo.image {
             let photoW = isExpanded ? expandedW : baseW
             let photoH = isExpanded ? expandedH : baseH
-            let selectedScale: CGFloat = (190 - 24) / expandedH
+            let selectedScale: CGFloat = (235 - 24) / expandedH
             let photoScale: CGFloat = isSelected ? selectedScale : (isExpanded ? 0.85 : 1.0)
 
             let finalOffsetX: CGFloat = {
