@@ -5,6 +5,7 @@ import Accelerate
 import MapKit
 import AVFoundation
 import WidgetKit
+import Vision
 
 struct ContentView: View {
     private struct CapsuleDragState: Equatable {
@@ -136,6 +137,13 @@ struct ContentView: View {
     @State private var preDepartureLastMoveAt: Date?
     @State private var timeAdjustText: String?
     @State private var timeAdjustAccumulated: Int = 0
+    // OCR Recognition state
+    @State private var recognizedFloorToConfirm: Int? = nil
+    @State private var recognizedFloorText: String? = nil
+    @State private var showFloorConfirm = false
+    @State private var parkingRecognizedDisplayText: String? = nil
+    @State private var hasConfirmedFloorThisSession = false
+    @State private var isRecognizing = false
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
@@ -275,6 +283,7 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
             if let photo = notification.object as? UIImage {
+                guard isParkingMemoryExpanded else { return }
                 guard photoStorage.photos.count < PhotoStorage.maxPhotos else { return }
                 startCaptureAnimation(photo: photo)
             }
@@ -574,6 +583,36 @@ struct ContentView: View {
                     .zIndex(25)
             }
 
+            if showFloorConfirm, let floor = recognizedFloorToConfirm {
+                Color.black.opacity(0.42)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .zIndex(26)
+                    .onTapGesture {
+                        withAnimation(.easeIn(duration: 0.18)) {
+                            showFloorConfirm = false
+                            hasConfirmedFloorThisSession = true
+                        }
+                    }
+
+                floorConfirmCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor) 樓")
+                    .frame(maxWidth: min(400, geo.size.width - 44))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                    .transition(
+                        .asymmetric(
+                            insertion: .modifier(
+                                active: BlurSlideModifier(blur: 28, y: 18, scale: 0.96),
+                                identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
+                            ),
+                            removal: .modifier(
+                                active: BlurSlideModifier(blur: 28, y: 8, scale: 0.96),
+                                identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
+                            )
+                        )
+                    )
+                    .zIndex(27)
+            }
+
             // Address bar：放在底部，TabView 导航栏上方，永远显示
             addressCapsule
                 .blur(radius: capsuleAppeared ? 0 : 30)
@@ -799,6 +838,176 @@ struct ContentView: View {
             cornerRadius: 30,
             enableRotate: false,
             enablePulse: true
+        )
+    }
+
+    // MARK: - Floor Confirmation Card
+    private func floorConfirmCard(floorIndex: Int, floorText: String) -> some View {
+        let tintColor = Color(hex: "46ADB8") ?? .teal
+        return VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("樓層識別")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("照片中偵測到樓層資訊")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+            .padding(.top, 2)
+
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(alignment: .top, spacing: 14) {
+                    Image(systemName: "building.2.fill")
+                        .font(.system(size: 32))
+                        .foregroundStyle(tintColor)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text(floorText)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
+                        Text("樓層指數：\(floorIndex)")
+                            .font(.callout)
+                            .foregroundStyle(.white.opacity(0.68))
+                    }
+                    Spacer()
+                }
+                .padding(18)
+                .background(
+                    RoundedRectangle(cornerRadius: 22)
+                        .fill(Color.white.opacity(0.06))
+                )
+            }
+
+            VStack(spacing: 12) {
+                Button {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        showFloorConfirm = false
+                        hasConfirmedFloorThisSession = true
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("是，調整為「\(floorText)」")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundStyle(.black)
+                    .background(
+                        Capsule()
+                            .fill(Color.white)
+                    )
+                    .glassEffect(.regular, in: .capsule)
+                    .clipShape(.capsule)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        showFloorConfirm = false
+                        hasConfirmedFloorThisSession = true
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "xmark.circle")
+                        Text("否，維持現狀")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundStyle(.white)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .glassEffect(.regular, in: .capsule)
+                    .clipShape(.capsule)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(26)
+        .background(
+            RoundedRectangle(cornerRadius: 30)
+                .fill(Color.black.opacity(0.58))
+        )
+        .glassEffect(.regular, in: .rect(cornerRadius: 30))
+        .clipShape(.rect(cornerRadius: 30))
+        .borderBeam(
+            size: .large,
+            palette: .senshackDark,
+            cornerRadius: 30,
+            enableRotate: false,
+            enablePulse: true
+        )
+    }
+
+    // MARK: - Recognized Info Overlay
+    private func recognizedInfoOverlay(info: ParkingRecognizedInfo) -> some View {
+        let items = info.relevantItems
+        let hasContent = !items.isEmpty || info.floorText != nil
+        return Group {
+            if hasContent {
+                VStack(spacing: 4) {
+                    // Show each relevant item with appropriate icon
+                    ForEach(Array(items.prefix(4).enumerated()), id: \.offset) { _, item in
+                        HStack(spacing: 6) {
+                            if Self.isFloorText(item) {
+                                Image(systemName: "building.2.fill")
+                                    .font(.system(size: 10))
+                            } else if Self.isSpotNumberText(item) {
+                                Image(systemName: "car.fill")
+                                    .font(.system(size: 10))
+                            } else {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 10))
+                            }
+                            Text(item)
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.black.opacity(0.55))
+                )
+                .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            }
+        }
+    }
+
+    private static func isFloorText(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.hasPrefix("b") || lower.hasPrefix("lg") || lower.hasPrefix("ug") ||
+               lower.contains("樓") || lower.contains("層") || lower.contains("地下")
+    }
+
+    private static func isSpotNumberText(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let regex = try? NSRegularExpression(pattern: "^\\d{1,5}$"),
+           regex.firstMatch(in: trimmed, range: NSRange(location: 0, length: trimmed.utf16.count)) != nil {
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Recognizing Loading Indicator
+    private var recognizingIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .scaleEffect(0.7)
+                .tint(.white)
+            Text("識別中...")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.white.opacity(0.8))
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 5)
+        .background(
+            Capsule()
+                .fill(Color.black.opacity(0.5))
         )
     }
 
@@ -1413,6 +1622,10 @@ struct ContentView: View {
                                 deletingPhotoID = nil
                                 deletingIndex = nil
                                 deletingImage = nil
+                                parkingRecognizedDisplayText = nil
+                                hasConfirmedFloorThisSession = false
+                                showFloorConfirm = false
+                                recognizedFloorToConfirm = nil
                             }
                         }) {
                             Image(systemName: "chevron.left.circle.fill")
@@ -1599,6 +1812,10 @@ struct ContentView: View {
                             deletingPhotoID = nil
                             deletingIndex = nil
                             deletingImage = nil
+                            parkingRecognizedDisplayText = nil
+                            hasConfirmedFloorThisSession = false
+                            showFloorConfirm = false
+                            recognizedFloorToConfirm = nil
                         }
                     }) {
                         Image(systemName: "chevron.left.circle.fill")
@@ -2381,6 +2598,23 @@ struct ContentView: View {
             animatingPhotoOffsetX = 0
             animatingPhotoOffsetY = 0
         }
+
+        // Trigger OCR recognition in background
+        isRecognizing = true
+        Task.detached {
+            let info = await ParkingSpotRecognizer.recognize(from: photo)
+            await MainActor.run {
+                self.photoStorage.updateRecognizedInfo(for: tempID, info: info)
+                self.parkingRecognizedDisplayText = info.displayText
+                self.isRecognizing = false
+                // Show floor confirmation if floor detected and not yet confirmed
+                if let floor = info.floorIndex, !self.hasConfirmedFloorThisSession {
+                    self.recognizedFloorToConfirm = floor
+                    self.recognizedFloorText = info.floorText
+                    self.showFloorConfirm = true
+                }
+            }
+        }
     }
 
     private func refreshETA() {
@@ -2600,6 +2834,26 @@ struct ContentView: View {
                             selectedPhotoIndex = nil
                         }
                     }
+            }
+
+            // Recognized info overlay — positioned slightly below center
+            if let idx = selectedPhotoIndex, idx < photoStorage.photos.count,
+               showingExpandedPhotos {
+                let photo = photoStorage.photos[idx]
+                if let info = photo.recognizedInfo {
+                    recognizedInfoOverlay(info: info)
+                        .position(x: camW / 2, y: camH / 2 + 20)
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: photo.recognizedInfo != nil)
+                }
+            }
+
+            // Recognizing loading indicator — top-right
+            if isRecognizing {
+                recognizingIndicator
+                    .position(x: camW - 50, y: 24)
+                    .transition(.opacity)
             }
         }
         .frame(width: camW, height: camH)

@@ -40,6 +40,7 @@
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
 		D10001 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20001 /* Destination.swift */; };
 		E10001 /* ParkingPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20001 /* ParkingPhoto.swift */; };
+		F10001 /* ParkingRecognitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20001 /* ParkingRecognitionService.swift */; };
 		E14C057DE2641559B70A543F /* WeatherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759D5AC501F16B3C56606AE5 /* WeatherService.swift */; };
 		EA44CAF9DA9ACC24F1E1247F /* TimeBasedOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186CBC60988AE080898F728D /* TimeBasedOrbView.swift */; };
 /* End PBXBuildFile section */
@@ -101,6 +102,7 @@
 		C20001 /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
 		D20001 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
 		E20001 /* ParkingPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingPhoto.swift; sourceTree = "<group>"; };
+		F20001 /* ParkingRecognitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingRecognitionService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -221,6 +223,7 @@
 				B20001 /* LocationManager.swift */,
 				D20001 /* Destination.swift */,
 				E20001 /* ParkingPhoto.swift */,
+				F20001 /* ParkingRecognitionService.swift */,
 				B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */,
 				F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */,
 				759D5AC501F16B3C56606AE5 /* WeatherService.swift */,
@@ -412,6 +415,7 @@
 				157F6325A2902DAE2BD0FCFA /* SpeedSimulationView.swift in Sources */,
 				A10019 /* DotMatrixView.swift in Sources */,
 				E10001 /* ParkingPhoto.swift in Sources */,
+				F10001 /* ParkingRecognitionService.swift in Sources */,
 				F3A0C001B2C3D4E5F6071829 /* SFXPlayer.swift in Sources */,
 				110F68C8F30F7220369D4617 /* TimePhase.swift in Sources */,
 				EA44CAF9DA9ACC24F1E1247F /* TimeBasedOrbView.swift in Sources */,
@@ -634,6 +638,9 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser = YES;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -673,6 +680,9 @@
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser = YES;
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

@@ -394,6 +394,18 @@ struct ParkingFloorTestView: View {
             } label: {
                 Label("泊車記憶拍照效果測試", systemImage: "camera.on.rectangle")
             }
+
+            NavigationLink {
+                ParkingRecognitionTestView()
+            } label: {
+                Label("泊車辨識測試 (OCR)", systemImage: "text.viewfinder")
+            }
+
+            NavigationLink {
+                ParkingLLMRecognitionTestView()
+            } label: {
+                Label("泊車辨識測試 (LLM)", systemImage: "brain.head.profile")
+            }
         }
         .navigationTitle("測試")
         .navigationBarTitleDisplayMode(.inline)
@@ -2739,5 +2751,1958 @@ struct ParkingMemoryPhotoTestView: View {
         .opacity(showingExpanded || photos.count >= 3 ? 0 : 1)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: showingExpanded)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: photos.count)
+    }
+}
+
+// MARK: - Parking Recognition Test View
+
+struct ParkingRecognitionTestView: View {
+    @StateObject private var animationClock = AnimationClock()
+    @StateObject private var photoStorage = PhotoStorage()
+
+    // UI state
+    @State private var showingExpanded = false
+    @State private var selectedIndex: Int? = nil
+    @State private var showDeleteButton = false
+    @State private var isCapturePressed = false
+    @State private var isCapturing = false
+
+    // TILT animation state
+    @State private var tiltAngleX: [Int: Double] = [:]
+    @State private var tiltAngleY: [Int: Double] = [:]
+
+    // Delete animation state
+    @State private var deletingPhotoID: UUID? = nil
+    @State private var deletingIndex: Int? = nil
+    @State private var deletingImage: UIImage? = nil
+    @State private var deleteBlur: CGFloat = 0
+    @State private var deleteOpacity: Double = 1.0
+    @State private var deleteOffsetY: CGFloat = 0
+
+    // Capture animation
+    @State private var animatingPhotoID: UUID? = nil
+    @State private var animatingPhotoImage: UIImage? = nil
+    @State private var animatingPhotoPhase: Int = 0
+    @State private var animatingPhotoOffsetX: CGFloat = 0
+    @State private var animatingPhotoOffsetY: CGFloat = 0
+
+    // OCR Recognition state
+    @State private var isRecognizing = false
+    @State private var showFloorConfirm = false
+    @State private var recognizedFloorToConfirm: Int? = nil
+    @State private var recognizedFloorText: String? = nil
+    @State private var hasConfirmedFloorThisSession = false
+
+    // Debug panel
+    @State private var showDebugPanel = false
+    @State private var lastRecognizedInfo: ParkingRecognizedInfo? = nil
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header
+                    HStack {
+                        Text("泊車辨識測試")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+
+                    // Description labels
+                    HStack {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Label("OCR 文字識別", systemImage: "text.viewfinder")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: "46ADB8"))
+                            Text("拍照後自動識別車位號、樓層、區域代碼")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.5))
+                            Label("樓層確認彈窗", systemImage: "building.2")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color(hex: "FF6B6B"))
+                                .padding(.top, 4)
+                            Text("識別出樓層時彈出確認視窗")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.5))
+                        }
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+
+                    // Camera section with recognition
+                    cameraRecognitionSection
+                        .padding(.bottom, 16)
+
+                    // Status bar
+                    HStack(spacing: 12) {
+                        // Photo count
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo.stack")
+                                .font(.system(size: 12))
+                            Text("\(photoStorage.photos.count)/3")
+                                .font(.system(size: 13, weight: .medium))
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(.white.opacity(0.7))
+
+                        // Recognition status
+                        if isRecognizing {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .tint(.white)
+                                Text("識別中...")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(.white.opacity(0.7))
+                        } else if let info = lastRecognizedInfo {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.green)
+                                Text("已識別")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(.white.opacity(0.7))
+                        }
+
+                        Spacer()
+
+                        // Debug toggle
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                showDebugPanel.toggle()
+                            }
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: showDebugPanel ? "chevron.up" : "chevron.down")
+                                    .font(.system(size: 10))
+                                Text("詳情")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.08))
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+
+                    // Debug panel
+                    if showDebugPanel {
+                        debugPanel
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 16)
+                    }
+
+                    // Action buttons
+                    HStack(spacing: 12) {
+                        // Clear all button
+                        Button {
+                            photoStorage.deleteAll()
+                            lastRecognizedInfo = nil
+                            hasConfirmedFloorThisSession = false
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 14))
+                                Text("清除照片")
+                                    .font(.system(size: 14, weight: .medium))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color(hex: "D2251F").opacity(0.8))
+                            )
+                        }
+
+                        // Re-recognize last photo
+                        Button {
+                            if let lastPhoto = photoStorage.photos.last, let img = lastPhoto.image {
+                                isRecognizing = true
+                                Task.detached {
+                                    let info = await ParkingSpotRecognizer.recognize(from: img)
+                                    await MainActor.run {
+                                        self.photoStorage.updateRecognizedInfo(for: lastPhoto.id, info: info)
+                                        self.lastRecognizedInfo = info
+                                        self.isRecognizing = false
+                                        if let floor = info.floorIndex, !self.hasConfirmedFloorThisSession {
+                                            self.recognizedFloorToConfirm = floor
+                                            self.recognizedFloorText = info.floorText
+                                            self.showFloorConfirm = true
+                                        }
+                                    }
+                                }
+                            }
+                        } label: {
+                            HStack(spacing: 6) {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 14))
+                                Text("重新識別")
+                                    .font(.system(size: 14, weight: .medium))
+                            }
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 14)
+                                    .fill(Color(hex: "46ADB8").opacity(0.8))
+                            )
+                        }
+                        .disabled(photoStorage.photos.isEmpty || isRecognizing)
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 20)
+                }
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
+            if let image = notification.object as? UIImage {
+                startCaptureAnimation(photo: image)
+            }
+        }
+        // Floor confirmation overlay
+        .overlay {
+            if showFloorConfirm, let floor = recognizedFloorToConfirm {
+                ZStack {
+                    Color.black.opacity(0.42)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeIn(duration: 0.18)) {
+                                showFloorConfirm = false
+                                hasConfirmedFloorThisSession = true
+                            }
+                        }
+
+                    floorConfirmTestCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor) 樓")
+                        .frame(maxWidth: 360)
+                        .padding(.horizontal, 22)
+                }
+            }
+        }
+    }
+
+    // MARK: - Camera Section with Recognition
+    private var cameraRecognitionSection: some View {
+        let camW: CGFloat = 338
+        let camH: CGFloat = 235
+        let camCR: CGFloat = 37
+        return ZStack(alignment: .topLeading) {
+            CameraPreviewView(isLandscape: false)
+                .frame(width: camW, height: camH)
+                .clipShape(RoundedRectangle(cornerRadius: camCR))
+                .overlay(
+                    RoundedRectangle(cornerRadius: camCR)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                )
+
+            // Dim overlay
+            let dimOpacity = showingExpanded ? (selectedIndex != nil ? 0.65 : 0.45) : 0
+            Color.black.opacity(dimOpacity)
+                .frame(width: camW, height: camH)
+                .clipShape(RoundedRectangle(cornerRadius: camCR))
+                .animation(.easeInOut(duration: 0.3), value: selectedIndex)
+                .animation(.easeInOut(duration: 0.3), value: showingExpanded)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard showingExpanded else { return }
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                        if let idx = selectedIndex {
+                            resetTilt(index: idx)
+                            selectedIndex = nil
+                        } else {
+                            showingExpanded = false
+                            selectedIndex = nil
+                        }
+                        tiltAngleX = [:]
+                        tiltAngleY = [:]
+                    }
+                }
+
+            // Photo stack
+            photoTestStack
+
+            // Capture animation overlay
+            captureTestAnimationOverlay
+
+            // Camera button
+            cameraTestCaptureButton
+
+            // Delete button
+            if let idx = selectedIndex, idx < photoStorage.photos.count,
+               showDeleteButton, deletingPhotoID == nil {
+                Button {
+                    triggerSmokyDissolve(index: idx)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.ultraThinMaterial, in: .circle)
+                        .glassEffect(.regular, in: .circle)
+                }
+                .position(x: 40, y: 34)
+                .transition(.opacity)
+            }
+
+            // Thumbnail tap area
+            if !showingExpanded {
+                Color.clear
+                    .frame(width: 80, height: 70)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                            showingExpanded = true
+                            selectedIndex = nil
+                        }
+                    }
+            }
+
+            // Recognized info overlay
+            if let idx = selectedIndex, idx < photoStorage.photos.count,
+               showingExpanded {
+                let photo = photoStorage.photos[idx]
+                if let info = photo.recognizedInfo {
+                    recognizedInfoTestOverlay(info: info)
+                        .position(x: camW / 2, y: camH / 2 + 20)
+                        .allowsHitTesting(false)
+                        .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+
+            // Recognizing indicator
+            if isRecognizing {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .tint(.white)
+                    Text("識別中...")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.5))
+                )
+                .position(x: camW - 50, y: 24)
+                .transition(.opacity)
+            }
+        }
+        .frame(width: camW, height: camH)
+    }
+
+    // MARK: - Photo Stack
+    private var photoTestStack: some View {
+        let photos = photoStorage.photos
+        let count = photos.count
+        return ZStack {
+            ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                if photo.id != deletingPhotoID {
+                    CameraPhotoItem(
+                        photo: photo,
+                        index: index,
+                        totalCount: count,
+                        isExpanded: showingExpanded,
+                        isSelected: selectedIndex == index,
+                        tiltX: tiltAngleX[index] ?? 0,
+                        tiltY: tiltAngleY[index] ?? 0,
+                        isLandscape: false
+                    )
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                            if showingExpanded {
+                                let wasSelected = selectedIndex == index
+                                if wasSelected {
+                                    resetTilt(index: index)
+                                    selectedIndex = nil
+                                } else {
+                                    if let oldIdx = selectedIndex {
+                                        resetTilt(index: oldIdx)
+                                    }
+                                    selectedIndex = index
+                                    triggerTiltEffect(index: index)
+                                    showDeleteButton = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                            if selectedIndex == index, deletingPhotoID == nil {
+                                                showDeleteButton = true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            // Smoky dissolve overlay
+            cameraTestDissolveOverlay
+        }
+        .frame(width: 338, height: 235, alignment: .center)
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    guard showingExpanded, photos.count > 1 else { return }
+                    let horizontal = value.translation.width
+                    guard abs(horizontal) > abs(value.translation.height) else { return }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                        if let cur = selectedIndex {
+                            resetTilt(index: cur)
+                        }
+                        if horizontal < 0 {
+                            if let cur = selectedIndex {
+                                selectedIndex = (cur + 1) % photos.count
+                            } else {
+                                selectedIndex = 0
+                            }
+                        } else {
+                            if let cur = selectedIndex {
+                                selectedIndex = (cur - 1 + photos.count) % photos.count
+                            } else {
+                                selectedIndex = photos.count - 1
+                            }
+                        }
+                        if let newIdx = selectedIndex {
+                            triggerTiltEffect(index: newIdx)
+                            showDeleteButton = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    if selectedIndex == newIdx, deletingPhotoID == nil {
+                                        showDeleteButton = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+        )
+    }
+
+    // MARK: - Smoky Dissolve Overlay
+    private var cameraTestDissolveOverlay: some View {
+        Group {
+            if deletingPhotoID != nil, let img = deletingImage {
+                let expandedH: CGFloat = 32 * 3.8
+                let selectedScale: CGFloat = (235 - 24) / expandedH
+                let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
+                let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
+                let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003
+                let delTiltShadow: CGFloat = abs(delTiltX) * 0.5
+                let delTiltLiftY: CGFloat = -abs(delTiltX) * 0.3
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 46 * 3.8, height: expandedH)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(1.0), lineWidth: 2.0 / selectedScale)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: delTiltShadow, y: delTiltShadow * 0.5)
+                    .scaleEffect(delTiltScale)
+                    .offset(y: delTiltLiftY)
+                    .rotation3DEffect(.degrees(delTiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+                    .rotation3DEffect(.degrees(delTiltY), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                    .scaleEffect(selectedScale)
+                    .blur(radius: deleteBlur)
+                    .opacity(deleteOpacity)
+                    .offset(y: deleteOffsetY)
+                    .allowsHitTesting(false)
+                    .zIndex(200)
+            }
+        }
+    }
+
+    // MARK: - Capture Animation Overlay
+    private var captureTestAnimationOverlay: some View {
+        let camW: CGFloat = 338
+        let camH: CGFloat = 235
+        return Group {
+            if animatingPhotoID != nil, let img = animatingPhotoImage {
+                let isShrunk = animatingPhotoPhase == 1
+                let cr: CGFloat = isShrunk ? 5 : 37
+                let sc: CGFloat = isShrunk ? 46.0 / camW : 1.0
+                let lw: CGFloat = isShrunk ? 1.0 / (46.0 / camW) : 4
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: camW, height: camH)
+                    .clipShape(RoundedRectangle(cornerRadius: cr))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cr)
+                            .stroke(Color.white.opacity(0.8), lineWidth: lw)
+                    )
+                    .scaleEffect(sc)
+                    .offset(x: animatingPhotoOffsetX, y: animatingPhotoOffsetY)
+                    .allowsHitTesting(false)
+                    .zIndex(100)
+            }
+        }
+    }
+
+    // MARK: - Camera Capture Button
+    private var cameraTestCaptureButton: some View {
+        Button(action: {
+            guard !isCapturing else { return }
+            isCapturing = true
+            NotificationCenter.default.post(name: .captureParkingPhoto, object: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.isCapturing = false
+            }
+        }) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22)
+                    .frame(width: 59, height: 148)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .tint(.clear)
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let h = geo.size.height
+                    let t = animationClock.elapsed * 0.3
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: "3497FF").opacity(0.85))
+                            .blur(radius: 16)
+                            .frame(width: 100, height: 100)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 50,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 50)
+                        Circle()
+                            .fill(Color(hex: "FFC46D").opacity(0.85))
+                            .frame(width: 110, height: 110)
+                            .blur(radius: 16)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 55,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 55)
+                        Circle()
+                            .fill(Color(hex: "FF825C").opacity(0.85))
+                            .frame(width: 90, height: 90)
+                            .blur(radius: 16)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 45,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 45)
+                    }
+                }
+                .frame(width: 51, height: 140)
+                .clipShape(.rect(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white, lineWidth: 1.6))
+                Image(systemName: "camera.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.white)
+            }
+        }
+        .scaleEffect(isCapturePressed ? 0.88 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isCapturePressed)
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isCapturePressed = pressing
+        }, perform: {})
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .padding(.trailing, 10)
+        .blur(radius: showingExpanded || photoStorage.photos.count >= 3 ? 12 : 0)
+        .opacity(showingExpanded || photoStorage.photos.count >= 3 ? 0 : 1)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: showingExpanded)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: photoStorage.photos.count)
+    }
+
+    // MARK: - Recognized Info Overlay
+    private func recognizedInfoTestOverlay(info: ParkingRecognizedInfo) -> some View {
+        let items = info.relevantItems
+        let hasContent = !items.isEmpty || info.floorText != nil
+        return Group {
+            if hasContent {
+                VStack(spacing: 4) {
+                    ForEach(Array(items.prefix(4).enumerated()), id: \.offset) { _, item in
+                        HStack(spacing: 6) {
+                            if Self.isFloorText(item) {
+                                Image(systemName: "building.2.fill")
+                                    .font(.system(size: 10))
+                            } else if Self.isSpotNumberText(item) {
+                                Image(systemName: "car.fill")
+                                    .font(.system(size: 10))
+                            } else {
+                                Image(systemName: "mappin.circle.fill")
+                                    .font(.system(size: 10))
+                            }
+                            Text(item)
+                                .font(.system(size: 14, weight: .bold))
+                        }
+                    }
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(Color.black.opacity(0.55))
+                )
+                .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            }
+        }
+    }
+
+    private static func isFloorText(_ text: String) -> Bool {
+        let lower = text.lowercased()
+        return lower.hasPrefix("b") || lower.hasPrefix("lg") || lower.hasPrefix("ug") ||
+               lower.contains("樓") || lower.contains("層") || lower.contains("地下")
+    }
+
+    private static func isSpotNumberText(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let regex = try? NSRegularExpression(pattern: "^\\d{1,5}$"),
+           regex.firstMatch(in: trimmed, range: NSRange(location: 0, length: trimmed.utf16.count)) != nil {
+            return true
+        }
+        return false
+    }
+
+    // MARK: - Floor Confirmation Card (Test)
+    private func floorConfirmTestCard(floorIndex: Int, floorText: String) -> some View {
+        let tintColor = Color(hex: "46ADB8") ?? .teal
+        return VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("樓層識別")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("照片中偵測到樓層資訊")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+            .padding(.top, 2)
+
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "building.2.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(tintColor)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(floorText)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                    Text("樓層指數：\(floorIndex)")
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.68))
+                }
+                Spacer()
+            }
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color.white.opacity(0.06))
+            )
+
+            VStack(spacing: 12) {
+                Button {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        showFloorConfirm = false
+                        hasConfirmedFloorThisSession = true
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("是，調整為「\(floorText)」")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundStyle(.black)
+                    .background(
+                        Capsule()
+                            .fill(Color.white)
+                    )
+                    .glassEffect(.regular, in: .capsule)
+                    .clipShape(.capsule)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        showFloorConfirm = false
+                        hasConfirmedFloorThisSession = true
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "xmark.circle")
+                        Text("否，維持現狀")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundStyle(.white)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .glassEffect(.regular, in: .capsule)
+                    .clipShape(.capsule)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(26)
+        .background(
+            RoundedRectangle(cornerRadius: 30)
+                .fill(Color.black.opacity(0.58))
+        )
+        .glassEffect(.regular, in: .rect(cornerRadius: 30))
+        .clipShape(.rect(cornerRadius: 30))
+        .borderBeam(
+            size: .large,
+            palette: .senshackDark,
+            cornerRadius: 30,
+            enableRotate: false,
+            enablePulse: true
+        )
+    }
+
+    // MARK: - Debug Panel
+    private var debugPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("識別結果詳情")
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+
+            if let info = lastRecognizedInfo {
+                VStack(alignment: .leading, spacing: 8) {
+                    debugRow(label: "相關項目", value: info.relevantItems.isEmpty ? "無" : info.relevantItems.joined(separator: ", "))
+                    debugRow(label: "樓層", value: info.floorText ?? "未識別")
+                    debugRow(label: "樓層指數", value: info.floorIndex != nil ? "\(info.floorIndex!)" : "N/A")
+
+                    Divider()
+                        .background(.white.opacity(0.2))
+
+                    Text("OCR 原始文字")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.7))
+
+                    if info.rawTexts.isEmpty {
+                        Text("（無）")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.4))
+                    } else {
+                        ForEach(Array(info.rawTexts.enumerated()), id: \.offset) { idx, text in
+                            HStack(spacing: 8) {
+                                Text("\(idx + 1).")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                    .frame(width: 20, alignment: .trailing)
+                                Text(text)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.8))
+                            }
+                        }
+                    }
+
+                    if let time = info.recognizedAt {
+                        debugRow(label: "識別時間", value: formatDate(time))
+                    }
+                }
+            } else {
+                Text("尚未進行識別")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white.opacity(0.06))
+        )
+    }
+
+    private func debugRow(label: String, value: String) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.white.opacity(0.6))
+            Spacer()
+            Text(value)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+                .monospacedDigit()
+        }
+    }
+
+    private func formatDate(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss.SSS"
+        return formatter.string(from: date)
+    }
+
+    // MARK: - Capture Animation
+    private func startCaptureAnimation(photo: UIImage) {
+        guard let saved = photoStorage.savePhoto(photo) else { return }
+        let tempID = saved.id
+        animatingPhotoID = tempID
+        animatingPhotoImage = photo
+        animatingPhotoPhase = 0
+        let thumbOX: CGFloat = -(338.0 / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
+        let thumbOY: CGFloat = -(235.0 / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
+        animatingPhotoOffsetX = 0
+        animatingPhotoOffsetY = 0
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            withAnimation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.45)) {
+                animatingPhotoPhase = 1
+                animatingPhotoOffsetX = thumbOX
+                animatingPhotoOffsetY = thumbOY
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            animatingPhotoID = nil
+            animatingPhotoImage = nil
+            animatingPhotoPhase = 0
+            animatingPhotoOffsetX = 0
+            animatingPhotoOffsetY = 0
+        }
+
+        // Trigger OCR
+        isRecognizing = true
+        Task.detached {
+            let info = await ParkingSpotRecognizer.recognize(from: photo)
+            await MainActor.run {
+                self.photoStorage.updateRecognizedInfo(for: tempID, info: info)
+                self.lastRecognizedInfo = info
+                self.isRecognizing = false
+                if let floor = info.floorIndex, !self.hasConfirmedFloorThisSession {
+                    self.recognizedFloorToConfirm = floor
+                    self.recognizedFloorText = info.floorText
+                    self.showFloorConfirm = true
+                }
+            }
+        }
+    }
+
+    // MARK: - TILT Effect
+    private func triggerTiltEffect(index: Int) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.4)) {
+            tiltAngleX[index] = -18
+            tiltAngleY[index] = Double.random(in: -8...8)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
+                self.tiltAngleX[index] = 0
+                self.tiltAngleY[index] = 0
+            }
+        }
+    }
+
+    private func resetTilt(index: Int) {
+        tiltAngleX[index] = 0
+        tiltAngleY[index] = 0
+    }
+
+    // MARK: - Smoky Dissolve
+    private func triggerSmokyDissolve(index: Int) {
+        guard index < photoStorage.photos.count else { return }
+        let photo = photoStorage.photos[index]
+        let targetID = photo.id
+        deletingImage = photo.image
+        deletingPhotoID = targetID
+        deletingIndex = index
+        showDeleteButton = false
+
+        withAnimation(.easeOut(duration: 0.85)) {
+            deleteBlur = 20
+            deleteOpacity = 0
+            deleteOffsetY = 25
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                photoStorage.deletePhoto(photo)
+                let idx = index
+                var newTiltAngleX: [Int: Double] = [:]
+                var newTiltAngleY: [Int: Double] = [:]
+                for (k, v) in tiltAngleX where k < idx {
+                    newTiltAngleX[k] = v
+                }
+                for (k, v) in tiltAngleX where k > idx {
+                    newTiltAngleX[k - 1] = v
+                }
+                for (k, v) in tiltAngleY where k < idx {
+                    newTiltAngleY[k] = v
+                }
+                for (k, v) in tiltAngleY where k > idx {
+                    newTiltAngleY[k - 1] = v
+                }
+                tiltAngleX = newTiltAngleX
+                tiltAngleY = newTiltAngleY
+                if photoStorage.photos.isEmpty {
+                    selectedIndex = nil
+                    showingExpanded = false
+                } else {
+                    selectedIndex = min(idx, photoStorage.photos.count - 1)
+                }
+            }
+            if !photoStorage.photos.isEmpty {
+                let newIdx = min(index, photoStorage.photos.count - 1)
+                triggerTiltEffect(index: newIdx)
+                showDeleteButton = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        if selectedIndex != nil, deletingPhotoID == nil {
+                            showDeleteButton = true
+                        }
+                    }
+                }
+            }
+            deletingPhotoID = nil
+            deletingIndex = nil
+            deletingImage = nil
+            deleteBlur = 0
+            deleteOpacity = 1.0
+            deleteOffsetY = 0
+        }
+    }
+}
+
+// MARK: - Parking LLM Recognition Test View
+
+struct ParkingLLMRecognitionTestView: View {
+    @StateObject private var animationClock = AnimationClock()
+    @StateObject private var photoStorage = PhotoStorage()
+
+    // UI state
+    @State private var showingExpanded = false
+    @State private var selectedIndex: Int? = nil
+    @State private var showDeleteButton = false
+    @State private var isCapturePressed = false
+    @State private var isCapturing = false
+
+    // TILT animation state
+    @State private var tiltAngleX: [Int: Double] = [:]
+    @State private var tiltAngleY: [Int: Double] = [:]
+
+    // Delete animation state
+    @State private var deletingPhotoID: UUID? = nil
+    @State private var deletingIndex: Int? = nil
+    @State private var deletingImage: UIImage? = nil
+    @State private var deleteBlur: CGFloat = 0
+    @State private var deleteOpacity: Double = 1.0
+    @State private var deleteOffsetY: CGFloat = 0
+
+    // Capture animation
+    @State private var animatingPhotoID: UUID? = nil
+    @State private var animatingPhotoImage: UIImage? = nil
+    @State private var animatingPhotoPhase: Int = 0
+    @State private var animatingPhotoOffsetX: CGFloat = 0
+    @State private var animatingPhotoOffsetY: CGFloat = 0
+
+    // LLM Recognition state
+    @State private var isRecognizing = false
+    @State private var llmResult: String? = nil
+    @State private var llmError: String? = nil
+    @State private var recognizedFloorText: String? = nil
+    @State private var recognizedFloorIndex: Int? = nil
+    @State private var showFloorConfirm = false
+    @State private var hasConfirmedFloorThisSession = false
+    @State private var modelStatus: String = "快捷指令模式"
+    @State private var showActionPrompt = false
+
+    // Shortcut config
+    @State private var shortcutName: String = UserDefaults.standard.string(forKey: "llm_shortcut_name") ?? "泊車辨識"
+    @State private var showShortcutSettings = false
+    @State private var pollTimer: Timer? = nil
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Header
+                    HStack {
+                        Text("泊車辨識測試 (LLM)")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(.white)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 16)
+                    .padding(.bottom, 8)
+
+                    // Description + Shortcut Settings
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Label("快捷指令 + Apple Intelligence", systemImage: "shortcuts")
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(Color(hex: "BCBA1E"))
+                                Text("傳圖片給快捷指令，用 Cloud 模型辨識")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.5))
+                                HStack(spacing: 6) {
+                                    Circle()
+                                        .fill(.green)
+                                        .frame(width: 8, height: 8)
+                                    Text("快捷指令：\(shortcutName)")
+                                        .font(.system(size: 11))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                }
+                            }
+                            Spacer()
+                            Button {
+                                showShortcutSettings.toggle()
+                            } label: {
+                                Image(systemName: "gear")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white.opacity(0.6))
+                            }
+                        }
+
+                        if showShortcutSettings {
+                            VStack(alignment: .leading, spacing: 8) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text("快捷指令名稱")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                    TextField("泊車辨識", text: $shortcutName)
+                                        .textFieldStyle(.roundedBorder)
+                                        .font(.system(size: 13))
+                                }
+                                VStack(alignment: .leading, spacing: 6) {
+                                    Text("快捷指令設定步驟：")
+                                        .font(.system(size: 11, weight: .semibold))
+                                        .foregroundStyle(.white.opacity(0.5))
+                                    Group {
+                                        Text("1. 不要選「接收輸入」，直接開始")
+                                        Text("2. 「從剪貼簿取得圖片」")
+                                        Text("3. 「製作圖像描述」→ 選 Cloud 模型 + 提示詞")
+                                        Text("4. 「拷貝至剪貼簿」→ 選「圖像描述」結果")
+                                        Text("5. 「結束並返回」→ 選「圖像描述」結果")
+                                    }
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.white.opacity(0.4))
+                                    Text("App 會把圖片放剪貼簿 → 快捷指令讀取 → 結果回傳剪貼簿")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(.white.opacity(0.35))
+                                    Text("💡 拍照後按 Action Button 執行快捷指令")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(Color(hex: "BCBA1E"))
+                                    Text("💡 或講「Hey Siri，泊車辨識」")
+                                        .font(.system(size: 10))
+                                        .foregroundStyle(Color(hex: "BCBA1E").opacity(0.7))
+                                }
+                                Button {
+                                    generateAndShareShortcut()
+                                } label: {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "square.and.arrow.down")
+                                        Text("一鍵生成快捷指令")
+                                    }
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundStyle(.black)
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 10)
+                                    .background(Capsule().fill(Color(hex: "BCBA1E") ?? .yellow))
+                                }
+
+                                Button {
+                                    UserDefaults.standard.set(shortcutName, forKey: "llm_shortcut_name")
+                                    showShortcutSettings = false
+                                } label: {
+                                    Text("儲存")
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.black)
+                                        .frame(maxWidth: .infinity)
+                                        .padding(.vertical, 8)
+                                        .background(Capsule().fill(.white))
+                                }
+                            }
+                            .padding(12)
+                            .background(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .fill(Color.white.opacity(0.06))
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 16)
+
+                    // Camera section
+                    cameraLLMSection
+                        .padding(.bottom, 16)
+
+                    // Status bar
+                    HStack(spacing: 12) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "photo.stack")
+                                .font(.system(size: 12))
+                            Text("\(photoStorage.photos.count)/3")
+                                .font(.system(size: 13, weight: .medium))
+                                .monospacedDigit()
+                        }
+                        .foregroundStyle(.white.opacity(0.7))
+
+                        if isRecognizing {
+                            HStack(spacing: 6) {
+                                ProgressView()
+                                    .scaleEffect(0.6)
+                                    .tint(.white)
+                                Text("LLM 識別中...")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(.white.opacity(0.7))
+                        } else if llmResult != nil {
+                            HStack(spacing: 6) {
+                                Image(systemName: "checkmark.circle.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.green)
+                                Text("已完成")
+                                    .font(.system(size: 13, weight: .medium))
+                            }
+                            .foregroundStyle(.white.opacity(0.7))
+                        }
+
+                        Spacer()
+
+                        // Clear button
+                        Button {
+                            photoStorage.deleteAll()
+                            llmResult = nil
+                            llmError = nil
+                            recognizedFloorText = nil
+                            recognizedFloorIndex = nil
+                            hasConfirmedFloorThisSession = false
+                        } label: {
+                            HStack(spacing: 4) {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 10))
+                                Text("清除")
+                                    .font(.system(size: 12, weight: .medium))
+                            }
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(
+                                Capsule()
+                                    .fill(Color.white.opacity(0.08))
+                            )
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 12)
+
+                    // LLM Result panel
+                    llmResultPanel
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 20)
+                }
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            prepareModel()
+        }
+        .onDisappear {
+            pollTimer?.invalidate()
+            pollTimer = nil
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
+            if let image = notification.object as? UIImage {
+                startCaptureAnimation(photo: image)
+                recognizeWithLLM(image: image)
+            }
+        }
+        // Action Button prompt
+        .alert("請啟動動作按鈕", isPresented: $showActionPrompt) {
+            Button("已準備好") {
+                // Start polling immediately — result will be detected when shortcut finishes
+                startPollingAfterAction()
+            }
+            Button("取消", role: .cancel) {}
+        } message: {
+            Text("圖片已複製到剪貼簿。\n請按動作按鈕執行「\(shortcutName)」快捷指令。")
+        }
+        // Floor confirmation overlay
+        .overlay {
+            if showFloorConfirm, let floor = recognizedFloorIndex {
+                ZStack {
+                    Color.black.opacity(0.42)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation(.easeIn(duration: 0.18)) {
+                                showFloorConfirm = false
+                                hasConfirmedFloorThisSession = true
+                            }
+                        }
+
+                    floorConfirmLLMCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor) 樓")
+                        .frame(maxWidth: 360)
+                        .padding(.horizontal, 22)
+                }
+            }
+        }
+        // Copied toast
+        .overlay(alignment: .bottom) {
+            if showCopiedToast {
+                HStack(spacing: 8) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.green)
+                    Text("快捷指令描述已複製，貼給 Siri 即可生成")
+                        .font(.system(size: 13, weight: .medium))
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.75))
+                )
+                .glassEffect(.regular, in: .capsule)
+                .padding(.bottom, 40)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.spring(response: 0.4, dampingFraction: 0.8), value: showCopiedToast)
+            }
+        }
+    }
+
+    // MARK: - Generate Shortcut Helper
+    @State private var showCopiedToast = false
+
+    private func generateAndShareShortcut() {
+        let description = """
+        請幫我建立一個快捷指令，名稱叫「泊車辨識」。步驟如下：
+
+        第一步，「從剪貼簿取得圖片」。
+
+        第二步，「製作圖像描述」。模型選擇「Cloud」。提示詞用：「请识别这张照片中的车位号、区域号和楼层。一般区域号会出现在柱子且格式不会与楼层冲突，部分场景可能以颜色代替，如为颜色请输出颜色。如地面喷涂也有类似区域号，以柱子上的为准。重点区分：电梯厅墙面发光数字、大堂门口数字，属于楼宇座数/电梯出口编号，不是停车场楼层，绝对不能当成车库楼层识别。楼层若为地下一般会以B为开头，请留意部分会以B开头加数字作为区域号，请留意是否有区域字样提示，一般不会与区域号冲突或重复，不要推断楼层。如未识别出请与对应项显示"-"，最后给出识别逻辑。」
+
+        第三步，「拷贝至剪贴簿」，內容選「图像描述的結果」。
+
+        第四步，「結束並返回」，選「图像描述的結果」。
+        """
+
+        // Copy description to clipboard
+        UIPasteboard.general.string = description
+
+        // Open Shortcuts app
+        if let url = URL(string: "shortcuts://create-shortcut") {
+            UIApplication.shared.open(url)
+        }
+
+        // Show toast
+        showCopiedToast = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            showCopiedToast = false
+        }
+    }
+
+    // MARK: - Prepare Model
+    private func prepareModel() {
+        modelStatus = "快捷指令：\(shortcutName)"
+    }
+
+    // MARK: - LLM Recognition via Shortcut (clipboard-based)
+    private func recognizeWithLLM(image: UIImage) {
+        // Copy image to clipboard
+        UIPasteboard.general.image = image
+
+        // Reset state
+        llmResult = nil
+        llmError = nil
+        recognizedFloorText = nil
+        recognizedFloorIndex = nil
+
+        // Show prompt to press Action Button
+        showActionPrompt = true
+    }
+
+    // MARK: - Start Polling (called when user taps "已準備好")
+    private func startPollingAfterAction() {
+        isRecognizing = true
+        showActionPrompt = false
+        startPollingClipboardForResult()
+    }
+
+    // MARK: - Poll Clipboard for Shortcut Result
+    private func startPollingClipboardForResult() {
+        pollTimer?.invalidate()
+        var attempts = 0
+        let maxAttempts = 120 // 2 minutes max (1s interval)
+        let initialChangeCount = UIPasteboard.general.changeCount
+
+        pollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            attempts += 1
+
+            let currentChangeCount = UIPasteboard.general.changeCount
+            if currentChangeCount != initialChangeCount,
+               let text = UIPasteboard.general.string,
+               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+
+                timer.invalidate()
+                self.pollTimer = nil
+
+                DispatchQueue.main.async {
+                    self.llmResult = text
+                    self.isRecognizing = false
+                    self.parseFloorFromLLMResponse(text)
+                }
+            } else if attempts >= maxAttempts {
+                timer.invalidate()
+                self.pollTimer = nil
+
+                DispatchQueue.main.async {
+                    if self.isRecognizing {
+                        self.llmError = "等待超時（2分鐘）。請確認快捷指令「\(self.shortcutName)」已正確設定。"
+                        self.isRecognizing = false
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Parse Floor from LLM Response
+    private func parseFloorFromLLMResponse(_ text: String) {
+        let lines = text.components(separatedBy: .newlines)
+        for line in lines {
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Look for "樓層：B2" or "樓層: -2樓"
+            if trimmed.contains("樓層") {
+                let components = trimmed.components(separatedBy: "：")
+                let floorStr = components.count > 1 ? components.last?.trimmingCharacters(in: .whitespacesAndNewlines) : nil
+                if let floorStr = floorStr, !floorStr.isEmpty {
+                    recognizedFloorText = floorStr
+                    // Try to parse floor index
+                    if let index = Self.parseFloorIndex(floorStr) {
+                        recognizedFloorIndex = index
+                        if !hasConfirmedFloorThisSession {
+                            showFloorConfirm = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private static func parseFloorIndex(_ text: String) -> Int? {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        // "B2" → -2
+        if let regex = try? NSRegularExpression(pattern: "^[Bb](\\d+)$", options: []),
+           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
+           let range = Range(match.range(at: 1), in: trimmed),
+           let num = Int(trimmed[range]) {
+            return -num
+        }
+        // "-2樓" or "2樓"
+        if let regex = try? NSRegularExpression(pattern: "^(-?)(\\d+)\\s*樓$", options: []),
+           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
+           let numRange = Range(match.range(at: 2), in: trimmed),
+           let num = Int(trimmed[numRange]) {
+            let hasMinus = match.range(at: 1).length > 0
+            return hasMinus ? -num : num
+        }
+        // "地下2層"
+        if let regex = try? NSRegularExpression(pattern: "地下(\\d+)層", options: []),
+           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
+           let range = Range(match.range(at: 1), in: trimmed),
+           let num = Int(trimmed[range]) {
+            return -num
+        }
+        return nil
+    }
+
+    // MARK: - Camera Section
+    private var cameraLLMSection: some View {
+        let camW: CGFloat = 338
+        let camH: CGFloat = 235
+        let camCR: CGFloat = 37
+        return ZStack(alignment: .topLeading) {
+            CameraPreviewView(isLandscape: false)
+                .frame(width: camW, height: camH)
+                .clipShape(RoundedRectangle(cornerRadius: camCR))
+                .overlay(
+                    RoundedRectangle(cornerRadius: camCR)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                )
+
+            // Dim overlay
+            let dimOpacity = showingExpanded ? (selectedIndex != nil ? 0.65 : 0.45) : 0
+            Color.black.opacity(dimOpacity)
+                .frame(width: camW, height: camH)
+                .clipShape(RoundedRectangle(cornerRadius: camCR))
+                .animation(.easeInOut(duration: 0.3), value: selectedIndex)
+                .animation(.easeInOut(duration: 0.3), value: showingExpanded)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard showingExpanded else { return }
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                        if let idx = selectedIndex {
+                            resetTilt(index: idx)
+                            selectedIndex = nil
+                        } else {
+                            showingExpanded = false
+                            selectedIndex = nil
+                        }
+                        tiltAngleX = [:]
+                        tiltAngleY = [:]
+                    }
+                }
+
+            // Photo stack
+            photoLLMStack
+
+            // Capture animation overlay
+            captureLLMAnimationOverlay
+
+            // Camera button
+            cameraLLMCaptureButton
+
+            // Delete button
+            if let idx = selectedIndex, idx < photoStorage.photos.count,
+               showDeleteButton, deletingPhotoID == nil {
+                Button {
+                    triggerSmokyDissolve(index: idx)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.ultraThinMaterial, in: .circle)
+                        .glassEffect(.regular, in: .circle)
+                }
+                .position(x: 40, y: 34)
+                .transition(.opacity)
+            }
+
+            // Thumbnail tap area
+            if !showingExpanded {
+                Color.clear
+                    .frame(width: 80, height: 70)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                            showingExpanded = true
+                            selectedIndex = nil
+                        }
+                    }
+            }
+
+            // Recognizing indicator
+            if isRecognizing {
+                HStack(spacing: 6) {
+                    ProgressView()
+                        .scaleEffect(0.7)
+                        .tint(.white)
+                    Text("LLM 處理中...")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
+                .background(
+                    Capsule()
+                        .fill(Color.black.opacity(0.5))
+                )
+                .position(x: camW - 60, y: 24)
+                .transition(.opacity)
+            }
+        }
+        .frame(width: camW, height: camH)
+    }
+
+    // MARK: - Photo Stack
+    private var photoLLMStack: some View {
+        let photos = photoStorage.photos
+        let count = photos.count
+        return ZStack {
+            ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                if photo.id != deletingPhotoID {
+                    CameraPhotoItem(
+                        photo: photo,
+                        index: index,
+                        totalCount: count,
+                        isExpanded: showingExpanded,
+                        isSelected: selectedIndex == index,
+                        tiltX: tiltAngleX[index] ?? 0,
+                        tiltY: tiltAngleY[index] ?? 0,
+                        isLandscape: false
+                    )
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                            if showingExpanded {
+                                let wasSelected = selectedIndex == index
+                                if wasSelected {
+                                    resetTilt(index: index)
+                                    selectedIndex = nil
+                                } else {
+                                    if let oldIdx = selectedIndex {
+                                        resetTilt(index: oldIdx)
+                                    }
+                                    selectedIndex = index
+                                    triggerTiltEffect(index: index)
+                                    showDeleteButton = false
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                            if selectedIndex == index, deletingPhotoID == nil {
+                                                showDeleteButton = true
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            cameraLLMDissolveOverlay
+        }
+        .frame(width: 338, height: 235, alignment: .center)
+        .gesture(
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    guard showingExpanded, photos.count > 1 else { return }
+                    let horizontal = value.translation.width
+                    guard abs(horizontal) > abs(value.translation.height) else { return }
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                        if let cur = selectedIndex {
+                            resetTilt(index: cur)
+                        }
+                        if horizontal < 0 {
+                            if let cur = selectedIndex {
+                                selectedIndex = (cur + 1) % photos.count
+                            } else {
+                                selectedIndex = 0
+                            }
+                        } else {
+                            if let cur = selectedIndex {
+                                selectedIndex = (cur - 1 + photos.count) % photos.count
+                            } else {
+                                selectedIndex = photos.count - 1
+                            }
+                        }
+                        if let newIdx = selectedIndex {
+                            triggerTiltEffect(index: newIdx)
+                            showDeleteButton = false
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    if selectedIndex == newIdx, deletingPhotoID == nil {
+                                        showDeleteButton = true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+        )
+    }
+
+    // MARK: - Dissolve Overlay
+    private var cameraLLMDissolveOverlay: some View {
+        Group {
+            if deletingPhotoID != nil, let img = deletingImage {
+                let expandedH: CGFloat = 32 * 3.8
+                let selectedScale: CGFloat = (235 - 24) / expandedH
+                let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
+                let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
+                let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003
+                let delTiltShadow: CGFloat = abs(delTiltX) * 0.5
+                let delTiltLiftY: CGFloat = -abs(delTiltX) * 0.3
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 46 * 3.8, height: expandedH)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(1.0), lineWidth: 2.0 / selectedScale)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: delTiltShadow, y: delTiltShadow * 0.5)
+                    .scaleEffect(delTiltScale)
+                    .offset(y: delTiltLiftY)
+                    .rotation3DEffect(.degrees(delTiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+                    .rotation3DEffect(.degrees(delTiltY), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                    .scaleEffect(selectedScale)
+                    .blur(radius: deleteBlur)
+                    .opacity(deleteOpacity)
+                    .offset(y: deleteOffsetY)
+                    .allowsHitTesting(false)
+                    .zIndex(200)
+            }
+        }
+    }
+
+    // MARK: - Capture Animation Overlay
+    private var captureLLMAnimationOverlay: some View {
+        let camW: CGFloat = 338
+        let camH: CGFloat = 235
+        return Group {
+            if animatingPhotoID != nil, let img = animatingPhotoImage {
+                let isShrunk = animatingPhotoPhase == 1
+                let cr: CGFloat = isShrunk ? 5 : 37
+                let sc: CGFloat = isShrunk ? 46.0 / camW : 1.0
+                let lw: CGFloat = isShrunk ? 1.0 / (46.0 / camW) : 4
+                Image(uiImage: img)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: camW, height: camH)
+                    .clipShape(RoundedRectangle(cornerRadius: cr))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: cr)
+                            .stroke(Color.white.opacity(0.8), lineWidth: lw)
+                    )
+                    .scaleEffect(sc)
+                    .offset(x: animatingPhotoOffsetX, y: animatingPhotoOffsetY)
+                    .allowsHitTesting(false)
+                    .zIndex(100)
+            }
+        }
+    }
+
+    // MARK: - Camera Capture Button
+    private var cameraLLMCaptureButton: some View {
+        Button(action: {
+            guard !isCapturing else { return }
+            isCapturing = true
+            NotificationCenter.default.post(name: .captureParkingPhoto, object: nil)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.isCapturing = false
+            }
+        }) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 22)
+                    .frame(width: 59, height: 148)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                    .tint(.clear)
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let h = geo.size.height
+                    let t = animationClock.elapsed * 0.3
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: "BCBA1E").opacity(0.85))
+                            .blur(radius: 16)
+                            .frame(width: 100, height: 100)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 50,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 50)
+                        Circle()
+                            .fill(Color(hex: "9B59B6").opacity(0.85))
+                            .frame(width: 110, height: 110)
+                            .blur(radius: 16)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 55,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 55)
+                        Circle()
+                            .fill(Color(hex: "3498DB").opacity(0.85))
+                            .frame(width: 90, height: 90)
+                            .blur(radius: 16)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 45,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 45)
+                    }
+                }
+                .frame(width: 51, height: 140)
+                .clipShape(.rect(cornerRadius: 18))
+                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white, lineWidth: 1.6))
+                Image(systemName: "brain.head.profile")
+                    .font(.system(size: 24))
+                    .foregroundStyle(.white)
+            }
+        }
+        .scaleEffect(isCapturePressed ? 0.88 : 1.0)
+        .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isCapturePressed)
+        .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
+            isCapturePressed = pressing
+        }, perform: {})
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+        .padding(.trailing, 10)
+        .blur(radius: showingExpanded || photoStorage.photos.count >= 3 ? 12 : 0)
+        .opacity(showingExpanded || photoStorage.photos.count >= 3 ? 0 : 1)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: showingExpanded)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: photoStorage.photos.count)
+    }
+
+    // MARK: - LLM Result Panel
+    private var llmResultPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("LLM 識別結果")
+                    .font(.system(size: 15, weight: .bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                if let floor = recognizedFloorText {
+                    HStack(spacing: 4) {
+                        Image(systemName: "building.2.fill")
+                            .font(.system(size: 11))
+                        Text("樓層：\(floor)")
+                            .font(.system(size: 12, weight: .medium))
+                    }
+                    .foregroundStyle(Color(hex: "46ADB8"))
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(
+                        Capsule()
+                            .fill(Color(hex: "46ADB8").opacity(0.15))
+                    )
+                }
+            }
+
+            if isRecognizing {
+                HStack(spacing: 8) {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                        .tint(.white)
+                    Text("正在使用 Apple Intelligence 識別...")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+                .padding(.vertical, 20)
+                .frame(maxWidth: .infinity)
+            } else if let error = llmError {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                        Text("錯誤")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.orange)
+                    }
+                    Text(error)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.6))
+                }
+            } else if let result = llmResult {
+                ScrollView {
+                    Text(result)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.85))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .textSelection(.enabled)
+                }
+                .frame(maxHeight: 300)
+            } else {
+                Text("拍照後自動使用 LLM 識別")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .padding(.vertical, 20)
+                    .frame(maxWidth: .infinity)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color.white.opacity(0.06))
+        )
+    }
+
+    // MARK: - Floor Confirmation Card (LLM)
+    private func floorConfirmLLMCard(floorIndex: Int, floorText: String) -> some View {
+        let tintColor = Color(hex: "BCBA1E") ?? .yellow
+        return VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("樓層識別")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(.white)
+                Text("3B 模型分析偵測到樓層資訊")
+                    .font(.subheadline)
+                    .foregroundStyle(.white.opacity(0.62))
+            }
+            .padding(.top, 2)
+
+            HStack(alignment: .top, spacing: 14) {
+                Image(systemName: "building.2.fill")
+                    .font(.system(size: 32))
+                    .foregroundStyle(tintColor)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(floorText)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                    Text("樓層指數：\(floorIndex)")
+                        .font(.callout)
+                        .foregroundStyle(.white.opacity(0.68))
+                }
+                Spacer()
+            }
+            .padding(18)
+            .background(
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(Color.white.opacity(0.06))
+            )
+
+            VStack(spacing: 12) {
+                Button {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        showFloorConfirm = false
+                        hasConfirmedFloorThisSession = true
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "checkmark.circle.fill")
+                        Text("是，調整為「\(floorText)」")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundStyle(.black)
+                    .background(
+                        Capsule()
+                            .fill(Color.white)
+                    )
+                    .glassEffect(.regular, in: .capsule)
+                    .clipShape(.capsule)
+                }
+                .buttonStyle(.plain)
+
+                Button {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        showFloorConfirm = false
+                        hasConfirmedFloorThisSession = true
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "xmark.circle")
+                        Text("否，維持現狀")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 16)
+                    .foregroundStyle(.white)
+                    .background(
+                        Capsule()
+                            .fill(Color.white.opacity(0.08))
+                    )
+                    .glassEffect(.regular, in: .capsule)
+                    .clipShape(.capsule)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(26)
+        .background(
+            RoundedRectangle(cornerRadius: 30)
+                .fill(Color.black.opacity(0.58))
+        )
+        .glassEffect(.regular, in: .rect(cornerRadius: 30))
+        .clipShape(.rect(cornerRadius: 30))
+        .borderBeam(
+            size: .large,
+            palette: .senshackDark,
+            cornerRadius: 30,
+            enableRotate: false,
+            enablePulse: true
+        )
+    }
+
+    // MARK: - Capture Animation
+    private func startCaptureAnimation(photo: UIImage) {
+        guard let saved = photoStorage.savePhoto(photo) else { return }
+        let tempID = saved.id
+        animatingPhotoID = tempID
+        animatingPhotoImage = photo
+        animatingPhotoPhase = 0
+        let thumbOX: CGFloat = -(338.0 / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
+        let thumbOY: CGFloat = -(235.0 / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
+        animatingPhotoOffsetX = 0
+        animatingPhotoOffsetY = 0
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
+            withAnimation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.45)) {
+                animatingPhotoPhase = 1
+                animatingPhotoOffsetX = thumbOX
+                animatingPhotoOffsetY = thumbOY
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+            animatingPhotoID = nil
+            animatingPhotoImage = nil
+            animatingPhotoPhase = 0
+            animatingPhotoOffsetX = 0
+            animatingPhotoOffsetY = 0
+        }
+    }
+
+    // MARK: - TILT Effect
+    private func triggerTiltEffect(index: Int) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.4)) {
+            tiltAngleX[index] = -18
+            tiltAngleY[index] = Double.random(in: -8...8)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
+                self.tiltAngleX[index] = 0
+                self.tiltAngleY[index] = 0
+            }
+        }
+    }
+
+    private func resetTilt(index: Int) {
+        tiltAngleX[index] = 0
+        tiltAngleY[index] = 0
+    }
+
+    // MARK: - Smoky Dissolve
+    private func triggerSmokyDissolve(index: Int) {
+        guard index < photoStorage.photos.count else { return }
+        let photo = photoStorage.photos[index]
+        let targetID = photo.id
+        deletingImage = photo.image
+        deletingPhotoID = targetID
+        deletingIndex = index
+        showDeleteButton = false
+
+        withAnimation(.easeOut(duration: 0.85)) {
+            deleteBlur = 20
+            deleteOpacity = 0
+            deleteOffsetY = 25
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                photoStorage.deletePhoto(photo)
+                let idx = index
+                var newTiltAngleX: [Int: Double] = [:]
+                var newTiltAngleY: [Int: Double] = [:]
+                for (k, v) in tiltAngleX where k < idx {
+                    newTiltAngleX[k] = v
+                }
+                for (k, v) in tiltAngleX where k > idx {
+                    newTiltAngleX[k - 1] = v
+                }
+                for (k, v) in tiltAngleY where k < idx {
+                    newTiltAngleY[k] = v
+                }
+                for (k, v) in tiltAngleY where k > idx {
+                    newTiltAngleY[k - 1] = v
+                }
+                tiltAngleX = newTiltAngleX
+                tiltAngleY = newTiltAngleY
+                if photoStorage.photos.isEmpty {
+                    selectedIndex = nil
+                    showingExpanded = false
+                } else {
+                    selectedIndex = min(idx, photoStorage.photos.count - 1)
+                }
+            }
+            if !photoStorage.photos.isEmpty {
+                let newIdx = min(index, photoStorage.photos.count - 1)
+                triggerTiltEffect(index: newIdx)
+                showDeleteButton = false
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        if selectedIndex != nil, deletingPhotoID == nil {
+                            showDeleteButton = true
+                        }
+                    }
+                }
+            }
+            deletingPhotoID = nil
+            deletingIndex = nil
+            deletingImage = nil
+            deleteBlur = 0
+            deleteOpacity = 1.0
+            deleteOffsetY = 0
+        }
     }
 }

@@ -8,6 +8,7 @@ struct ParkingPhoto: Identifiable, Codable {
     let rotation: Double
     let offsetX: Double
     let offsetY: Double
+    var recognizedInfo: ParkingRecognizedInfo?
 
     // In-memory image cache — avoids disk reads on every SwiftUI body pass
     private static var imageCache: [String: UIImage] = [:]
@@ -113,6 +114,12 @@ class PhotoStorage: ObservableObject {
         try? fm.removeItem(at: url)
         ParkingPhoto.evictCache(for: photo.fileName)
         photos.removeAll { $0.id == photo.id }
+        saveToDefaults()
+    }
+
+    func updateRecognizedInfo(for photoID: UUID, info: ParkingRecognizedInfo) {
+        guard let index = photos.firstIndex(where: { $0.id == photoID }) else { return }
+        photos[index].recognizedInfo = info
         saveToDefaults()
     }
 
