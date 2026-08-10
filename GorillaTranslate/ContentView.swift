@@ -155,9 +155,12 @@ struct ContentView: View {
     @State private var llmPollTimer: Timer? = nil
     @State private var showLLMActionPrompt = false
     @State private var llmShortcutName: String = UserDefaults.standard.string(forKey: "llm_shortcut_name") ?? "泊車辨識"
-    @State private var parkingInfoDisplayMode: Bool = false
+    @State private var parkingInfoDisplayMode: Bool = true
     @State private var parkingInfoSwitchTimer: Timer? = nil
     @State private var showRecognitionLogicAlert = false
+    @State private var parkingPhotoContributions: [UUID: [String: String]] = [:]
+    @State private var currentRecognizingPhotoID: UUID? = nil
+    @State private var parkingOrbBoost: Double = 1.0
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
@@ -199,6 +202,25 @@ struct ContentView: View {
                 _parkingElapsed = State(initialValue: Date().timeIntervalSince(savedTime))
                 _timerRunning = State(initialValue: false)
                 _lastKnownArrivalDate = State(initialValue: defaults.object(forKey: "lastKnownArrivalDate") as? Date)
+                // Load persisted parking photo contributions
+                var loadedContributions: [UUID: [String: String]] = [:]
+                if let data = defaults.data(forKey: "parkingPhotoContributions"),
+                   let decoded = try? JSONDecoder().decode([UUID: [String: String]].self, from: data) {
+                    loadedContributions = decoded
+                }
+                _parkingPhotoContributions = State(initialValue: loadedContributions)
+                // Merge contributions into display fields
+                var mSpot: String? = nil; var mArea: String? = nil; var mFloor: String? = nil; var mFloorIdx: Int? = nil
+                for (_, c) in loadedContributions {
+                    if let s = c["spot"], mSpot == nil { mSpot = s }
+                    if let a = c["area"], mArea == nil { mArea = a }
+                    if let f = c["floor"], mFloor == nil { mFloor = f; mFloorIdx = Self.parseFloorIndex(f) }
+                }
+                _llmSpotNumber = State(initialValue: mSpot)
+                _llmAreaCode = State(initialValue: mArea)
+                _llmFloorText = State(initialValue: mFloor)
+                _llmFloorIndex = State(initialValue: mFloorIdx)
+                _llmRawResult = State(initialValue: loadedContributions.isEmpty ? nil : "multi-photo")
             }
         }
     }
@@ -335,6 +357,7 @@ struct ContentView: View {
                     hasDeparted = true
                     departureTime = lastVisit.departureDate
                     showDepartedLabel = true
+                    clearParkingContributions()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             showDepartedLabel = false
@@ -372,6 +395,9 @@ struct ContentView: View {
                     departureElapsedTimer = nil
                     startPersistentTimer()
                     parkingFloorStore.recordParkingPoint(from: lastVisit)
+                    // Show parking info on new arrival
+                    parkingInfoDisplayMode = true
+                    clearParkingContributions()
                 }
             }
         }
@@ -1104,6 +1130,11 @@ struct ContentView: View {
                         Text("圖片已複製到剪貼簿。\n請按動作按鈕執行「\(llmShortcutName)」快捷指令。")
                     }
                     .alert("識別詳情", isPresented: $showRecognitionLogicAlert) {
+                        Button("清除車位") {
+                            withAnimation(.easeInOut(duration: 0.4)) {
+                                clearParkingContributions()
+                            }
+                        }
                         Button("確定", role: .cancel) {}
                     } message: {
                         Text(buildRecognitionLogicText())
@@ -1651,7 +1682,8 @@ struct ContentView: View {
                                 hasConfirmedFloorThisSession = false
                                 showFloorConfirm = false
                                 recognizedFloorToConfirm = nil
-                                cleanupLLMState()
+                                llmPollTimer?.invalidate()
+                                parkingInfoSwitchTimer?.invalidate()
                             }
                         }) {
                             Image(systemName: "chevron.left.circle.fill")
@@ -1763,7 +1795,7 @@ struct ContentView: View {
                             GeometryReader { geo in
                                 let w = geo.size.width
                                 let h = geo.size.height
-                                let t = animationClock.elapsed * 0.3
+                                let t = animationClock.elapsed * 0.3 * parkingOrbBoost
 
                                 ZStack {
                                     Circle()
@@ -1800,18 +1832,27 @@ struct ContentView: View {
                                     .stroke(Color.white.opacity(0.8), lineWidth: 4)
                             )
                             VStack(spacing: 2) {
-                                if parkingInfoDisplayMode && hasLLMResult {
+                                if parkingInfoDisplayMode {
                                     Text("車位資訊")
                                         .font(.system(size: 16, weight: .bold))
                                         .foregroundStyle(.white)
                                         .frame(maxWidth: .infinity, alignment: .trailing)
                                         .padding(.trailing, 28)
-                                    VStack(spacing: 1) {
-                                        if let spot = llmSpotNumber { Text("車位 \(spot)") }
-                                        if let area = llmAreaCode { Text("區域 \(area)") }
-                                        if let floor = llmFloorText { Text("樓層 \(floor)") }
+                                    VStack(alignment: .leading, spacing: 1) {
+                                        HStack(spacing: 4) {
+                                            Text("車位").frame(width: 28, alignment: .trailing)
+                                            Text(llmSpotNumber ?? "-")
+                                        }.padding(.leading, 0)
+                                        HStack(spacing: 4) {
+                                            Text("區域").frame(width: 28, alignment: .trailing)
+                                            Text(llmAreaCode ?? "-")
+                                        }.padding(.leading, 0)
+                                        HStack(spacing: 4) {
+                                            Text("樓層").frame(width: 28, alignment: .trailing)
+                                            Text(llmFloorText ?? "-")
+                                        }.padding(.leading, 0)
                                     }
-                                    .font(.system(size: 14, weight: .medium))
+                                    .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.white.opacity(0.9))
                                 } else {
                                     Text("入場計時")
@@ -1828,6 +1869,15 @@ struct ContentView: View {
                                 }
                             }
                             .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
+                            .animation(.easeInOut(duration: 0.3), value: llmSpotNumber)
+                            .animation(.easeInOut(duration: 0.3), value: llmAreaCode)
+                            .animation(.easeInOut(duration: 0.3), value: llmFloorText)
+                            .onTapGesture {
+                                withAnimation(.easeInOut(duration: 0.5)) {
+                                    parkingInfoDisplayMode.toggle()
+                                }
+                                resetParkingInfoSwitchTimer()
+                            }
                             .onLongPressGesture { showRecognitionLogicAlert = true }
                             }
                         }
@@ -1859,7 +1909,8 @@ struct ContentView: View {
                             hasConfirmedFloorThisSession = false
                             showFloorConfirm = false
                             recognizedFloorToConfirm = nil
-                            cleanupLLMState()
+                            llmPollTimer?.invalidate()
+                            parkingInfoSwitchTimer?.invalidate()
                         }
                     }) {
                         Image(systemName: "chevron.left.circle.fill")
@@ -1976,7 +2027,7 @@ struct ContentView: View {
                         GeometryReader { geo in
                             let w = geo.size.width
                             let h = geo.size.height
-                            let t = animationClock.elapsed * 0.3
+                            let t = animationClock.elapsed * 0.3 * parkingOrbBoost
 
                             ZStack {
                                 Circle()
@@ -2013,18 +2064,27 @@ struct ContentView: View {
                                 .stroke(Color.white.opacity(0.8), lineWidth: 4)
                         )
                         VStack(spacing: 2) {
-                            if parkingInfoDisplayMode && hasLLMResult {
+                            if parkingInfoDisplayMode {
                                 Text("車位資訊")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                                     .padding(.trailing, 18)
-                                VStack(spacing: 1) {
-                                    if let spot = llmSpotNumber { Text("車位 \(spot)") }
-                                    if let area = llmAreaCode { Text("區域 \(area)") }
-                                    if let floor = llmFloorText { Text("樓層 \(floor)") }
+                                VStack(alignment: .leading, spacing: 1) {
+                                    HStack(spacing: 4) {
+                                        Text("車位").frame(width: 32, alignment: .trailing)
+                                        Text(llmSpotNumber ?? "-")
+                                    }.padding(.leading, 0)
+                                    HStack(spacing: 4) {
+                                        Text("區域").frame(width: 32, alignment: .trailing)
+                                        Text(llmAreaCode ?? "-")
+                                    }.padding(.leading, 0)
+                                    HStack(spacing: 4) {
+                                        Text("樓層").frame(width: 32, alignment: .trailing)
+                                        Text(llmFloorText ?? "-")
+                                    }.padding(.leading, 0)
                                 }
-                                .font(.system(size: 16, weight: .medium))
+                                .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.9))
                             } else {
                                 Text("入場計時")
@@ -2041,6 +2101,15 @@ struct ContentView: View {
                             }
                         }
                         .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
+                        .animation(.easeInOut(duration: 0.3), value: llmSpotNumber)
+                        .animation(.easeInOut(duration: 0.3), value: llmAreaCode)
+                        .animation(.easeInOut(duration: 0.3), value: llmFloorText)
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                parkingInfoDisplayMode.toggle()
+                            }
+                            resetParkingInfoSwitchTimer()
+                        }
                         .onLongPressGesture { showRecognitionLogicAlert = true }
                     }
                 }
@@ -2661,30 +2730,21 @@ struct ContentView: View {
         }
 
         // Trigger LLM recognition via shortcut
-        recognizeParkingWithLLM(image: photo)
+        recognizeParkingWithLLM(image: photo, photoID: tempID)
     }
 
     // MARK: - LLM Parking Recognition
 
     private var hasLLMResult: Bool {
-        llmSpotNumber != nil || llmAreaCode != nil || llmFloorText != nil
+        llmRawResult != nil
     }
 
-    private func recognizeParkingWithLLM(image: UIImage) {
-        // Copy image to clipboard
+    private func recognizeParkingWithLLM(image: UIImage, photoID: UUID) {
+        currentRecognizingPhotoID = photoID
         UIPasteboard.general.image = image
-
-        // Reset state
-        llmSpotNumber = nil
-        llmAreaCode = nil
-        llmFloorText = nil
-        llmFloorIndex = nil
         llmRawResult = nil
         llmError = nil
-        parkingInfoDisplayMode = false
         parkingInfoSwitchTimer?.invalidate()
-
-        // Show prompt to press Action Button
         showLLMActionPrompt = true
     }
 
@@ -2741,12 +2801,25 @@ struct ContentView: View {
                     guard line.contains(keyword) else { continue }
                     for sep in ["：", ":"] {
                         let components = line.components(separatedBy: sep)
-                        if components.count > 1, let val = components.last?.trimmingCharacters(in: .whitespacesAndNewlines), !val.isEmpty, val != "-" {
+                        if components.count > 1, let val = components.last?.trimmingCharacters(in: .whitespacesAndNewlines), isValidParkingValue(val) {
                             return val
                         }
                     }
                 }
                 return nil
+            }
+
+            // Only accept short, concrete values — reject descriptive text
+            func isValidParkingValue(_ val: String) -> Bool {
+                if val.isEmpty || val == "-" || val == "无" || val == "沒有" || val == "没有" { return false }
+                // Reject long descriptive sentences (>6 chars likely not a code)
+                if val.count > 6 { return false }
+                // Reject common "not found" phrases
+                let reject = ["未", "需", "无法", "不能", "不确", "未知", "待", "暂"]
+                for r in reject {
+                    if val.contains(r) { return false }
+                }
+                return true
             }
 
             // Extract spot number — simplified "车位号" / traditional "車位號"
@@ -2768,10 +2841,22 @@ struct ContentView: View {
             }
         }
 
-        // Start 10-second switching timer if any result found
-        if hasLLMResult {
-            startParkingInfoSwitchTimer()
+        // Save this photo's contribution
+        if let photoID = currentRecognizingPhotoID {
+            var contribution: [String: String] = [:]
+            if let s = llmSpotNumber { contribution["spot"] = s }
+            if let a = llmAreaCode { contribution["area"] = a }
+            if let f = llmFloorText { contribution["floor"] = f }
+            if !contribution.isEmpty {
+                parkingPhotoContributions[photoID] = contribution
+            }
+            currentRecognizingPhotoID = nil
         }
+
+        // Merge all contributions and display
+        mergeAndDisplayParkingInfo()
+        saveParkingContributions()
+        triggerOrbSpeedBoost()
     }
 
     private func startParkingInfoSwitchTimer() {
@@ -2786,6 +2871,28 @@ struct ContentView: View {
         // Show parking info immediately after recognition
         withAnimation(.easeInOut(duration: 0.5)) {
             parkingInfoDisplayMode = true
+        }
+    }
+
+    private func resetParkingInfoSwitchTimer() {
+        parkingInfoSwitchTimer?.invalidate()
+        parkingInfoSwitchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 0.5)) {
+                    self.parkingInfoDisplayMode.toggle()
+                }
+            }
+        }
+    }
+
+    private func triggerOrbSpeedBoost() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            parkingOrbBoost = 3.0
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            withAnimation(.easeInOut(duration: 1.0)) {
+                self.parkingOrbBoost = 1.0
+            }
         }
     }
 
@@ -2817,27 +2924,78 @@ struct ContentView: View {
     }
 
     private func buildRecognitionLogicText() -> String {
-        if let raw = llmRawResult {
-            return "識別方式：Apple Intelligence (Cloud)\n快捷指令：\(llmShortcutName)\n\n原始回傳：\n\(raw)"
-        } else if let display = parkingRecognizedDisplayText {
-            return "識別方式：Apple Vision OCR\n識別結果：\(display)"
-        } else {
+        if parkingPhotoContributions.isEmpty {
             return "尚未進行識別"
+        }
+        var lines: [String] = ["識別方式：Apple Intelligence (Cloud)", "快捷指令：\(llmShortcutName)", ""]
+        for (photoID, contribution) in parkingPhotoContributions {
+            let shortID = photoID.uuidString.prefix(8)
+            var parts: [String] = []
+            if let s = contribution["spot"] { parts.append("車位:\(s)") }
+            if let a = contribution["area"] { parts.append("區域:\(a)") }
+            if let f = contribution["floor"] { parts.append("樓層:\(f)") }
+            lines.append("[\(shortID)] \(parts.joined(separator: " "))")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    private func mergeAndDisplayParkingInfo() {
+        var spot: String? = nil
+        var area: String? = nil
+        var floor: String? = nil
+        var floorIdx: Int? = nil
+
+        for (_, contribution) in parkingPhotoContributions {
+            if let s = contribution["spot"], spot == nil { spot = s }
+            if let a = contribution["area"], area == nil { area = a }
+            if let f = contribution["floor"], floor == nil {
+                floor = f
+                floorIdx = Self.parseFloorIndex(f)
+            }
+        }
+
+        llmSpotNumber = spot
+        llmAreaCode = area
+        llmFloorText = floor
+        llmFloorIndex = floorIdx
+        llmRawResult = parkingPhotoContributions.isEmpty ? nil : "multi-photo"
+
+        if hasLLMResult {
+            startParkingInfoSwitchTimer()
         }
     }
 
-    private func cleanupLLMState() {
+    private func saveParkingContributions() {
+        let d = Self.appGroupDefaults ?? .standard
+        if let data = try? JSONEncoder().encode(parkingPhotoContributions) {
+            d.set(data, forKey: "parkingPhotoContributions")
+        }
+        d.synchronize()
+    }
+
+    private func loadParkingContributions() {
+        let d = Self.appGroupDefaults ?? .standard
+        if let data = d.data(forKey: "parkingPhotoContributions"),
+           let decoded = try? JSONDecoder().decode([UUID: [String: String]].self, from: data) {
+            parkingPhotoContributions = decoded
+        }
+    }
+
+    private func clearParkingContributions() {
+        parkingPhotoContributions = [:]
         llmSpotNumber = nil
         llmAreaCode = nil
         llmFloorText = nil
         llmFloorIndex = nil
         llmRawResult = nil
         llmError = nil
-        parkingInfoDisplayMode = false
         llmPollTimer?.invalidate()
         llmPollTimer = nil
         parkingInfoSwitchTimer?.invalidate()
         parkingInfoSwitchTimer = nil
+        let d = Self.appGroupDefaults ?? .standard
+        d.removeObject(forKey: "parkingPhotoContributions")
+        d.synchronize()
     }
 
     private func refreshETA() {
@@ -3549,6 +3707,10 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
                 // Remove photo from storage
                 photoStorage.deletePhoto(photo)
+                // Remove this photo's parking info contribution
+                self.parkingPhotoContributions.removeValue(forKey: targetID)
+                self.mergeAndDisplayParkingInfo()
+                self.saveParkingContributions()
                 // Re-index tilt dicts
                 let idx = index
                 var newTiltAngleX: [Int: Double] = [:]
