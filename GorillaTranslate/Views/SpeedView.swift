@@ -29,6 +29,15 @@ struct SpeedView: View {
                     ReadOnlyMapView(camera: highAltitudeCamera, mapStyleIndex: mapStyleIndex)
                         .ignoresSafeArea()
 
+                    // Minecraft green tint overlay
+                    if mapStyleIndex == 1 {
+                        Color(red: 0.29, green: 0.48, blue: 0.18)
+                            .opacity(0.3)
+                            .blendMode(.multiply)
+                            .ignoresSafeArea()
+                            .allowsHitTesting(false)
+                    }
+
                     GeometryReader { geo in
                         let w = geo.size.width
                         let h = geo.size.height
