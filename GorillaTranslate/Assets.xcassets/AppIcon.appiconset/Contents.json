@@ -4,25 +4,30 @@
       "filename" : "Gorilla-Light.png",
       "idiom" : "universal",
       "platform" : "ios",
-      "size" : "1024x1024",
-      "appearances" : [
-        {
-          "appearance" : "luminosity",
-          "value" : "light"
-        }
-      ]
+      "size" : "1024x1024"
     },
     {
-      "filename" : "Gorilla-Dark.png",
-      "idiom" : "universal",
-      "platform" : "ios",
-      "size" : "1024x1024",
       "appearances" : [
         {
           "appearance" : "luminosity",
           "value" : "dark"
         }
-      ]
+      ],
+      "filename" : "Gorilla-Dark.png",
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "tinted"
+        }
+      ],
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
     }
   ],
   "info" : {

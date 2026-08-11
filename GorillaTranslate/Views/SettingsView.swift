@@ -17,6 +17,8 @@ struct SettingsView: View {
     @AppStorage("orbBackgroundHome") var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
+    @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
+    @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
     @State private var isAutoPlaying = false
     @State private var autoPlayTimer: Timer?
@@ -126,7 +128,17 @@ struct SettingsView: View {
                 } header: {
                     Label("Map Tracking", systemImage: "map")
                 }
-                
+
+                Section {
+                    Picker("地圖風格", selection: $mapStyleIndex) {
+                        Text("默認").tag(0)
+                        Text("我的世界").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                } header: {
+                    Label("Map Style", systemImage: "paintbrush")
+                }
+
                 Section {
                     Toggle(isOn: $sfxAccelerationEnabled) {
                         Label("加速音效", systemImage: "speaker.wave.2")
@@ -136,6 +148,17 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } header: {
                     Label("Sound", systemImage: "speaker")
+                }
+
+                Section {
+                    Toggle(isOn: $vlmRecognitionEnabled) {
+                        Label("VLM 車位識別", systemImage: "brain.head.profile")
+                    }
+                    Text("拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Label("Parking Recognition", systemImage: "car")
                 }
 
                 // Orb Effects Section
@@ -1033,43 +1056,56 @@ struct AddressCapsuleBeamTestView: View {
 }
 
 struct AltimeterTestView: View {
-    @StateObject private var model = AltimeterModel()
-    
+    @ObservedObject private var barometer = ParkingFloorStore.shared.barometer
+    @State private var baseAltitude: Double?
+
+    private var altitudeMin: Double {
+        guard !barometer.samples.isEmpty else { return 0 }
+        return barometer.samples.map { $0.relativeAltitude }.min() ?? 0
+    }
+    private var altitudeMax: Double {
+        guard !barometer.samples.isEmpty else { return 0 }
+        return barometer.samples.map { $0.relativeAltitude }.max() ?? 0
+    }
+
     var body: some View {
         List {
             Section {
-                Toggle("開始採集", isOn: $model.running)
-                    .tint(.orange)
-                
+                Toggle("主 APP 氣壓計", isOn: Binding(
+                    get: { barometer.isUpdating },
+                    set: { _ in
+                        if barometer.isUpdating { barometer.stop() } else { barometer.startIfAuthorized() }
+                    }
+                ))
+                .tint(.orange)
+
                 HStack {
                     Text("採樣點數")
                     Spacer()
-                    Text("\(model.samples.count)")
+                    Text("\(barometer.samples.count)")
                         .monospacedDigit()
                         .foregroundStyle(.secondary)
                 }
-                
+
                 HStack {
                     Text("支援狀態")
                     Spacer()
-                    Text(model.isAvailable ? "可用" : "裝置不支援")
-                        .foregroundStyle(model.isAvailable ? .green : .red)
+                    Text(barometer.isAvailable ? "可用" : "裝置不支援")
+                        .foregroundStyle(barometer.isAvailable ? .green : .red)
                 }
-                
-                if !model.authStatus.isEmpty {
-                    HStack {
-                        Text("權限")
-                        Spacer()
-                        Text(model.authStatus)
-                            .foregroundStyle(.secondary)
-                    }
+
+                HStack {
+                    Text("權限")
+                    Spacer()
+                    Text(barometer.authorizationLabel)
+                        .foregroundStyle(.secondary)
                 }
             } header: {
-                Label("採集控制", systemImage: "barometer")
+                Label("主 APP 氣壓計狀態", systemImage: "barometer")
             }
-            
+
             Section {
-                if let last = model.samples.last {
+                if let last = barometer.samples.last {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("相對高度")
@@ -1081,16 +1117,22 @@ struct AltimeterTestView: View {
                         HStack {
                             Text("氣壓")
                             Spacer()
-                            Text(last.pressure.map { String(format: "%.2f kPa", $0) } ?? "—")
+                            Text(String(format: "%.2f kPa", last.pressure))
                                 .font(.system(size: 17, weight: .semibold))
                                 .monospacedDigit()
                         }
                         HStack {
                             Text("估計樓層變化")
                             Spacer()
-                            Text(last.floorDelta.map { String(format: "%.1f 層", $0) } ?? "—")
-                                .font(.system(size: 17, weight: .semibold))
-                                .monospacedDigit()
+                            if let base = baseAltitude {
+                                let delta = (last.relativeAltitude - base) / 3.0
+                                Text(String(format: "%.1f 層", delta))
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .monospacedDigit()
+                            } else {
+                                Text("—")
+                                    .foregroundStyle(.secondary)
+                            }
                         }
                     }
                     .padding(.vertical, 4)
@@ -1102,26 +1144,26 @@ struct AltimeterTestView: View {
             } header: {
                 Label("最新讀數", systemImage: "gauge.medium")
             }
-            
+
             Section {
-                if model.samples.count >= 2 {
+                if barometer.samples.count >= 2 {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text("高度曲線")
                                 .font(.system(size: 13, weight: .semibold))
                             Spacer()
-                            Text(String(format: "min %.1f  max %.1f", model.altitudeMin, model.altitudeMax))
+                            Text(String(format: "min %.1f  max %.1f", altitudeMin, altitudeMax))
                                 .font(.system(size: 11))
                                 .foregroundStyle(.secondary)
                                 .monospacedDigit()
                         }
-                        
-                        AltitudeChartView(samples: model.samples,
-                                         altitudeMin: model.altitudeMin,
-                                         altitudeMax: model.altitudeMax)
+
+                        AltitudeChartView2(samples: barometer.samples,
+                                           altitudeMin: altitudeMin,
+                                           altitudeMax: altitudeMax)
                             .frame(height: 180)
                             .padding(.vertical, 6)
-                        
+
                         Text("每層高度按 3m 估算；曲線縱軸為採樣開始起計嘅相對高度（米）。")
                             .font(.caption)
                             .foregroundStyle(.secondary)
@@ -1134,29 +1176,32 @@ struct AltimeterTestView: View {
             } header: {
                 Label("高度曲線", systemImage: "chart.xyaxis.line")
             }
-            
+
             Section {
                 Button(role: .destructive) {
-                    model.clear()
+                    barometer.clearSamples()
+                    baseAltitude = nil
                 } label: {
                     Label("清除數據", systemImage: "trash")
                 }
-                .disabled(model.samples.isEmpty)
+                .disabled(barometer.samples.isEmpty)
             }
         }
         .navigationTitle("氣壓計曲線測試")
         .navigationBarTitleDisplayMode(.inline)
-        .onDisappear {
-            model.stop()
+        .onChange(of: barometer.samples.count) { _, newCount in
+            if baseAltitude == nil, let first = barometer.samples.first {
+                baseAltitude = first.relativeAltitude
+            }
         }
     }
 }
 
-private struct AltitudeChartView: View {
-    let samples: [AltimeterSample]
+private struct AltitudeChartView2: View {
+    let samples: [BarometerSample]
     let altitudeMin: Double
     let altitudeMax: Double
-    
+
     var body: some View {
         GeometryReader { geo in
             let w = geo.size.width
@@ -1165,7 +1210,7 @@ private struct AltitudeChartView: View {
             let n = samples.count
             let xStep = n <= 1 ? w : w / CGFloat(n - 1)
             let span = max(0.01, altitudeMax - altitudeMin)
-            
+
             ZStack(alignment: .topLeading) {
                 Path { p in
                     for i in 0..<5 {
@@ -1175,7 +1220,7 @@ private struct AltitudeChartView: View {
                     }
                 }
                 .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 0.5))
-                
+
                 if n >= 2 {
                     Path { p in
                         for (i, s) in samples.enumerated() {
@@ -1187,7 +1232,7 @@ private struct AltitudeChartView: View {
                         }
                     }
                     .stroke(Color.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                    
+
                     Path { p in
                         for (i, s) in samples.enumerated() {
                             let x = CGFloat(i) * xStep
@@ -1210,111 +1255,6 @@ private struct AltitudeChartView: View {
                                          startPoint: .top, endPoint: .bottom))
                 }
             }
-        }
-    }
-}
-
-private struct AltimeterSample: Identifiable {
-    let id = UUID()
-    let timestamp: Date
-    let relativeAltitude: Double
-    let pressure: Double?
-    let floorDelta: Double?
-}
-
-private final class AltimeterModel: ObservableObject {
-    @Published var running = false {
-        didSet {
-            if running { start() } else { stop() }
-        }
-    }
-    @Published private(set) var samples: [AltimeterSample] = []
-    @Published private(set) var isAvailable: Bool = false
-    @Published private(set) var authStatus: String = ""
-    
-    private let altimeter = CMAltimeter()
-    private var isUpdating = false
-    private var baseAltitude: Double?
-    private static let metersPerFloorEstimate: Double = 3.0
-    
-    var altitudeMin: Double {
-        guard !samples.isEmpty else { return 0 }
-        return samples.map { $0.relativeAltitude }.min() ?? 0
-    }
-    
-    var altitudeMax: Double {
-        guard !samples.isEmpty else { return 0 }
-        return samples.map { $0.relativeAltitude }.max() ?? 0
-    }
-    
-    init() {
-        isAvailable = CMAltimeter.isRelativeAltitudeAvailable()
-        let status = CMAltimeter.authorizationStatus()
-        switch status {
-        case .notDetermined: authStatus = "未決定"
-        case .restricted: authStatus = "限制"
-        case .denied: authStatus = "拒絕"
-        case .authorized: authStatus = "已授權"
-        @unknown default: authStatus = "未知"
-        }
-    }
-    
-    func clear() {
-        samples.removeAll()
-        baseAltitude = nil
-    }
-    
-    func start() {
-        guard isAvailable else {
-            running = false
-            return
-        }
-        guard CMAltimeter.authorizationStatus() == .authorized else {
-            running = false
-            return
-        }
-        guard !isUpdating else { return }
-        baseAltitude = nil
-        isUpdating = true
-        let opQueue = OperationQueue.main
-        altimeter.startRelativeAltitudeUpdates(to: opQueue) { [weak self] data, error in
-            guard let self = self else { return }
-            if let error = error {
-                DispatchQueue.main.async {
-                    self.authStatus = "錯誤: \(error.localizedDescription)"
-                }
-                return
-            }
-            guard let data = data else { return }
-            DispatchQueue.main.async {
-                let rel = data.relativeAltitude.doubleValue
-                let pressure = data.pressure.doubleValue
-                var floorDelta: Double? = nil
-                if let base = self.baseAltitude {
-                    floorDelta = (rel - base) / Self.metersPerFloorEstimate
-                } else {
-                    self.baseAltitude = rel
-                }
-                let sample = AltimeterSample(timestamp: Date(),
-                                            relativeAltitude: rel,
-                                            pressure: pressure,
-                                            floorDelta: floorDelta)
-                self.samples.append(sample)
-                if self.samples.count > 1200 { self.samples.removeFirst(self.samples.count - 1200) }
-            }
-        }
-    }
-    
-    func stop() {
-        if isUpdating {
-            altimeter.stopRelativeAltitudeUpdates()
-            isUpdating = false
-        }
-    }
-    
-    deinit {
-        if isUpdating {
-            altimeter.stopRelativeAltitudeUpdates()
         }
     }
 }

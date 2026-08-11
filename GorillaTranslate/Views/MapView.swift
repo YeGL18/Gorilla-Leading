@@ -62,6 +62,7 @@ struct MapView: UIViewRepresentable {
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
+    var centerOffsetX: CGFloat = 0
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.colorScheme) private var colorScheme
 
@@ -132,6 +133,8 @@ struct MapView: UIViewRepresentable {
         }
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
+
+        context.coordinator.centerOffsetX = centerOffsetX
 
         let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         if mapView.overrideUserInterfaceStyle != targetStyle {
@@ -304,6 +307,7 @@ struct MapView: UIViewRepresentable {
         var northOverrideArmed = false
         weak var compassButton: MKCompassButton?
         var compassTopConstraint: NSLayoutConstraint?
+        var centerOffsetX: CGFloat = 0
 
         // 运动检测相关
         private var speedObserver: AnyCancellable?
@@ -542,21 +546,22 @@ struct MapView: UIViewRepresentable {
 
         private func smoothUpdateMapPosition(location: CLLocation) {
             guard let mapView = mapView, !isFlying else { return }
-            
+
             let useSoft = UserDefaults.standard.integer(forKey: "mapTrackingAnimation") == 1
-            
+
             if useSoft {
                 softUpdateMapPosition(location: location)
             } else {
                 standardUpdateMapPosition(location: location)
             }
         }
+
         
         private func standardUpdateMapPosition(location: CLLocation) {
             guard let mapView = mapView, !isFlying else { return }
-            
+
             smoothPanTimer?.invalidate()
-            
+
             smoothFromCenter = mapView.camera.centerCoordinate
             smoothFromDistance = mapView.camera.centerCoordinateDistance
             smoothFromHeading = mapView.camera.heading
@@ -594,7 +599,7 @@ struct MapView: UIViewRepresentable {
         
         private func softUpdateMapPosition(location: CLLocation) {
             guard let mapView = mapView, !isFlying else { return }
-            
+
             let now = Date().timeIntervalSince1970
             softLastGPSTime = now
             softTargetCenter = location.coordinate
@@ -1308,6 +1313,7 @@ struct VignetteMapView: View {
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
+    var centerOffsetX: CGFloat = 0
     @EnvironmentObject private var locationManager: LocationManager
     @State private var flyTrigger = 0
     @State private var isLandscape = false
@@ -1315,7 +1321,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

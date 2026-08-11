@@ -106,6 +106,9 @@ struct ContentView: View {
     @State private var animatingPhotoOffsetX: CGFloat = 0
     @State private var animatingPhotoOffsetY: CGFloat = 0
     @State private var isCapturing = false
+    @State private var isCameraActive = true
+    @State private var cameraInactivityTimer: Timer?
+    @State private var cameraFadeOpacity: Double = 0  // 0 = camera visible, 1 = black
     @State private var showingExpandedPhotos = false
     @State private var selectedPhotoIndex: Int?
     @State private var showDeleteButton = false
@@ -176,6 +179,7 @@ struct ContentView: View {
     @AppStorage("orbBackgroundHome") private var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
+    @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
 
     // Trip Predictor UI state
     @State private var showingTripConfirm = false
@@ -404,6 +408,9 @@ struct ContentView: View {
         }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
             if expanded {
+                isCameraActive = true
+                cameraFadeOpacity = 0
+                resetCameraInactivityTimer()
                 if hasDeparted {
                     hasDeparted = false
                     manualDeparted = false
@@ -422,6 +429,8 @@ struct ContentView: View {
                     parkingElapsed = 0
                     startPersistentTimer()
                 }
+            } else {
+                deactivateCamera()
             }
         }
         .onChange(of: selectedPhotoIndex) { _, newIndex in
@@ -475,7 +484,7 @@ struct ContentView: View {
                     }
                 }, onMoveParkingPoint: { id, coordinate in
                     parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate)
-                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex)
+                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? 120 : 0)
                     .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
@@ -485,7 +494,7 @@ struct ContentView: View {
             ZStack {
                 VStack(spacing: 0) {
                     HStack(alignment: .center) {
-                        Text("Gorilla Leading")
+                        Text("🦍 Gorilla")
                             .font(.largeTitle.bold())
                             .foregroundStyle(adaptiveTextColor())
                         Spacer()
@@ -687,6 +696,23 @@ struct ContentView: View {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                     firstMapFlyTrigger += 1
                 }
+            }
+        }
+        .onChange(of: capsuleOnRight) { _, onRight in
+            // 橫屏膠囊靠右時，camera 往右移，藍點往左偏
+            guard isLandscape, let current = mapCamera else { return }
+            let shiftMeters: Double = onRight ? 120 : -120
+            let deltaLon = shiftMeters / (111_320.0 * cos(current.centerCoordinate.latitude * .pi / 180))
+            let newCamera = MKMapCamera()
+            newCamera.centerCoordinate = CLLocationCoordinate2D(
+                latitude: current.centerCoordinate.latitude,
+                longitude: current.centerCoordinate.longitude + deltaLon
+            )
+            newCamera.centerCoordinateDistance = current.centerCoordinateDistance
+            newCamera.heading = current.heading
+            newCamera.pitch = current.pitch
+            withAnimation(.easeInOut(duration: 0.4)) {
+                mapCamera = newCamera
             }
         }
         .sheet(isPresented: $showingLanguagePicker) {
@@ -1825,55 +1851,8 @@ struct ContentView: View {
                                             x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 45,
                                             y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 45
                                         )
-                                    // Boost colors (6 orbs)
-                                    Circle()
-                                        .fill(Color(hex: "F79B1C").opacity(isBoosted ? 0.5 : 0))
-                                        .blur(radius: 16)
-                                        .frame(width: 85, height: 85)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.7)) * w * 0.35 - 42,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.55)) * h * 0.35 - 42
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "DB7FFB").opacity(isBoosted ? 0.5 : 0))
-                                        .blur(radius: 16)
-                                        .frame(width: 95, height: 95)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.5 + 1)) * w * 0.3 - 47,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.45 + 1)) * h * 0.3 - 47
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "FFFFFF").opacity(isBoosted ? 0.4 : 0))
-                                        .blur(radius: 16)
-                                        .frame(width: 75, height: 75)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.6 + 2)) * w * 0.33 - 37,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.5 + 2)) * h * 0.33 - 37
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "03AAF6").opacity(isBoosted ? 0.5 : 0))
-                                        .blur(radius: 16)
-                                        .frame(width: 100, height: 100)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.45 + 3)) * w * 0.32 - 50,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.38 + 3)) * h * 0.32 - 50
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "ED75FA").opacity(isBoosted ? 0.5 : 0))
-                                        .blur(radius: 16)
-                                        .frame(width: 85, height: 85)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.55 + 4)) * w * 0.28 - 42,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.42 + 4)) * h * 0.28 - 42
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "F62B6A").opacity(isBoosted ? 0.5 : 0))
-                                        .blur(radius: 16)
-                                        .frame(width: 80, height: 80)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.65 + 5)) * w * 0.3 - 40,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.48 + 5)) * h * 0.3 - 40
-                                        )
+                                    // Boost colors (6 orbs) — Lissajous curves
+                                    boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 100)
                                 }
                             }
                             .frame(width: 161, height: 70)
@@ -2106,55 +2085,8 @@ struct ContentView: View {
                                         x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 55,
                                         y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 55
                                     )
-                                // Boost colors (6 orbs)
-                                Circle()
-                                    .fill(Color(hex: "F79B1C").opacity(isBoosted ? 0.5 : 0))
-                                    .blur(radius: 16)
-                                    .frame(width: 100, height: 100)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.7)) * w * 0.35 - 50,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.55)) * h * 0.35 - 50
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "DB7FFB").opacity(isBoosted ? 0.5 : 0))
-                                    .blur(radius: 16)
-                                    .frame(width: 110, height: 110)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.5 + 1)) * w * 0.3 - 55,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 1)) * h * 0.3 - 55
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "FFFFFF").opacity(isBoosted ? 0.4 : 0))
-                                    .blur(radius: 16)
-                                    .frame(width: 90, height: 90)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.6 + 2)) * w * 0.33 - 45,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.5 + 2)) * h * 0.33 - 45
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "03AAF6").opacity(isBoosted ? 0.5 : 0))
-                                    .blur(radius: 16)
-                                    .frame(width: 120, height: 120)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.45 + 3)) * w * 0.32 - 60,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.38 + 3)) * h * 0.32 - 60
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "ED75FA").opacity(isBoosted ? 0.5 : 0))
-                                    .blur(radius: 16)
-                                    .frame(width: 100, height: 100)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.55 + 4)) * w * 0.28 - 50,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.42 + 4)) * h * 0.28 - 50
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "F62B6A").opacity(isBoosted ? 0.5 : 0))
-                                    .blur(radius: 16)
-                                    .frame(width: 95, height: 95)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.65 + 5)) * w * 0.3 - 47,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.48 + 5)) * h * 0.3 - 47
-                                    )
+                                // Boost colors (6 orbs) — Lissajous curves
+                                boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 120)
                             }
                         }
                         .frame(width: 161, height: 87)
@@ -2787,12 +2719,43 @@ struct ContentView: View {
     private func capturePhoto() {
         #if !targetEnvironment(simulator)
         guard !isCapturing else { return }
+        guard isCameraActive else { return }
         isCapturing = true
         NotificationCenter.default.post(name: .captureParkingPhoto, object: nil)
+        resetCameraInactivityTimer()
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             self.isCapturing = false
         }
         #endif
+    }
+
+    private func activateCamera() {
+        isCameraActive = true
+        withAnimation(.easeInOut(duration: 0.8)) {
+            cameraFadeOpacity = 0
+        }
+        resetCameraInactivityTimer()
+    }
+
+    private func deactivateCamera() {
+        withAnimation(.easeInOut(duration: 0.8)) {
+            cameraFadeOpacity = 1
+        }
+        // Delay setting isCameraActive until fade completes
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+            self.isCameraActive = false
+        }
+        cameraInactivityTimer?.invalidate()
+        cameraInactivityTimer = nil
+    }
+
+    private func resetCameraInactivityTimer() {
+        cameraInactivityTimer?.invalidate()
+        cameraInactivityTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { _ in
+            DispatchQueue.main.async {
+                self.deactivateCamera()
+            }
+        }
     }
 
     private func startCaptureAnimation(photo: UIImage) {
@@ -2828,8 +2791,10 @@ struct ContentView: View {
             animatingPhotoOffsetY = 0
         }
 
-        // Trigger LLM recognition via shortcut
-        recognizeParkingWithLLM(image: photo, photoID: tempID)
+        // Trigger LLM recognition via shortcut (if enabled)
+        if vlmRecognitionEnabled {
+            recognizeParkingWithLLM(image: photo, photoID: tempID)
+        }
     }
 
     // MARK: - LLM Parking Recognition
@@ -2984,12 +2949,74 @@ struct ContentView: View {
         }
     }
 
+    @ViewBuilder
+    private func boostOrbs(w: CGFloat, h: CGFloat, t: Double, isBoosted: Bool, orbSize: CGFloat) -> some View {
+        let ax = w * 0.3
+        let ay = h * 0.3
+        Circle()
+            .fill(Color(hex: "F79B1C").opacity(isBoosted ? 0.5 : 0))
+            .blur(radius: 16)
+            .frame(width: orbSize, height: orbSize)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * 0.7) + 0.3 * sin(t * 1.3)) * ax - orbSize / 2,
+                y: h * 0.5 + CGFloat(cos(t * 0.5) + 0.3 * cos(t * 1.1)) * ay - orbSize / 2
+            )
+        Circle()
+            .fill(Color(hex: "DB7FFB").opacity(isBoosted ? 0.5 : 0))
+            .blur(radius: 16)
+            .frame(width: orbSize, height: orbSize)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * 0.6 + 1.0) + 0.3 * sin(t * 1.5 + 0.5)) * ax - orbSize / 2,
+                y: h * 0.5 + CGFloat(cos(t * 0.8 + 1.0) + 0.3 * cos(t * 1.2 + 0.5)) * ay - orbSize / 2
+            )
+        Circle()
+            .fill(Color(hex: "FFFFFF").opacity(isBoosted ? 0.4 : 0))
+            .blur(radius: 16)
+            .frame(width: orbSize, height: orbSize)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * 0.5 + 2.0) + 0.3 * sin(t * 1.7 + 1.0)) * ax - orbSize / 2,
+                y: h * 0.5 + CGFloat(cos(t * 0.7 + 2.0) + 0.3 * cos(t * 1.0 + 1.0)) * ay - orbSize / 2
+            )
+        Circle()
+            .fill(Color(hex: "03AAF6").opacity(isBoosted ? 0.5 : 0))
+            .blur(radius: 16)
+            .frame(width: orbSize, height: orbSize)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * 0.8 + 3.0) + 0.3 * sin(t * 1.1 + 1.5)) * ax - orbSize / 2,
+                y: h * 0.5 + CGFloat(cos(t * 0.6 + 3.0) + 0.3 * cos(t * 1.4 + 1.5)) * ay - orbSize / 2
+            )
+        Circle()
+            .fill(Color(hex: "ED75FA").opacity(isBoosted ? 0.5 : 0))
+            .blur(radius: 16)
+            .frame(width: orbSize, height: orbSize)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * 0.65 + 4.0) + 0.3 * sin(t * 1.4 + 2.0)) * ax - orbSize / 2,
+                y: h * 0.5 + CGFloat(cos(t * 0.55 + 4.0) + 0.3 * cos(t * 1.6 + 2.0)) * ay - orbSize / 2
+            )
+        Circle()
+            .fill(Color(hex: "F62B6A").opacity(isBoosted ? 0.5 : 0))
+            .blur(radius: 16)
+            .frame(width: orbSize, height: orbSize)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * 0.75 + 5.0) + 0.3 * sin(t * 1.2 + 2.5)) * ax - orbSize / 2,
+                y: h * 0.5 + CGFloat(cos(t * 0.65 + 5.0) + 0.3 * cos(t * 1.5 + 2.5)) * ay - orbSize / 2
+            )
+    }
+
     private func triggerOrbSpeedBoost() {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            parkingOrbBoost = 3.0
+        // Phase 1: ramp up 1.0 → 1.5 (slow start)
+        withAnimation(.easeIn(duration: 1.0)) {
+            parkingOrbBoost = 1.5
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
-            withAnimation(.easeInOut(duration: 1.0)) {
+        // Phase 2: accelerate 1.5 → 2.6
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            withAnimation(.easeIn(duration: 0.8)) {
+                self.parkingOrbBoost = 2.6
+            }
+        }
+        // Phase 3: hold at 2.6, then ramp down 2.6 → 1.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.3) {
+            withAnimation(.easeOut(duration: 1.7)) {
                 self.parkingOrbBoost = 1.0
             }
         }
@@ -3273,7 +3300,7 @@ struct ContentView: View {
         let camH: CGFloat = isLandscape ? 211 : 235
         let camCR: CGFloat = isLandscape ? 33 : 37
         return ZStack(alignment: .topLeading) {
-            CameraPreviewView(isLandscape: isLandscape)
+            CameraPreviewView(isLandscape: isLandscape, sessionRunning: isCameraActive)
                 .frame(width: camW, height: camH)
                 .clipShape(RoundedRectangle(cornerRadius: camCR))
                 .overlay(
@@ -3281,10 +3308,33 @@ struct ContentView: View {
                         .stroke(Color.white.opacity(0.8), lineWidth: 4)
                 )
 
+            // Black fade overlay (persistent, opacity-driven)
+            RoundedRectangle(cornerRadius: camCR)
+                .fill(Color.black)
+                .frame(width: camW, height: camH)
+                .overlay(
+                    VStack(spacing: 10) {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.white.opacity(0.6))
+                        Text("輕觸以開啟相機")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    .opacity(cameraFadeOpacity > 0.5 ? 1 : 0)
+                )
+                .opacity(cameraFadeOpacity)
+                .allowsHitTesting(cameraFadeOpacity > 0.5)
+                .onTapGesture {
+                    activateCamera()
+                }
+
             cameraDimOverlay
             cameraPhotoStack
             captureAnimationOverlay
-            cameraButton
+            if isCameraActive && cameraFadeOpacity < 0.1 {
+                cameraButton
+            }
 
             // Delete button on selected photo (positioned at photo's top-left corner)
             if let idx = selectedPhotoIndex, idx < photoStorage.photos.count,
@@ -3330,6 +3380,7 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
             .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
             .contentShape(Rectangle())
+            .allowsHitTesting(isCameraActive && cameraFadeOpacity < 0.1)
             .onTapGesture {
                 guard showingExpandedPhotos else { return }
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
@@ -3869,6 +3920,7 @@ extension Notification.Name {
 // MARK: - Camera Preview
 struct CameraPreviewView: UIViewRepresentable {
     var isLandscape: Bool = false
+    var sessionRunning: Bool = true
     
     func makeUIView(context: Context) -> UIView {
         let view = UIView(frame: .zero)
@@ -3934,6 +3986,20 @@ struct CameraPreviewView: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.isLandscape = isLandscape
+        // Stop/start session based on active state
+        if sessionRunning {
+            if let session = context.coordinator.session, !session.isRunning {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    session.startRunning()
+                }
+            }
+        } else {
+            if let session = context.coordinator.session, session.isRunning {
+                DispatchQueue.global(qos: .userInitiated).async {
+                    session.stopRunning()
+                }
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
