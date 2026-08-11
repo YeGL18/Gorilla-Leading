@@ -175,6 +175,7 @@ struct ContentView: View {
     @AppStorage("orbParkingMemory") private var orbParkingMemory: Bool = true
     @AppStorage("orbBackgroundHome") private var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
+    @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
 
     // Trip Predictor UI state
     @State private var showingTripConfirm = false
@@ -474,7 +475,7 @@ struct ContentView: View {
                     }
                 }, onMoveParkingPoint: { id, coordinate in
                     parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate)
-                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
+                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex)
                     .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
@@ -1546,8 +1547,8 @@ struct ContentView: View {
                                 }
                             }
                             let request = MKDirections.Request()
-                            request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate))
-                            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
+                            request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate.wgs84ToGCJ02))
+                            request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate.wgs84ToGCJ02))
                             request.transportType = .automobile
                             request.requestsAlternateRoutes = false
                             let directions = MKDirections(request: request)
@@ -1798,8 +1799,10 @@ struct ContentView: View {
                                 let t = animationClock.elapsed * 0.3 * parkingOrbBoost
 
                                 ZStack {
+                                    let isBoosted = parkingOrbBoost > 1.01
+                                    // Normal colors
                                     Circle()
-                                        .fill(Color(hex: "46ADB8").opacity(0.5))
+                                        .fill(Color(hex: "46ADB8").opacity(isBoosted ? 0 : 0.5))
                                         .blur(radius: 16)
                                         .frame(width: 100, height: 100)
                                         .offset(
@@ -1807,7 +1810,7 @@ struct ContentView: View {
                                             y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 50
                                         )
                                     Circle()
-                                        .fill(Color(hex: "0098FF").opacity(0.5))
+                                        .fill(Color(hex: "0098FF").opacity(isBoosted ? 0 : 0.5))
                                         .blur(radius: 16)
                                         .frame(width: 110, height: 110)
                                         .offset(
@@ -1815,12 +1818,61 @@ struct ContentView: View {
                                             y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 55
                                         )
                                     Circle()
-                                        .fill(Color(hex: "BCBAE1").opacity(0.5))
+                                        .fill(Color(hex: "BCBAE1").opacity(isBoosted ? 0 : 0.5))
                                         .blur(radius: 16)
                                         .frame(width: 90, height: 90)
                                         .offset(
                                             x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 45,
                                             y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 45
+                                        )
+                                    // Boost colors (6 orbs)
+                                    Circle()
+                                        .fill(Color(hex: "F79B1C").opacity(isBoosted ? 0.5 : 0))
+                                        .blur(radius: 16)
+                                        .frame(width: 85, height: 85)
+                                        .offset(
+                                            x: w * 0.5 + CGFloat(sin(t * 0.7)) * w * 0.35 - 42,
+                                            y: h * 0.5 + CGFloat(cos(t * 0.55)) * h * 0.35 - 42
+                                        )
+                                    Circle()
+                                        .fill(Color(hex: "DB7FFB").opacity(isBoosted ? 0.5 : 0))
+                                        .blur(radius: 16)
+                                        .frame(width: 95, height: 95)
+                                        .offset(
+                                            x: w * 0.5 + CGFloat(sin(t * 0.5 + 1)) * w * 0.3 - 47,
+                                            y: h * 0.5 + CGFloat(cos(t * 0.45 + 1)) * h * 0.3 - 47
+                                        )
+                                    Circle()
+                                        .fill(Color(hex: "FFFFFF").opacity(isBoosted ? 0.4 : 0))
+                                        .blur(radius: 16)
+                                        .frame(width: 75, height: 75)
+                                        .offset(
+                                            x: w * 0.5 + CGFloat(sin(t * 0.6 + 2)) * w * 0.33 - 37,
+                                            y: h * 0.5 + CGFloat(cos(t * 0.5 + 2)) * h * 0.33 - 37
+                                        )
+                                    Circle()
+                                        .fill(Color(hex: "03AAF6").opacity(isBoosted ? 0.5 : 0))
+                                        .blur(radius: 16)
+                                        .frame(width: 100, height: 100)
+                                        .offset(
+                                            x: w * 0.5 + CGFloat(sin(t * 0.45 + 3)) * w * 0.32 - 50,
+                                            y: h * 0.5 + CGFloat(cos(t * 0.38 + 3)) * h * 0.32 - 50
+                                        )
+                                    Circle()
+                                        .fill(Color(hex: "ED75FA").opacity(isBoosted ? 0.5 : 0))
+                                        .blur(radius: 16)
+                                        .frame(width: 85, height: 85)
+                                        .offset(
+                                            x: w * 0.5 + CGFloat(sin(t * 0.55 + 4)) * w * 0.28 - 42,
+                                            y: h * 0.5 + CGFloat(cos(t * 0.42 + 4)) * h * 0.28 - 42
+                                        )
+                                    Circle()
+                                        .fill(Color(hex: "F62B6A").opacity(isBoosted ? 0.5 : 0))
+                                        .blur(radius: 16)
+                                        .frame(width: 80, height: 80)
+                                        .offset(
+                                            x: w * 0.5 + CGFloat(sin(t * 0.65 + 5)) * w * 0.3 - 40,
+                                            y: h * 0.5 + CGFloat(cos(t * 0.48 + 5)) * h * 0.3 - 40
                                         )
                                 }
                             }
@@ -1832,34 +1884,32 @@ struct ContentView: View {
                                     .stroke(Color.white.opacity(0.8), lineWidth: 4)
                             )
                             VStack(spacing: 2) {
+                                Text(parkingInfoDisplayMode ? "車位資訊" : "入場計時")
+                                    .font(.system(size: 16, weight: .bold))
+                                    .foregroundStyle(.white)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .padding(.trailing, 28)
+                                    .id("parkingTitle")
                                 if parkingInfoDisplayMode {
-                                    Text("車位資訊")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .padding(.trailing, 28)
                                     VStack(alignment: .leading, spacing: 1) {
                                         HStack(spacing: 4) {
                                             Text("車位").frame(width: 28, alignment: .trailing)
                                             Text(llmSpotNumber ?? "-")
-                                        }.padding(.leading, 0)
+                                        }
                                         HStack(spacing: 4) {
                                             Text("區域").frame(width: 28, alignment: .trailing)
                                             Text(llmAreaCode ?? "-")
-                                        }.padding(.leading, 0)
+                                        }
                                         HStack(spacing: 4) {
                                             Text("樓層").frame(width: 28, alignment: .trailing)
                                             Text(llmFloorText ?? "-")
-                                        }.padding(.leading, 0)
+                                        }
                                     }
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundStyle(.white.opacity(0.9))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.leading, 12)
                                 } else {
-                                    Text("入場計時")
-                                        .font(.system(size: 16, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .padding(.trailing, 28)
                                     Text(formatParkingElapsed())
                                         .font(.system(size: 32, weight: .bold))
                                         .foregroundStyle(.white)
@@ -2030,8 +2080,10 @@ struct ContentView: View {
                             let t = animationClock.elapsed * 0.3 * parkingOrbBoost
 
                             ZStack {
+                                let isBoosted = parkingOrbBoost > 1.01
+                                // Normal colors
                                 Circle()
-                                    .fill(Color(hex: "46ADB8").opacity(0.5))
+                                    .fill(Color(hex: "46ADB8").opacity(isBoosted ? 0 : 0.5))
                                     .blur(radius: 16)
                                     .frame(width: 120, height: 120)
                                     .offset(
@@ -2039,7 +2091,7 @@ struct ContentView: View {
                                         y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 60
                                     )
                                 Circle()
-                                    .fill(Color(hex: "0098FF").opacity(0.5))
+                                    .fill(Color(hex: "0098FF").opacity(isBoosted ? 0 : 0.5))
                                     .blur(radius: 16)
                                     .frame(width: 130, height: 130)
                                     .offset(
@@ -2047,12 +2099,61 @@ struct ContentView: View {
                                         y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 65
                                     )
                                 Circle()
-                                    .fill(Color(hex: "BCBAE1").opacity(0.5))
+                                    .fill(Color(hex: "BCBAE1").opacity(isBoosted ? 0 : 0.5))
                                     .blur(radius: 16)
                                     .frame(width: 110, height: 110)
                                     .offset(
                                         x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 55,
                                         y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 55
+                                    )
+                                // Boost colors (6 orbs)
+                                Circle()
+                                    .fill(Color(hex: "F79B1C").opacity(isBoosted ? 0.5 : 0))
+                                    .blur(radius: 16)
+                                    .frame(width: 100, height: 100)
+                                    .offset(
+                                        x: w * 0.5 + CGFloat(sin(t * 0.7)) * w * 0.35 - 50,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.55)) * h * 0.35 - 50
+                                    )
+                                Circle()
+                                    .fill(Color(hex: "DB7FFB").opacity(isBoosted ? 0.5 : 0))
+                                    .blur(radius: 16)
+                                    .frame(width: 110, height: 110)
+                                    .offset(
+                                        x: w * 0.5 + CGFloat(sin(t * 0.5 + 1)) * w * 0.3 - 55,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 1)) * h * 0.3 - 55
+                                    )
+                                Circle()
+                                    .fill(Color(hex: "FFFFFF").opacity(isBoosted ? 0.4 : 0))
+                                    .blur(radius: 16)
+                                    .frame(width: 90, height: 90)
+                                    .offset(
+                                        x: w * 0.5 + CGFloat(sin(t * 0.6 + 2)) * w * 0.33 - 45,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.5 + 2)) * h * 0.33 - 45
+                                    )
+                                Circle()
+                                    .fill(Color(hex: "03AAF6").opacity(isBoosted ? 0.5 : 0))
+                                    .blur(radius: 16)
+                                    .frame(width: 120, height: 120)
+                                    .offset(
+                                        x: w * 0.5 + CGFloat(sin(t * 0.45 + 3)) * w * 0.32 - 60,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.38 + 3)) * h * 0.32 - 60
+                                    )
+                                Circle()
+                                    .fill(Color(hex: "ED75FA").opacity(isBoosted ? 0.5 : 0))
+                                    .blur(radius: 16)
+                                    .frame(width: 100, height: 100)
+                                    .offset(
+                                        x: w * 0.5 + CGFloat(sin(t * 0.55 + 4)) * w * 0.28 - 50,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.42 + 4)) * h * 0.28 - 50
+                                    )
+                                Circle()
+                                    .fill(Color(hex: "F62B6A").opacity(isBoosted ? 0.5 : 0))
+                                    .blur(radius: 16)
+                                    .frame(width: 95, height: 95)
+                                    .offset(
+                                        x: w * 0.5 + CGFloat(sin(t * 0.65 + 5)) * w * 0.3 - 47,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.48 + 5)) * h * 0.3 - 47
                                     )
                             }
                         }
@@ -2064,34 +2165,32 @@ struct ContentView: View {
                                 .stroke(Color.white.opacity(0.8), lineWidth: 4)
                         )
                         VStack(spacing: 2) {
+                            Text(parkingInfoDisplayMode ? "車位資訊" : "入場計時")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.trailing, 18)
+                                .id("parkingTitle")
                             if parkingInfoDisplayMode {
-                                Text("車位資訊")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                                    .padding(.trailing, 18)
                                 VStack(alignment: .leading, spacing: 1) {
                                     HStack(spacing: 4) {
                                         Text("車位").frame(width: 32, alignment: .trailing)
                                         Text(llmSpotNumber ?? "-")
-                                    }.padding(.leading, 0)
+                                    }
                                     HStack(spacing: 4) {
                                         Text("區域").frame(width: 32, alignment: .trailing)
                                         Text(llmAreaCode ?? "-")
-                                    }.padding(.leading, 0)
+                                    }
                                     HStack(spacing: 4) {
                                         Text("樓層").frame(width: 32, alignment: .trailing)
                                         Text(llmFloorText ?? "-")
-                                    }.padding(.leading, 0)
+                                    }
                                 }
                                 .font(.system(size: 13, weight: .medium))
                                 .foregroundStyle(.white.opacity(0.9))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.leading, 12)
                             } else {
-                                Text("入場計時")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                                    .padding(.trailing, 18)
                                 Text(formatParkingElapsed())
                                     .font(.system(size: 36, weight: .bold))
                                     .foregroundStyle(.white)
@@ -2267,8 +2366,8 @@ struct ContentView: View {
         isRerouting = true
         lastRerouteRequestAt = Date()
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: coordinate))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: coordinate.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate.wgs84ToGCJ02))
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
         let directions = MKDirections(request: request)
@@ -2634,8 +2733,8 @@ struct ContentView: View {
         }
         
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: point.coordinate))
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: point.coordinate.wgs84ToGCJ02))
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
         let directions = MKDirections(request: request)
@@ -3041,8 +3140,8 @@ struct ContentView: View {
         guard let destination = destinationManager.selectedDestination,
               let currentLocation = locationManager.lastLocation else { return }
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate))
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate.wgs84ToGCJ02))
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
         let directions = MKDirections(request: request)
