@@ -2,7 +2,7 @@ import SwiftUI
 import MapKit
 
 struct SpeedView: View {
-    @StateObject private var locationManager = LocationManager()
+    @EnvironmentObject private var locationManager: LocationManager
     @StateObject private var timePhaseManager = TimePhaseManager()
     @StateObject private var sfxPlayer = SFXPlayer()
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
@@ -10,6 +10,7 @@ struct SpeedView: View {
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
+    @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @Environment(\.colorScheme) private var colorScheme
     
     @State private var accelArmedFromStop: Bool = true
@@ -24,26 +25,28 @@ struct SpeedView: View {
     var body: some View {
         ZStack {
             if showMap {
-                ReadOnlyMapView(camera: highAltitudeCamera)
-                    .ignoresSafeArea()
+                ZStack {
+                    ReadOnlyMapView(camera: highAltitudeCamera, mapStyleIndex: mapStyleIndex)
+                        .ignoresSafeArea()
 
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    let h = geo.size.height
-                    RadialGradient(
-                        gradient: Gradient(stops: [
-                            .init(color: .clear, location: 0),
-                            .init(color: .clear, location: 0.45),
-                            .init(color: .black.opacity(0.45), location: 0.7),
-                            .init(color: .black.opacity(0.75), location: 1)
-                        ]),
-                        center: .center,
-                        startRadius: min(w, h) * 0.25,
-                        endRadius: max(w, h) * 0.65
-                    )
-                    .ignoresSafeArea()
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let h = geo.size.height
+                        RadialGradient(
+                            gradient: Gradient(stops: [
+                                .init(color: .clear, location: 0),
+                                .init(color: .clear, location: 0.45),
+                                .init(color: .black.opacity(0.45), location: 0.7),
+                                .init(color: .black.opacity(0.75), location: 1)
+                            ]),
+                            center: .center,
+                            startRadius: min(w, h) * 0.25,
+                            endRadius: max(w, h) * 0.65
+                        )
+                        .ignoresSafeArea()
+                    }
+                    .allowsHitTesting(false)
                 }
-                .allowsHitTesting(false)
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()

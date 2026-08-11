@@ -61,6 +61,7 @@ struct MapView: UIViewRepresentable {
     var routePriorityAnchor: CLLocationCoordinate2D?
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
+    var mapStyleIndex: Int = 0
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.colorScheme) private var colorScheme
 
@@ -75,6 +76,12 @@ struct MapView: UIViewRepresentable {
         mapView.showsCompass = false
         mapView.pointOfInterestFilter = .excludingAll
         mapView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
+        mapView.mapType = .standard
+        if #available(iOS 16.0, *), mapStyleIndex == 1 {
+            let config = MKStandardMapConfiguration()
+            config.emphasisStyle = .muted
+            mapView.preferredConfiguration = config
+        }
         mapView.delegate = context.coordinator
         context.coordinator.mapView = mapView
 
@@ -114,6 +121,25 @@ struct MapView: UIViewRepresentable {
         context.coordinator.compassButton = compassButton
         context.coordinator.compassTopConstraint = top
 
+        // Minecraft pixelation overlay
+        if mapStyleIndex == 1 {
+            let overlay = UIImageView()
+            overlay.contentMode = .scaleAspectFill
+            overlay.clipsToBounds = true
+            overlay.isUserInteractionEnabled = false
+            overlay.translatesAutoresizingMaskIntoConstraints = false
+            mapView.addSubview(overlay)
+            NSLayoutConstraint.activate([
+                overlay.topAnchor.constraint(equalTo: mapView.topAnchor),
+                overlay.bottomAnchor.constraint(equalTo: mapView.bottomAnchor),
+                overlay.leadingAnchor.constraint(equalTo: mapView.leadingAnchor),
+                overlay.trailingAnchor.constraint(equalTo: mapView.trailingAnchor),
+            ])
+            context.coordinator.pixelOverlay = overlay
+            context.coordinator.pixelMapView = mapView
+            context.coordinator.startPixelation()
+        }
+
         return mapView
     }
 
@@ -125,12 +151,45 @@ struct MapView: UIViewRepresentable {
         }
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
-        
+
         let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         if mapView.overrideUserInterfaceStyle != targetStyle {
             mapView.overrideUserInterfaceStyle = targetStyle
         }
-        
+        if #available(iOS 16.0, *) {
+            let shouldMute = mapStyleIndex == 1
+            let isMuted = (mapView.preferredConfiguration as? MKStandardMapConfiguration)?.emphasisStyle == .muted
+            if shouldMute != isMuted {
+                let config = MKStandardMapConfiguration()
+                config.emphasisStyle = shouldMute ? .muted : .default
+                mapView.preferredConfiguration = config
+            }
+        }
+
+        // Minecraft pixelation overlay — create or destroy on style change
+        if mapStyleIndex == 1 {
+            if context.coordinator.pixelOverlay == nil {
+                let overlay = UIImageView()
+                overlay.contentMode = .scaleAspectFill
+                overlay.clipsToBounds = true
+                overlay.isUserInteractionEnabled = false
+                overlay.translatesAutoresizingMaskIntoConstraints = false
+                mapView.addSubview(overlay)
+                NSLayoutConstraint.activate([
+                    overlay.topAnchor.constraint(equalTo: mapView.topAnchor),
+                    overlay.bottomAnchor.constraint(equalTo: mapView.bottomAnchor),
+                    overlay.leadingAnchor.constraint(equalTo: mapView.leadingAnchor),
+                    overlay.trailingAnchor.constraint(equalTo: mapView.trailingAnchor),
+                ])
+                context.coordinator.pixelOverlay = overlay
+                context.coordinator.pixelMapView = mapView
+                context.coordinator.startPixelation()
+            }
+        } else {
+            context.coordinator.stopPixelation()
+            context.coordinator.pixelOverlay?.removeFromSuperview()
+            context.coordinator.pixelOverlay = nil
+        }
         if landscapeChanged {
             mapView.allowCameraChange = false
             context.coordinator.autoZoomTimer?.invalidate()
@@ -288,6 +347,13 @@ struct MapView: UIViewRepresentable {
         var northOverrideArmed = false
         weak var compassButton: MKCompassButton?
         var compassTopConstraint: NSLayoutConstraint?
+
+        // Pixelation overlay (Minecraft mode)
+        weak var pixelOverlay: UIImageView?
+        weak var pixelMapView: NonAdjustingMapView?
+        private var pixelDisplayLink: CADisplayLink?
+        private var pixelFrameCount = 0
+        private let ciContext = CIContext()
         
         // 运动检测相关
         private var speedObserver: AnyCancellable?
@@ -1024,19 +1090,21 @@ struct MapView: UIViewRepresentable {
             var next: [UUID: ParkingPointAnnotation] = [:]
             next.reserveCapacity(parkingPoints.count)
             for p in parkingPoints {
+                // Convert WGS-84 to GCJ-02 for correct display on China maps
+                let gcj02 = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude).wgs84ToGCJ02
                 let anno: ParkingPointAnnotation
                 if let existing = parkingAnnotationsByID[p.id] {
                     anno = existing
                 } else {
                     anno = ParkingPointAnnotation(
                         pointID: p.id,
-                        coordinate: CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude),
+                        coordinate: gcj02,
                         title: nil,
                         subtitle: nil
                     )
                     mapView.addAnnotation(anno)
                 }
-                anno.coordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
+                anno.coordinate = gcj02
                 let floor = p.displayFloor ?? "未知"
                 let suffix = (floor == "未知") ? "未知" : (floor.contains("/") ? floor : "\(floor)/F")
                 let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1151,6 +1219,45 @@ struct MapView: UIViewRepresentable {
                 return renderer
             }
             return MKOverlayRenderer(overlay: overlay)
+        }
+
+        // MARK: - Pixelation (Minecraft mode)
+
+        func startPixelation() {
+            guard pixelDisplayLink == nil else { return }
+            let link = CADisplayLink(target: self, selector: #selector(updatePixelation))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 10)
+            link.add(to: .main, forMode: .common)
+            pixelDisplayLink = link
+        }
+
+        func stopPixelation() {
+            pixelDisplayLink?.invalidate()
+            pixelDisplayLink = nil
+            pixelOverlay?.image = nil
+        }
+
+        @objc private func updatePixelation() {
+            guard let mapView = pixelMapView, let overlay = pixelOverlay else { return }
+            let size = mapView.bounds.size
+            guard size.width > 0, size.height > 0 else { return }
+
+            pixelFrameCount += 1
+            if pixelFrameCount % 3 != 0 { return }  // update every 3rd frame to save CPU
+
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let snapshot = renderer.image { ctx in
+                mapView.layer.render(in: ctx.cgContext)
+            }
+
+            guard let ciImage = CIImage(image: snapshot),
+                  let filter = CIFilter(name: "CIPixellate") else { return }
+            filter.setValue(ciImage, forKey: kCIInputImageKey)
+            filter.setValue(12, forKey: kCIInputScaleKey)
+
+            guard let output = filter.outputImage,
+                  let cgImage = ciContext.createCGImage(output, from: output.extent) else { return }
+            overlay.image = UIImage(cgImage: cgImage)
         }
     }
 }
@@ -1288,13 +1395,15 @@ struct VignetteMapView: View {
     var routePriorityAnchor: CLLocationCoordinate2D?
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
+    var mapStyleIndex: Int = 0
+    @EnvironmentObject private var locationManager: LocationManager
     @State private var flyTrigger = 0
     @State private var isLandscape = false
     @State private var hasTriggeredFirstTime = false
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex)
                 .ignoresSafeArea()
 
             GeometryReader { geo in
@@ -1325,6 +1434,30 @@ struct VignetteMapView: View {
             }
             .ignoresSafeArea()
             .allowsHitTesting(false)
+
+            // Minecraft user location marker (on top of pixelation)
+            if mapStyleIndex == 1, let userLoc = locationManager.lastLocation {
+                GeometryReader { geo in
+                    let coord = userLoc.coordinate.wgs84ToGCJ02
+                    let region = savedRegion ?? MKCoordinateRegion(
+                        center: coord,
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    )
+                    let latRange = (region.center.latitude - region.span.latitudeDelta / 2)...(region.center.latitude + region.span.latitudeDelta / 2)
+                    let lonRange = (region.center.longitude - region.span.longitudeDelta / 2)...(region.center.longitude + region.span.longitudeDelta / 2)
+                    let normalizedX = (coord.longitude - lonRange.lowerBound) / (lonRange.upperBound - lonRange.lowerBound)
+                    let normalizedY = 1 - (coord.latitude - latRange.lowerBound) / (latRange.upperBound - latRange.lowerBound)
+                    let screenX = normalizedX * geo.size.width
+                    let screenY = normalizedY * geo.size.height
+
+                    MinecraftArrowView()
+                        .frame(width: 28, height: 36)
+                        .position(x: screenX, y: screenY)
+                        .allowsHitTesting(false)
+                }
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+            }
         }
         .onChange(of: firstFlyTrigger) { _, _ in
             if routePriorityToken == nil {
@@ -1339,9 +1472,55 @@ struct VignetteMapView: View {
     }
 }
 
+/// Minecraft-style white pixel arrow marker
+struct MinecraftArrowView: View {
+    var body: some View {
+        Canvas { context, size in
+            let s: CGFloat = 2.5 // pixel size
+            let ox: CGFloat = (size.width - s * 7) / 2  // center horizontally
+            let oy: CGFloat = 2
+
+            // White arrow pointing up (7 wide, 10 tall in pixel units)
+            let pixels: [(Int, Int)] = [
+                // Top point
+                (3, 0),
+                // Row 1
+                (2, 1), (3, 1), (4, 1),
+                // Row 2
+                (1, 2), (2, 2), (3, 2), (4, 2), (5, 2),
+                // Row 3
+                (0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3), (6, 3),
+                // Shaft rows 4-9
+                (3, 4), (3, 5), (3, 6), (3, 7), (3, 8), (3, 9),
+            ]
+
+            // Draw shadow/outline (black, slightly offset)
+            for (px, py) in pixels {
+                let rect = CGRect(x: ox + CGFloat(px) * s - 0.5, y: oy + CGFloat(py) * s - 0.5, width: s, height: s)
+                context.fill(Path(rect), with: .color(.black.opacity(0.5)))
+            }
+
+            // Draw white pixels
+            for (px, py) in pixels {
+                let rect = CGRect(x: ox + CGFloat(px) * s, y: oy + CGFloat(py) * s, width: s, height: s)
+                context.fill(Path(rect), with: .color(.white))
+            }
+
+            // Draw pixel borders
+            for (px, py) in pixels {
+                let rect = CGRect(x: ox + CGFloat(px) * s, y: oy + CGFloat(py) * s, width: s, height: s)
+                context.stroke(Path(rect), with: .color(.black.opacity(0.3)), lineWidth: 0.3)
+            }
+        }
+    }
+}
+
 struct ReadOnlyMapView: UIViewRepresentable {
     let camera: MKMapCamera?
+    var mapStyleIndex: Int = 0
     @Environment(\.colorScheme) private var colorScheme
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> NonAdjustingMapView {
         let mapView = NonAdjustingMapView()
@@ -1350,10 +1529,19 @@ struct ReadOnlyMapView: UIViewRepresentable {
         mapView.showsUserLocation = true
         mapView.userTrackingMode = .none
         mapView.delegate = nil
+        mapView.mapType = .standard
+        if #available(iOS 16.0, *), mapStyleIndex == 1 {
+            let config = MKStandardMapConfiguration()
+            config.emphasisStyle = .muted
+            mapView.preferredConfiguration = config
+        }
         if let camera = camera {
             mapView.allowCameraChange = true
             mapView.setCamera(camera, animated: false)
             mapView.allowCameraChange = false
+        }
+        if mapStyleIndex == 1 {
+            addPixelOverlay(to: mapView, coordinator: context.coordinator)
         }
         return mapView
     }
@@ -1362,6 +1550,24 @@ struct ReadOnlyMapView: UIViewRepresentable {
         let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         if mapView.overrideUserInterfaceStyle != targetStyle {
             mapView.overrideUserInterfaceStyle = targetStyle
+        }
+        if #available(iOS 16.0, *) {
+            let shouldMute = mapStyleIndex == 1
+            let isMuted = (mapView.preferredConfiguration as? MKStandardMapConfiguration)?.emphasisStyle == .muted
+            if shouldMute != isMuted {
+                let config = MKStandardMapConfiguration()
+                config.emphasisStyle = shouldMute ? .muted : .default
+                mapView.preferredConfiguration = config
+            }
+        }
+        if mapStyleIndex == 1 {
+            if context.coordinator.pixelOverlay == nil {
+                addPixelOverlay(to: mapView, coordinator: context.coordinator)
+            }
+        } else {
+            context.coordinator.stopPixelation()
+            context.coordinator.pixelOverlay?.removeFromSuperview()
+            context.coordinator.pixelOverlay = nil
         }
         guard let camera = camera else { return }
         let current = mapView.camera
@@ -1375,6 +1581,69 @@ struct ReadOnlyMapView: UIViewRepresentable {
             mapView.allowCameraChange = true
             mapView.setCamera(camera, animated: false)
             mapView.allowCameraChange = false
+        }
+    }
+
+    private func addPixelOverlay(to mapView: NonAdjustingMapView, coordinator: Coordinator) {
+        let overlay = UIImageView()
+        overlay.contentMode = .scaleAspectFill
+        overlay.clipsToBounds = true
+        overlay.isUserInteractionEnabled = false
+        overlay.translatesAutoresizingMaskIntoConstraints = false
+        mapView.addSubview(overlay)
+        NSLayoutConstraint.activate([
+            overlay.topAnchor.constraint(equalTo: mapView.topAnchor),
+            overlay.bottomAnchor.constraint(equalTo: mapView.bottomAnchor),
+            overlay.leadingAnchor.constraint(equalTo: mapView.leadingAnchor),
+            overlay.trailingAnchor.constraint(equalTo: mapView.trailingAnchor),
+        ])
+        coordinator.pixelOverlay = overlay
+        coordinator.pixelMapView = mapView
+        coordinator.startPixelation()
+    }
+
+    class Coordinator {
+        weak var pixelOverlay: UIImageView?
+        weak var pixelMapView: NonAdjustingMapView?
+        private var pixelDisplayLink: CADisplayLink?
+        private var pixelFrameCount = 0
+        private let ciContext = CIContext()
+
+        func startPixelation() {
+            guard pixelDisplayLink == nil else { return }
+            let link = CADisplayLink(target: self, selector: #selector(updatePixelation))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 8, maximum: 15, preferred: 10)
+            link.add(to: .main, forMode: .common)
+            pixelDisplayLink = link
+        }
+
+        func stopPixelation() {
+            pixelDisplayLink?.invalidate()
+            pixelDisplayLink = nil
+            pixelOverlay?.image = nil
+        }
+
+        @objc private func updatePixelation() {
+            guard let mapView = pixelMapView, let overlay = pixelOverlay else { return }
+            let size = mapView.bounds.size
+            guard size.width > 0, size.height > 0 else { return }
+
+            pixelFrameCount += 1
+            if pixelFrameCount % 3 != 0 { return }
+
+            let renderer = UIGraphicsImageRenderer(size: size)
+            let snapshot = renderer.image { ctx in
+                mapView.layer.render(in: ctx.cgContext)
+            }
+
+            guard let ciImage = CIImage(image: snapshot),
+                  let filter = CIFilter(name: "CIPixellate") else { return }
+            filter.setValue(ciImage, forKey: kCIInputImageKey)
+            filter.setValue(12, forKey: kCIInputScaleKey)
+
+            guard let output = filter.outputImage,
+                  let cgImage = ciContext.createCGImage(output, from: output.extent) else { return }
+            overlay.image = UIImage(cgImage: cgImage)
         }
     }
 }
