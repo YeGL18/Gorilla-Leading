@@ -1304,19 +1304,14 @@ struct ContentView: View {
                 }
         )
         .onTapGesture {
-            guard !capsuleDragState.active, capsuleSettleHeight == nil else { return }
+            guard !isCapsuleExpanded, !capsuleDragState.active, capsuleSettleHeight == nil else { return }
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                isCapsuleExpanded.toggle()
+                isCapsuleExpanded = true
                 isParkingMemoryExpanded = false
-                orbOpacity = isCapsuleExpanded ? 0.5 : 1.0
-                if !isCapsuleExpanded {
-                    capsuleOnRight = false
-                }
+                orbOpacity = 0.5
             }
-            if isCapsuleExpanded {
-                updateVisitStatus()
-                refreshETA()
-            }
+            updateVisitStatus()
+            refreshETA()
         }
         .onReceive(locationManager.$visits) { _ in
             if isCapsuleExpanded {
@@ -2638,7 +2633,6 @@ struct ContentView: View {
                 }
             }
             .contentShape(Rectangle())
-            .onTapGesture {}
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
