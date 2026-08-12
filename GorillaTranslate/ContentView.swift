@@ -4285,6 +4285,7 @@ struct CameraPhotoItem: View {
                 .scaledToFill()
                 .frame(width: photoW, height: photoH)
                 .clipShape(RoundedRectangle(cornerRadius: cr))
+                .contentShape(RoundedRectangle(cornerRadius: cr))
                 .overlay(
                     RoundedRectangle(cornerRadius: cr)
                         .stroke(Color.white.opacity(borderOpacity), lineWidth: borderW)
