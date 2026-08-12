@@ -134,7 +134,29 @@ struct MapView: UIViewRepresentable {
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
 
-        context.coordinator.centerOffsetX = centerOffsetX
+        // 當 centerOffsetX 變化時，平移 camera
+        let oldOffset = context.coordinator.centerOffsetX
+        if centerOffsetX != oldOffset {
+            context.coordinator.centerOffsetX = centerOffsetX
+            let deltaPixels = centerOffsetX - oldOffset
+            let region = mapView.region
+            let lonPerPixel = region.span.longitudeDelta / Double(max(mapView.frame.width, 1))
+            // 負值 = camera 往右移，藍點往左偏
+            let deltaLon = -Double(deltaPixels) * lonPerPixel
+            let current = mapView.camera
+            let newCamera = MKMapCamera(
+                lookingAtCenter: CLLocationCoordinate2D(
+                    latitude: current.centerCoordinate.latitude,
+                    longitude: current.centerCoordinate.longitude + deltaLon
+                ),
+                fromDistance: current.centerCoordinateDistance,
+                pitch: current.pitch,
+                heading: current.heading
+            )
+            mapView.allowCameraChange = true
+            mapView.setCamera(newCamera, animated: true)
+            mapView.allowCameraChange = false
+        }
 
         let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
         if mapView.overrideUserInterfaceStyle != targetStyle {
@@ -557,6 +579,13 @@ struct MapView: UIViewRepresentable {
         }
 
         
+        /// 將像素偏移轉換為經度偏移（負 = camera 往右移）
+        private func pixelOffsetToLongitude(_ pixels: CGFloat) -> Double {
+            guard let mapView = mapView, mapView.frame.width > 0 else { return 0 }
+            let lonPerPixel = mapView.region.span.longitudeDelta / Double(mapView.frame.width)
+            return -Double(pixels) * lonPerPixel
+        }
+
         private func standardUpdateMapPosition(location: CLLocation) {
             guard let mapView = mapView, !isFlying else { return }
 
@@ -565,7 +594,10 @@ struct MapView: UIViewRepresentable {
             smoothFromCenter = mapView.camera.centerCoordinate
             smoothFromDistance = mapView.camera.centerCoordinateDistance
             smoothFromHeading = mapView.camera.heading
-            smoothToCenter = location.coordinate
+            smoothToCenter = CLLocationCoordinate2D(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude
+            )
             smoothToDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             smoothToHeading = parent.followHeading ? parent.locationManager.heading : mapView.camera.heading
             smoothProgress = 0
@@ -602,7 +634,10 @@ struct MapView: UIViewRepresentable {
 
             let now = Date().timeIntervalSince1970
             softLastGPSTime = now
-            softTargetCenter = location.coordinate
+            softTargetCenter = CLLocationCoordinate2D(
+                latitude: location.coordinate.latitude,
+                longitude: location.coordinate.longitude
+            )
             softIsDecelerating = false
             softDecelerationProgress = 0
             
@@ -925,6 +960,8 @@ struct MapView: UIViewRepresentable {
             let startDistance: CLLocationDistance = hasShownHighAltitude
                 ? mapView.camera.centerCoordinateDistance
                 : max(mapView.camera.centerCoordinateDistance, 50000)
+            let pixels = self.centerOffsetX
+            let frameW = Double(max(mapView.frame.width, 1))
             mapView.allowCameraChange = true
 
             let duration: TimeInterval = 4.5
@@ -943,8 +980,19 @@ struct MapView: UIViewRepresentable {
                 let lon = startCenter.longitude + (targetCenter.longitude - startCenter.longitude) * posEase
                 let dist = startDistance + (targetDistance - startDistance) * distEase
 
+                // 根据当前 zoom level 实时计算像素偏移对应的经度偏移
+                let lonOffset: Double
+                if pixels != 0 {
+                    let pitchRad = Double(mapView.camera.pitch) * .pi / 180
+                    let cosFactor = max(cos(pitchRad), 0.1)
+                    let lonPerPixel = dist * 2 * .pi / (6371000.0 * cos(lat * .pi / 180) * frameW * cosFactor)
+                    lonOffset = -Double(pixels) * lonPerPixel
+                } else {
+                    lonOffset = 0
+                }
+
                 let camera = mapView.camera
-                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon + lonOffset)
                 camera.centerCoordinateDistance = dist
                 let headingDiff = targetHeading - startHeading
                 let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
@@ -979,6 +1027,8 @@ struct MapView: UIViewRepresentable {
             let startDistance = mapView.camera.centerCoordinateDistance
             let startHeading = mapView.camera.heading
             let targetHeading: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : startHeading
+            let pixels = self.centerOffsetX
+            let frameW = Double(max(mapView.frame.width, 1))
             mapView.allowCameraChange = true
             let startTime = Date()
             routeReturnTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in
@@ -990,8 +1040,19 @@ struct MapView: UIViewRepresentable {
                 let lon = startCenter.longitude + (coordinate.longitude - startCenter.longitude) * ease
                 let dist = startDistance + (distance - startDistance) * ease
                 let hdg = startHeading + (targetHeading - startHeading) * ease
+
+                let lonOffset: Double
+                if pixels != 0 {
+                    let pitchRad = Double(mapView.camera.pitch) * .pi / 180
+                    let cosFactor = max(cos(pitchRad), 0.1)
+                    let lonPerPixel = dist * 2 * .pi / (6371000.0 * cos(lat * .pi / 180) * frameW * cosFactor)
+                    lonOffset = -Double(pixels) * lonPerPixel
+                } else {
+                    lonOffset = 0
+                }
+
                 let camera = mapView.camera
-                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon + lonOffset)
                 camera.centerCoordinateDistance = dist
                 camera.heading = hdg
                 mapView.camera = camera

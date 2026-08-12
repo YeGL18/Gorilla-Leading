@@ -698,23 +698,6 @@ struct ContentView: View {
                 }
             }
         }
-        .onChange(of: capsuleOnRight) { _, onRight in
-            // 橫屏膠囊靠右時，camera 往右移，藍點往左偏
-            guard isLandscape, let current = mapCamera else { return }
-            let shiftMeters: Double = onRight ? 120 : -120
-            let deltaLon = shiftMeters / (111_320.0 * cos(current.centerCoordinate.latitude * .pi / 180))
-            let newCamera = MKMapCamera()
-            newCamera.centerCoordinate = CLLocationCoordinate2D(
-                latitude: current.centerCoordinate.latitude,
-                longitude: current.centerCoordinate.longitude + deltaLon
-            )
-            newCamera.centerCoordinateDistance = current.centerCoordinateDistance
-            newCamera.heading = current.heading
-            newCamera.pitch = current.pitch
-            withAnimation(.easeInOut(duration: 0.4)) {
-                mapCamera = newCamera
-            }
-        }
         .sheet(isPresented: $showingLanguagePicker) {
             LanguagePickerView(
                 languages: Language.allCases,
