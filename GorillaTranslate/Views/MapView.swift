@@ -70,7 +70,9 @@ struct MapView: UIViewRepresentable {
         Coordinator(self)
     }
 
-    func makeUIView(context: Context) -> NonAdjustingMapView {
+    func makeUIView(context: Context) -> UIView {
+        let container = UIView()
+        container.clipsToBounds = true
         let mapView = NonAdjustingMapView()
         mapView.showsUserLocation = true
         mapView.userTrackingMode = .none
@@ -113,20 +115,24 @@ struct MapView: UIViewRepresentable {
         let compassButton = MKCompassButton(mapView: mapView)
         compassButton.compassVisibility = .visible
         compassButton.translatesAutoresizingMaskIntoConstraints = false
-        mapView.addSubview(compassButton)
-        let top = compassButton.topAnchor.constraint(equalTo: mapView.safeAreaLayoutGuide.topAnchor, constant: 70)
+        container.addSubview(compassButton)
+        let top = compassButton.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 70)
         NSLayoutConstraint.activate([
             top,
-            compassButton.trailingAnchor.constraint(equalTo: mapView.safeAreaLayoutGuide.trailingAnchor, constant: -16)
+            compassButton.trailingAnchor.constraint(equalTo: container.safeAreaLayoutGuide.trailingAnchor, constant: -16)
         ])
         context.coordinator.compassButton = compassButton
         context.coordinator.compassTopConstraint = top
 
-        return mapView
+        container.addSubview(mapView)
+        container.bringSubviewToFront(compassButton)
+        context.coordinator.container = container
+        return container
     }
 
-    func updateUIView(_ mapView: NonAdjustingMapView, context: Context) {
+    func updateUIView(_ container: UIView, context: Context) {
         context.coordinator.parent = self
+        guard let mapView = context.coordinator.mapView else { return }
         if context.coordinator.lastNorthOverrideTrackingToken != northOverrideTrackingToken {
             context.coordinator.lastNorthOverrideTrackingToken = northOverrideTrackingToken
             context.coordinator.northOverrideArmed = true
@@ -134,28 +140,15 @@ struct MapView: UIViewRepresentable {
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
 
-        // 當 centerOffsetX 變化時，平移 camera
-        let oldOffset = context.coordinator.centerOffsetX
-        if centerOffsetX != oldOffset {
+        // 當 centerOffsetX 變化時，動畫移動 map view frame（視覺左移）
+        let targetFrame = CGRect(x: -centerOffsetX, y: 0, width: container.bounds.width + centerOffsetX, height: container.bounds.height)
+        if centerOffsetX != context.coordinator.centerOffsetX {
             context.coordinator.centerOffsetX = centerOffsetX
-            let deltaPixels = centerOffsetX - oldOffset
-            let region = mapView.region
-            let lonPerPixel = region.span.longitudeDelta / Double(max(mapView.frame.width, 1))
-            // 負值 = camera 往右移，藍點往左偏
-            let deltaLon = -Double(deltaPixels) * lonPerPixel
-            let current = mapView.camera
-            let newCamera = MKMapCamera(
-                lookingAtCenter: CLLocationCoordinate2D(
-                    latitude: current.centerCoordinate.latitude,
-                    longitude: current.centerCoordinate.longitude + deltaLon
-                ),
-                fromDistance: current.centerCoordinateDistance,
-                pitch: current.pitch,
-                heading: current.heading
-            )
-            mapView.allowCameraChange = true
-            mapView.setCamera(newCamera, animated: true)
-            mapView.allowCameraChange = false
+            UIView.animate(withDuration: 0.40, delay: 0, options: .curveEaseInOut) {
+                mapView.frame = targetFrame
+            }
+        } else {
+            mapView.frame = targetFrame
         }
 
         let targetStyle: UIUserInterfaceStyle = colorScheme == .dark ? .dark : .light
@@ -318,6 +311,7 @@ struct MapView: UIViewRepresentable {
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: MapView
         weak var mapView: NonAdjustingMapView?
+        weak var container: UIView?
         var lastFlyTrigger = 0
         var isLandscape = false
         var autoZoomTimer: Timer?
@@ -578,12 +572,24 @@ struct MapView: UIViewRepresentable {
             }
         }
 
-        
-        /// 將像素偏移轉換為經度偏移（負 = camera 往右移）
-        private func pixelOffsetToLongitude(_ pixels: CGFloat) -> Double {
-            guard let mapView = mapView, mapView.frame.width > 0 else { return 0 }
-            let lonPerPixel = mapView.region.span.longitudeDelta / Double(mapView.frame.width)
-            return -Double(pixels) * lonPerPixel
+
+        /// 根據當前 heading 將螢幕像素偏移轉換為地理 (lat, lon) 偏移
+        /// pixels > 0 = 螢幕往右偏移（camera 往右，藍點往左）
+        func pixelOffsetToCoordinate(_ pixels: CGFloat, lat: Double, dist: Double, heading: Double) -> (lat: Double, lon: Double) {
+            guard let mapView = mapView, pixels != 0 else { return (0, 0) }
+            let frameW = Double(max(mapView.frame.width, 1))
+            let frameH = Double(max(mapView.frame.height, 1))
+            let pitchRad = Double(mapView.camera.pitch) * .pi / 180
+            let cosFactor = max(cos(pitchRad), 0.1)
+            // 每像素對應的度數（緯度/經度）
+            let latPerPixel = dist / (6371000.0 * frameH * cosFactor) * (180.0 / .pi)
+            let lonPerPixel = dist / (6371000.0 * cos(lat * .pi / 180) * frameW * cosFactor) * (180.0 / .pi)
+            // heading 旋轉：螢幕左 → 地理方向
+            let headingRad = -heading * .pi / 180
+            let p = Double(pixels)
+            let dLat = p * (sin(headingRad) * latPerPixel)
+            let dLon = p * (cos(headingRad) * lonPerPixel)
+            return (dLat, dLon)
         }
 
         private func standardUpdateMapPosition(location: CLLocation) {
@@ -960,8 +966,6 @@ struct MapView: UIViewRepresentable {
             let startDistance: CLLocationDistance = hasShownHighAltitude
                 ? mapView.camera.centerCoordinateDistance
                 : max(mapView.camera.centerCoordinateDistance, 50000)
-            let pixels = self.centerOffsetX
-            let frameW = Double(max(mapView.frame.width, 1))
             mapView.allowCameraChange = true
 
             let duration: TimeInterval = 4.5
@@ -979,24 +983,14 @@ struct MapView: UIViewRepresentable {
                 let lat = startCenter.latitude + (targetCenter.latitude - startCenter.latitude) * posEase
                 let lon = startCenter.longitude + (targetCenter.longitude - startCenter.longitude) * posEase
                 let dist = startDistance + (targetDistance - startDistance) * distEase
-
-                // 根据当前 zoom level 实时计算像素偏移对应的经度偏移
-                let lonOffset: Double
-                if pixels != 0 {
-                    let pitchRad = Double(mapView.camera.pitch) * .pi / 180
-                    let cosFactor = max(cos(pitchRad), 0.1)
-                    let lonPerPixel = dist * 2 * .pi / (6371000.0 * cos(lat * .pi / 180) * frameW * cosFactor)
-                    lonOffset = -Double(pixels) * lonPerPixel
-                } else {
-                    lonOffset = 0
-                }
-
-                let camera = mapView.camera
-                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon + lonOffset)
-                camera.centerCoordinateDistance = dist
                 let headingDiff = targetHeading - startHeading
                 let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
-                camera.heading = startHeading + normalizedDiff * posEase
+                let currentHeading = startHeading + normalizedDiff * posEase
+
+                let camera = mapView.camera
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                camera.centerCoordinateDistance = dist
+                camera.heading = currentHeading
                 mapView.camera = camera
 
                 if t >= 1.0 {
@@ -1027,8 +1021,6 @@ struct MapView: UIViewRepresentable {
             let startDistance = mapView.camera.centerCoordinateDistance
             let startHeading = mapView.camera.heading
             let targetHeading: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : startHeading
-            let pixels = self.centerOffsetX
-            let frameW = Double(max(mapView.frame.width, 1))
             mapView.allowCameraChange = true
             let startTime = Date()
             routeReturnTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in
@@ -1041,18 +1033,8 @@ struct MapView: UIViewRepresentable {
                 let dist = startDistance + (distance - startDistance) * ease
                 let hdg = startHeading + (targetHeading - startHeading) * ease
 
-                let lonOffset: Double
-                if pixels != 0 {
-                    let pitchRad = Double(mapView.camera.pitch) * .pi / 180
-                    let cosFactor = max(cos(pitchRad), 0.1)
-                    let lonPerPixel = dist * 2 * .pi / (6371000.0 * cos(lat * .pi / 180) * frameW * cosFactor)
-                    lonOffset = -Double(pixels) * lonPerPixel
-                } else {
-                    lonOffset = 0
-                }
-
                 let camera = mapView.camera
-                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon + lonOffset)
+                camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
                 camera.heading = hdg
                 mapView.camera = camera

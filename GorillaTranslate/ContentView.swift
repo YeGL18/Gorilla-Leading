@@ -484,11 +484,26 @@ struct ContentView: View {
                     }
                 }, onMoveParkingPoint: { id, coordinate in
                     parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate)
-                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? 120 : 0)
+                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0)
                     .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()
+            }
+
+            // 點擊空白處收縮膠囊（喺按鈕下面、地圖上面）
+            if isCapsuleExpanded || isParkingMemoryExpanded {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            isCapsuleExpanded = false
+                            isParkingMemoryExpanded = false
+                            selectedPhotoIndex = nil
+                            showDeleteButton = false
+                            capsuleOnRight = false
+                        }
+                    }
             }
 
             ZStack {
@@ -2734,7 +2749,7 @@ struct ContentView: View {
 
     private func resetCameraInactivityTimer() {
         cameraInactivityTimer?.invalidate()
-        cameraInactivityTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { _ in
+        cameraInactivityTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: false) { _ in
             DispatchQueue.main.async {
                 self.deactivateCamera()
             }
@@ -3300,6 +3315,7 @@ struct ContentView: View {
                         Image(systemName: "camera.viewfinder")
                             .font(.system(size: 36))
                             .foregroundStyle(.white.opacity(0.6))
+                            .symbolEffect(.pulse, isActive: true)
                         Text("輕觸以開啟相機")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
@@ -4403,5 +4419,82 @@ extension AnyTransition {
         .modifier(active: BlurModifier(radius: 12), identity: BlurModifier(radius: 0))
             .combined(with: active)
             .combined(with: extra)
+    }
+}
+
+// MARK: - Camera Viewfinder Breathing Animation
+struct CameraViewfinderAnimation: View {
+    @State private var phase: Double = 0
+    let size: CGFloat = 36
+    let lineWidth: CGFloat = 3
+    let cornerLen: CGFloat = 10
+    let color: Color = .white.opacity(0.6)
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
+            viewfinderCanvas
+        }
+        .onAppear {
+            withAnimation(.linear(duration: 3.0).repeatForever(autoreverses: false)) {
+                phase = 1
+            }
+        }
+    }
+
+    private var viewfinderCanvas: some View {
+        let t = phase
+        // 0→0.4 expand, 0.4→0.5 hold, 0.5→0.9 shrink, 0.9→1.0 hold
+        let expand: Double = {
+            if t < 0.4 { return easeInOut(t / 0.4) }
+            if t < 0.5 { return 1 }
+            if t < 0.9 { return 1 - easeInOut((t - 0.5) / 0.4) }
+            return 0
+        }()
+        let offset: CGFloat = 6 * CGFloat(expand)
+
+        return Canvas { context, canvasSize in
+            let s = canvasSize.width
+            let hw = lineWidth / 2
+            let len = cornerLen
+
+            // Top-left
+            var p = Path()
+            p.move(to: CGPoint(x: offset + hw, y: offset + len))
+            p.addLine(to: CGPoint(x: offset + hw, y: offset + hw))
+            p.addLine(to: CGPoint(x: offset + len, y: offset + hw))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+
+            // Top-right
+            p = Path()
+            p.move(to: CGPoint(x: s - offset - len, y: offset + hw))
+            p.addLine(to: CGPoint(x: s - offset - hw, y: offset + hw))
+            p.addLine(to: CGPoint(x: s - offset - hw, y: offset + len))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+
+            // Bottom-left
+            p = Path()
+            p.move(to: CGPoint(x: offset + hw, y: s - offset - len))
+            p.addLine(to: CGPoint(x: offset + hw, y: s - offset - hw))
+            p.addLine(to: CGPoint(x: offset + len, y: s - offset - hw))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+
+            // Bottom-right
+            p = Path()
+            p.move(to: CGPoint(x: s - offset - len, y: s - offset - hw))
+            p.addLine(to: CGPoint(x: s - offset - hw, y: s - offset - hw))
+            p.addLine(to: CGPoint(x: s - offset - hw, y: s - offset - len))
+            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
+
+            // Center circle
+            let circleR: CGFloat = 4
+            let center = CGPoint(x: s / 2, y: s / 2)
+            let circleRect = CGRect(x: center.x - circleR, y: center.y - circleR, width: circleR * 2, height: circleR * 2)
+            context.stroke(Path(ellipseIn: circleRect), with: .color(color), style: StrokeStyle(lineWidth: 1.5))
+        }
+        .frame(width: size, height: size)
+    }
+
+    private func easeInOut(_ t: Double) -> Double {
+        t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
     }
 }
