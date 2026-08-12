@@ -113,6 +113,11 @@ struct ContentView: View {
     @State private var selectedPhotoIndex: Int?
     @State private var showDeleteButton = false
     @State private var isCapturePressed = false
+    // Photo swipe gesture state
+    @State private var photoSwipeOffset: CGFloat = 0
+    @State private var photoSwipeIndex: Int? = nil
+    @State private var isPhotoSwiping = false
+    @State private var isPhotoAnimatingOut = false  // True when animating to bottom after release
     // TILT center-lift animation state (per photo index)
     @State private var tiltAngleX: [Int: Double] = [:]
     @State private var tiltAngleY: [Int: Double] = [:]
@@ -3406,7 +3411,10 @@ struct ContentView: View {
                         isSelected: selectedPhotoIndex == index,
                         tiltX: tiltAngleX[index] ?? 0,
                         tiltY: tiltAngleY[index] ?? 0,
-                        isLandscape: isLandscape
+                        isLandscape: isLandscape,
+                        swipeOffset: (selectedPhotoIndex == index && isPhotoSwiping) ? photoSwipeOffset : 0,
+                        isSwiping: selectedPhotoIndex == index && isPhotoSwiping,
+                        isAnimatingOut: selectedPhotoIndex == index && isPhotoAnimatingOut
                     )
                     .onTapGesture {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
@@ -3443,39 +3451,150 @@ struct ContentView: View {
         }
         .frame(width: isLandscape ? 304 : 338, height: isLandscape ? 211 : 235, alignment: .center)
         .gesture(
-            DragGesture(minimumDistance: 30)
-                .onEnded { value in
-                    guard showingExpandedPhotos, photos.count > 1 else { return }
+            DragGesture(minimumDistance: 5)
+                .onChanged { value in
+                    guard showingExpandedPhotos, selectedPhotoIndex != nil, photos.count > 1 else { return }
                     let horizontal = value.translation.width
-                    guard abs(horizontal) > abs(value.translation.height) else { return }
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
-                        // Reset tilt on old photo
-                        if let cur = selectedPhotoIndex {
-                            resetTilt(index: cur)
-                        }
-                        if horizontal < 0 {
-                            if let cur = selectedPhotoIndex {
-                                selectedPhotoIndex = (cur + 1) % photos.count
-                            } else {
-                                selectedPhotoIndex = 0
-                            }
-                        } else {
-                            if let cur = selectedPhotoIndex {
-                                selectedPhotoIndex = (cur - 1 + photos.count) % photos.count
-                            } else {
-                                selectedPhotoIndex = photos.count - 1
-                            }
-                        }
-                        // Trigger TILT on new photo
-                        if let newIdx = selectedPhotoIndex {
-                            triggerTiltEffect(index: newIdx)
-                            // Show delete button after selection settles
+                    let vertical = value.translation.height
+
+                    // Only respond to horizontal gestures
+                    guard abs(horizontal) > abs(vertical) * 0.3 else { return }
+
+                    // Start swiping if not already - hide delete button
+                    if !isPhotoSwiping {
+                        isPhotoSwiping = true
+                        // Fade out delete button when swiping starts
+                        withAnimation(.easeOut(duration: 0.2)) {
                             showDeleteButton = false
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        }
+                    }
+
+                    // Smooth continuous dampening curve
+                    // Input: finger translation (horizontal)
+                    // Output: photo offset (dampenedOffset)
+                    // Behavior: slow start → full tracking → deceleration at end
+                    let absH = abs(horizontal)
+                    let sign: CGFloat = horizontal >= 0 ? 1 : -1
+
+                    // Use a single smooth function that maps 0→0, 40→40, 100→100, 170→170
+                    // But with natural easing built in
+                    let rampZone: CGFloat = 40     // Slow start zone
+                    let decelZone: CGFloat = 170   // Start decelerating here
+
+                    let dampenedOffset: CGFloat
+                    if absH <= rampZone {
+                        // Quadratic ease-in: 0→40 maps to 0→40 but with slow start
+                        let t = absH / rampZone
+                        dampenedOffset = sign * rampZone * t * t
+                    } else if absH <= decelZone {
+                        // Linear tracking with slight ease
+                        // At rampZone, quadratic gives rampZone (continuous)
+                        // Linear from there
+                        let linearPart = absH - rampZone
+                        dampenedOffset = sign * (rampZone + linearPart)
+                    } else {
+                        // Past decelZone - rubber band with resistance
+                        let baseOffset = decelZone
+                        let overshoot = absH - decelZone
+                        // Diminishing returns: each px beyond 170 moves less
+                        let rubberBand = overshoot * 0.08
+                        dampenedOffset = sign * (baseOffset + rubberBand)
+                    }
+
+                    photoSwipeOffset = dampenedOffset
+                }
+                .onEnded { value in
+                    guard showingExpandedPhotos, photos.count > 1 else {
+                        // Reset swipe state if not in valid context
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            isPhotoSwiping = false
+                            photoSwipeOffset = 0
+                        }
+                        // Show delete button if photo was selected
+                        if selectedPhotoIndex != nil {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                                 withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                                    if selectedPhotoIndex == newIdx, deletingPhotoID == nil {
+                                    if selectedPhotoIndex != nil, deletingPhotoID == nil {
                                         showDeleteButton = true
                                     }
+                                }
+                            }
+                        }
+                        return
+                    }
+
+                    let horizontal = value.translation.width
+                    let threshold: CGFloat = 80
+                    let shouldSwitch = abs(horizontal) > threshold
+
+                    if shouldSwitch {
+                        // Determine direction and calculate next index
+                        let nextIndex: Int
+                        if horizontal < 0 {
+                            nextIndex = ((selectedPhotoIndex ?? 0) + 1) % photos.count
+                        } else {
+                            nextIndex = ((selectedPhotoIndex ?? 0) - 1 + photos.count) % photos.count
+                        }
+
+                        let direction: CGFloat = horizontal < 0 ? -1 : 1
+
+                        // Step 1: Immediately lower z-index so photo goes behind others
+                        withAnimation(.easeIn(duration: 0.1)) {
+                            isPhotoAnimatingOut = true
+                        }
+
+                        // Step 2: Animate photo to 170px (smooth deceleration)
+                        withAnimation(.easeOut(duration: 0.25)) {
+                            photoSwipeOffset = direction * 170
+                        }
+
+                        // Step 3: After reaching 170px, animate it sliding down to bottom
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            withAnimation(.easeIn(duration: 0.2)) {
+                                // Move slightly further and fade
+                                photoSwipeOffset = direction * 200
+                            }
+                        }
+
+                        // Step 4: Switch to new photo
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                            // Reset tilt on old photo
+                            if let cur = selectedPhotoIndex {
+                                resetTilt(index: cur)
+                            }
+
+                            // Switch to new photo
+                            selectedPhotoIndex = nextIndex
+
+                            // Reset swipe state
+                            photoSwipeOffset = 0
+                            isPhotoSwiping = false
+                            isPhotoAnimatingOut = false
+
+                            // Trigger TILT on new photo
+                            triggerTiltEffect(index: nextIndex)
+
+                            // Show delete button after selection settles
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                    if selectedPhotoIndex == nextIndex, deletingPhotoID == nil {
+                                        showDeleteButton = true
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        // Snap back if threshold not met
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            photoSwipeOffset = 0
+                            isPhotoSwiping = false
+                        }
+
+                        // Show delete button after snap back
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                if selectedPhotoIndex != nil, deletingPhotoID == nil {
+                                    showDeleteButton = true
                                 }
                             }
                         }
@@ -4210,6 +4329,9 @@ struct CameraPhotoItem: View {
     var tiltX: Double = 0
     var tiltY: Double = 0
     var isLandscape: Bool = false
+    var swipeOffset: CGFloat = 0  // Horizontal offset during swipe gesture
+    var isSwiping: Bool = false  // Whether currently being swiped
+    var isAnimatingOut: Bool = false  // Whether animating to bottom after release
 
     private let baseW: CGFloat = 46
     private let baseH: CGFloat = 32
@@ -4243,7 +4365,9 @@ struct CameraPhotoItem: View {
             let photoScale: CGFloat = isSelected ? selectedScale : (isExpanded ? 0.85 : 1.0)
 
             let finalOffsetX: CGFloat = {
-                if isSelected { return 0 }
+                if isSelected {
+                    return isSwiping ? swipeOffset : 0
+                }
                 if isExpanded {
                     let raw = CGFloat(photo.offsetX) * 22
                     let maxX: CGFloat = (cameraWidth - expandedW) / 2 - 12
@@ -4272,7 +4396,16 @@ struct CameraPhotoItem: View {
             let borderW: CGFloat = isSelected ? 2.0 / selectedScale : (isExpanded ? 1.5 : 1.0)
             let borderOpacity: Double = isSelected ? 1.0 : (isExpanded ? 0.6 : 0.8)
             let cr: CGFloat = isSelected ? 12 : (isExpanded ? 5 * 3.8 : 5)
-            let zIdx: Double = isSelected ? 100 : Double(totalCount - index)
+            // Z-index logic: stay on top during gesture, lower only when animating out
+            let zIdx: Double = {
+                if isSelected && isAnimatingOut {
+                    return 0  // Lower z-index when animating to bottom
+                }
+                if isSelected && isSwiping {
+                    return 100  // Stay on top during gesture
+                }
+                return isSelected ? 100 : Double(totalCount - index)
+            }()
 
             Image(uiImage: img)
                 .resizable()
@@ -4297,6 +4430,7 @@ struct CameraPhotoItem: View {
                 .zIndex(zIdx)
                 .animation(.spring(response: 0.45, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isExpanded)
                 .animation(.spring(response: 0.4, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isSelected)
+                .animation(isSwiping ? nil : .spring(response: 0.4, dampingFraction: 0.82), value: swipeOffset)
         }
     }
 }
