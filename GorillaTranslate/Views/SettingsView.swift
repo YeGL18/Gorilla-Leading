@@ -419,6 +419,12 @@ struct ParkingFloorTestView: View {
             }
 
             NavigationLink {
+                ParkingMemorySwipeTestView()
+            } label: {
+                Label("抽離牌組動畫測試", systemImage: "rectangle.split.3x1")
+            }
+
+            NavigationLink {
                 ParkingRecognitionTestView()
             } label: {
                 Label("泊車辨識測試 (OCR)", systemImage: "text.viewfinder")
@@ -2691,6 +2697,631 @@ struct ParkingMemoryPhotoTestView: View {
         .opacity(showingExpanded || photos.count >= 3 ? 0 : 1)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: showingExpanded)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: photos.count)
+    }
+}
+
+// MARK: - Parking Memory Swipe Test View — isolated test for deck-swipe animation
+
+struct ParkingMemorySwipeTestView: View {
+    // Test photo model
+    struct TestPhoto: Identifiable {
+        let id = UUID()
+        let image: UIImage
+        let rotation: Double
+        let offsetX: Double
+        let offsetY: Double
+    }
+
+    @State private var photos: [TestPhoto] = []
+
+    // Capsule state
+    @State private var isExpanded = false
+
+    // Photo browsing state
+    @State private var showingExpandedPhotos = false
+    @State private var selectedPhotoIndex: Int? = nil
+    @State private var showDeleteButton = false
+
+    // TILT animation state
+    @State private var tiltAngleX: [Int: Double] = [:]
+    @State private var tiltAngleY: [Int: Double] = [:]
+
+    // Swipe gesture state
+    @State private var photoSwipeOffset: CGFloat = 0
+    @State private var isPhotoSwiping = false
+    @State private var isPhotoAnimatingOut = false
+    @State private var photoAnimatingOutIndex: Int? = nil
+
+    // Delete animation state
+    @State private var deletingPhoto: TestPhoto? = nil
+    @State private var deletingIndex: Int? = nil
+    @State private var deleteBlur: CGFloat = 0
+    @State private var deleteOpacity: Double = 1.0
+    @State private var deleteOffsetY: CGFloat = 0
+
+    static func makeSamplePhotos() -> [TestPhoto] {
+        let colors: [(UIColor, UIColor)] = [
+            (UIColor(hex: "FF6B6B"), UIColor(hex: "FF8E53")),
+            (UIColor(hex: "4ECDC4"), UIColor(hex: "556270")),
+            (UIColor(hex: "667EEA"), UIColor(hex: "764BA2")),
+        ]
+        return (0..<3).map { i in
+            TestPhoto(
+                image: ParkingMemoryPhotoTestView.makeGradientImage(text: "Photo \(i + 1)", c1: colors[i].0, c2: colors[i].1),
+                rotation: Double.random(in: -10...10),
+                offsetX: Double.random(in: -6...6),
+                offsetY: Double.random(in: -4...4)
+            )
+        }
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                // Header
+                HStack {
+                    Text("抽離牌組動畫測試")
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundStyle(.white)
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.top, 16)
+                .padding(.bottom, 8)
+
+                // Description
+                HStack {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Label("抽離牌組動畫", systemImage: "rectangle.split.3x1")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: "4ECDC4"))
+                        Text("左右滑動切換照片，圖片抽離、層級處理、ease-in/out 動畫")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.5))
+                        Label("手勢跟手度", systemImage: "hand.draw")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: "FF6B6B"))
+                            .padding(.top, 4)
+                        Text("滑動起始應立即跟手，不應有跳躍感")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.5))
+                    }
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
+                .padding(.bottom, 20)
+
+                // Capsule (compact mode replica)
+                swipeTestCapsule
+                    .padding(.top, 10)
+
+                Spacer()
+
+                // Reset button
+                Button {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                        photos = Self.makeSamplePhotos()
+                        isExpanded = false
+                        showingExpandedPhotos = false
+                        selectedPhotoIndex = nil
+                        showDeleteButton = false
+                        tiltAngleX = [:]
+                        tiltAngleY = [:]
+                        deletingPhoto = nil
+                        deletingIndex = nil
+                        photoSwipeOffset = 0
+                        isPhotoSwiping = false
+                        isPhotoAnimatingOut = false
+                        photoAnimatingOutIndex = nil
+                    }
+                } label: {
+                    Text("重置照片")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 50)
+                        .glassEffect(.regular, in: .rect(cornerRadius: 16))
+                }
+                .padding(.horizontal, 40)
+                .padding(.bottom, 40)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
+        .toolbarColorScheme(.dark, for: .navigationBar)
+        .onAppear {
+            if photos.isEmpty {
+                photos = Self.makeSamplePhotos()
+            }
+        }
+    }
+
+    // MARK: - Capsule (compact mode replica)
+    private var swipeTestCapsule: some View {
+        let capsuleHeight: CGFloat = isExpanded ? 495 : 44
+        let capsuleWidth: CGFloat = isExpanded ? 370 : 270
+
+        return ZStack {
+            if isExpanded {
+                // Expanded: camera section with photo stack
+                swipeTestExpandedContent
+                    .transition(.opacity)
+            } else {
+                // Compact: capsule text
+                HStack(spacing: 8) {
+                    Image(systemName: "camera.fill")
+                        .font(.system(size: 14))
+                        .foregroundStyle(.white.opacity(0.6))
+                    Text("泊車記憶")
+                        .font(.body.bold())
+                        .foregroundStyle(.white)
+                    Spacer()
+                    Text("\(photos.count) 張照片")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.5))
+                }
+                .padding(.horizontal, 20)
+            }
+        }
+        .frame(width: capsuleWidth, height: capsuleHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 34)
+                .fill(Color.black.opacity(0.55))
+        )
+        .glassEffect(.regular, in: .rect(cornerRadius: 34))
+        .clipShape(.rect(cornerRadius: 34))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                isExpanded.toggle()
+                if !isExpanded {
+                    showingExpandedPhotos = false
+                    selectedPhotoIndex = nil
+                    tiltAngleX = [:]
+                    tiltAngleY = [:]
+                }
+            }
+        }
+        .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+    }
+
+    // MARK: - Expanded content
+    private var swipeTestExpandedContent: some View {
+        VStack(spacing: 0) {
+            // Header
+            HStack {
+                Button(action: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        isExpanded = false
+                        showingExpandedPhotos = false
+                        selectedPhotoIndex = nil
+                        tiltAngleX = [:]
+                        tiltAngleY = [:]
+                    }
+                }) {
+                    Image(systemName: "chevron.left.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(.white.opacity(0.8))
+                }
+                Text("泊車記憶")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(.white)
+                Spacer()
+                Text("\(photos.count) 張照片")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.white.opacity(0.5))
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+
+            // Camera section with photo stack
+            swipeTestCameraSection
+                .padding(.top, 10)
+
+            Spacer()
+        }
+    }
+
+    // MARK: - Camera Section
+    private var swipeTestCameraSection: some View {
+        ZStack(alignment: .topLeading) {
+            // Camera preview background
+            RoundedRectangle(cornerRadius: 37)
+                .fill(
+                    LinearGradient(
+                        colors: [Color(hex: "1a1a2e"), Color(hex: "16213e"), Color(hex: "0f3460")],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 338, height: 235)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 37)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                )
+                .overlay {
+                    if !showingExpandedPhotos {
+                        Image(systemName: "camera.viewfinder")
+                            .font(.system(size: 36))
+                            .foregroundStyle(.white.opacity(0.15))
+                    }
+                }
+
+            // Dim overlay
+            let dimOpacity: Double = showingExpandedPhotos ? (selectedPhotoIndex != nil ? 0.65 : 0.45) : 0
+            Color.black.opacity(dimOpacity)
+                .frame(width: 338, height: 235)
+                .clipShape(RoundedRectangle(cornerRadius: 37))
+                .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
+                .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard showingExpandedPhotos else { return }
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                        if let idx = selectedPhotoIndex {
+                            resetTilt(index: idx)
+                            selectedPhotoIndex = nil
+                        } else {
+                            showingExpandedPhotos = false
+                            selectedPhotoIndex = nil
+                        }
+                        tiltAngleX = [:]
+                        tiltAngleY = [:]
+                    }
+                }
+
+            // Photo stack with full swipe animation
+            swipeTestPhotoStack
+
+            // Delete button
+            if let idx = selectedPhotoIndex, idx < photos.count, showDeleteButton, deletingPhoto == nil {
+                Button {
+                    triggerSmokyDissolve(index: idx)
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 30, height: 30)
+                        .background(.ultraThinMaterial, in: .circle)
+                        .glassEffect(.regular, in: .circle)
+                }
+                .position(x: 72, y: 34)
+                .transition(.opacity)
+            }
+
+            // Thumbnail tap area for expanding
+            if !showingExpandedPhotos {
+                Color.clear
+                    .frame(width: 80, height: 70)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                            showingExpandedPhotos = true
+                            selectedPhotoIndex = nil
+                        }
+                    }
+            }
+        }
+        .frame(width: 338, height: 235)
+    }
+
+    // MARK: - Photo Stack with full swipe animation
+    private var swipeTestPhotoStack: some View {
+        let count = photos.count
+        return ZStack {
+            ForEach(Array(photos.enumerated()), id: \.element.id) { index, photo in
+                if photo.id != deletingPhoto?.id {
+                    swipeTestPhotoItem(photo: photo, index: index, totalCount: count)
+                        .onTapGesture {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                                if showingExpandedPhotos {
+                                    let wasSelected = selectedPhotoIndex == index
+                                    if wasSelected {
+                                        resetTilt(index: index)
+                                        selectedPhotoIndex = nil
+                                    } else {
+                                        if let oldIdx = selectedPhotoIndex {
+                                            resetTilt(index: oldIdx)
+                                        }
+                                        selectedPhotoIndex = index
+                                        triggerTiltEffect(index: index)
+                                        showDeleteButton = false
+                                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                                if selectedPhotoIndex == index, deletingPhoto == nil {
+                                                    showDeleteButton = true
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                }
+            }
+
+            // Smoky dissolve overlay
+            swipeTestDissolveOverlay
+        }
+        .frame(width: 338, height: 235, alignment: .center)
+        .contentShape(Rectangle())
+        .mask(
+            // Clip photos to preview bounds only in expanded view
+            Group {
+                if showingExpandedPhotos {
+                    RoundedRectangle(cornerRadius: 37)
+                } else {
+                    Rectangle()
+                }
+            }
+        )
+        .gesture(
+            DragGesture(minimumDistance: 20)
+                .onEnded { value in
+                    guard showingExpandedPhotos, selectedPhotoIndex != nil, photos.count > 1 else { return }
+                    let horizontal = value.translation.width
+                    let vertical = value.translation.height
+
+                    // Only respond to clear horizontal swipes
+                    guard abs(horizontal) > abs(vertical) * 0.5 else { return }
+
+                    let direction: CGFloat = horizontal < 0 ? -1 : 1
+                    let nextIndex: Int
+                    if horizontal < 0 {
+                        nextIndex = ((selectedPhotoIndex ?? 0) + 1) % photos.count
+                    } else {
+                        nextIndex = ((selectedPhotoIndex ?? 0) - 1 + photos.count) % photos.count
+                    }
+                    let oldIndex = selectedPhotoIndex ?? 0
+
+                    // Hide delete button immediately
+                    withAnimation(.easeOut(duration: 0.15)) {
+                        showDeleteButton = false
+                    }
+
+                    // ═══════════════════════════════════════════════════════
+                    // Phase 1: Slide out — easeOut deceleration → stop at 180px
+                    // Starts fast, decelerates smoothly to a stop
+                    // ═══════════════════════════════════════════════════════
+                    withAnimation(.easeOut(duration: 0.5)) {
+                        photoSwipeOffset = direction * 180
+                    }
+
+                    // ═══════════════════════════════════════════════════════
+                    // Phase 2: Drop z-index once photo is near the edge
+                    // ═══════════════════════════════════════════════════════
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        photoAnimatingOutIndex = oldIndex
+                        isPhotoAnimatingOut = true
+                    }
+
+                    // ═══════════════════════════════════════════════════════
+                    // At 2/3 of slide-out (~0.33s), start the next photo's TILT
+                    // so it begins rising while the old photo is still sliding out
+                    // ═══════════════════════════════════════════════════════
+                    triggerTiltEffect(index: nextIndex)
+
+                    // ═══════════════════════════════════════════════════════
+                    // Phase 3: Slide back to stack
+                    // spring = slow start → fast middle → slow landing
+                    // Photo shrinks as it returns (deselection triggers scale)
+                    // ═══════════════════════════════════════════════════════
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
+                        // Reset swipe state — slower spring for a more leisurely return
+                        withAnimation(.spring(response: 0.7, dampingFraction: 0.82)) {
+                            photoSwipeOffset = 0
+                        }
+                        isPhotoSwiping = false
+                        isPhotoAnimatingOut = false
+                        photoAnimatingOutIndex = nil
+
+                        // Deselect old → springs to expanded stack position (shrinks)
+                        resetTilt(index: oldIndex)
+                        selectedPhotoIndex = nextIndex
+
+                        // Show delete button after settle
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                if selectedPhotoIndex == nextIndex, deletingPhoto == nil {
+                                    showDeleteButton = true
+                                }
+                            }
+                        }
+                    }
+                }
+        )
+    }
+
+    // MARK: - Photo Item (matches CameraPhotoItem with swipe support)
+    @ViewBuilder
+    private func swipeTestPhotoItem(photo: TestPhoto, index: Int, totalCount: Int) -> some View {
+        let baseW: CGFloat = 46
+        let baseH: CGFloat = 32
+        let expandedW: CGFloat = 46 * 3.8
+        let expandedH: CGFloat = 32 * 3.8
+        let thumbBaseX: CGFloat = -(338 / 2 - 20 - 46 / 2)
+        let thumbBaseY: CGFloat = -(235 / 2 - 18 - 32 / 2)
+        let isSelected = selectedPhotoIndex == index
+        let isAnimOut = photoAnimatingOutIndex == index
+
+        let photoW = showingExpandedPhotos ? expandedW : baseW
+        let photoH = showingExpandedPhotos ? expandedH : baseH
+        let selectedScale: CGFloat = (235 - 24) / expandedH
+        let photoScale: CGFloat = isSelected ? selectedScale : (showingExpandedPhotos ? 0.85 : 1.0)
+
+        let finalOffsetX: CGFloat = {
+            if isSelected {
+                return photoSwipeOffset
+            }
+            if showingExpandedPhotos {
+                let raw = CGFloat(photo.offsetX) * 22
+                let maxX: CGFloat = (338 - expandedW) / 2 - 12
+                return max(-maxX, min(maxX, raw))
+            }
+            return thumbBaseX + CGFloat(photo.offsetX)
+        }()
+        let finalOffsetY: CGFloat = {
+            if isSelected { return 0 }
+            if showingExpandedPhotos {
+                let raw = CGFloat(photo.offsetY) * 12
+                let maxY: CGFloat = (235 - expandedH) / 2 - 5
+                return max(-maxY, min(maxY, raw))
+            }
+            return thumbBaseY + CGFloat(photo.offsetY)
+        }()
+        let finalRotation: CGFloat = {
+            if isSelected { return 0 }
+            if showingExpandedPhotos {
+                let normX = max(-1, min(1, CGFloat(photo.offsetX) / 6))
+                return normX * 12
+            }
+            return CGFloat(photo.rotation)
+        }()
+
+        let borderW: CGFloat = isSelected ? 2.0 / selectedScale : (showingExpandedPhotos ? 1.5 : 1.0)
+        let borderOpacity: Double = isSelected ? 1.0 : (showingExpandedPhotos ? 0.6 : 0.8)
+        let cr: CGFloat = isSelected ? 12 : (showingExpandedPhotos ? 5 * 3.8 : 5)
+
+        let zIdx: Double = {
+            if isAnimOut {
+                return 0
+            }
+            return isSelected ? 100 : Double(index)
+        }()
+
+        let tiltX = tiltAngleX[index] ?? 0
+        let tiltY = tiltAngleY[index] ?? 0
+        let tiltScale: CGFloat = 1.0 + abs(tiltX) * 0.003
+        let tiltShadow: CGFloat = abs(tiltX) * 0.5
+        let tiltLiftY: CGFloat = -abs(tiltX) * 0.3
+
+        Image(uiImage: photo.image)
+            .resizable()
+            .scaledToFill()
+            .frame(width: photoW, height: photoH)
+            .clipShape(RoundedRectangle(cornerRadius: cr))
+            .overlay(
+                RoundedRectangle(cornerRadius: cr)
+                    .stroke(Color.white.opacity(borderOpacity), lineWidth: borderW)
+            )
+            .shadow(color: .black.opacity(0.4), radius: tiltShadow, y: tiltShadow * 0.5)
+            .scaleEffect(tiltScale)
+            .offset(y: tiltLiftY)
+            .rotation3DEffect(.degrees(tiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+            .rotation3DEffect(.degrees(tiltY), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+            .rotationEffect(.degrees(finalRotation))
+            .offset(x: finalOffsetX, y: finalOffsetY)
+            .scaleEffect(photoScale)
+            .zIndex(zIdx)
+            .animation(.spring(response: 0.45, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: showingExpandedPhotos)
+            .animation(.spring(response: 0.4, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isSelected)
+            .animation(.spring(response: 0.4, dampingFraction: 0.82), value: photoSwipeOffset)
+    }
+
+    // MARK: - Smoky Dissolve Overlay
+    private var swipeTestDissolveOverlay: some View {
+        Group {
+            if let delPhoto = deletingPhoto {
+                let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
+                let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
+                let selectedScale: CGFloat = (235 - 24) / (32 * 3.8)
+                let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003
+                let delTiltShadow: CGFloat = abs(delTiltX) * 0.5
+                let delTiltLiftY: CGFloat = -abs(delTiltX) * 0.3
+                Image(uiImage: delPhoto.image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 46 * 3.8, height: 32 * 3.8)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(Color.white.opacity(1.0), lineWidth: 2.0 / selectedScale)
+                    )
+                    .shadow(color: .black.opacity(0.4), radius: delTiltShadow, y: delTiltShadow * 0.5)
+                    .scaleEffect(delTiltScale)
+                    .offset(y: delTiltLiftY)
+                    .rotation3DEffect(.degrees(delTiltX), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+                    .rotation3DEffect(.degrees(delTiltY), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                    .scaleEffect(selectedScale)
+                    .blur(radius: deleteBlur)
+                    .opacity(deleteOpacity)
+                    .offset(y: deleteOffsetY)
+                    .allowsHitTesting(false)
+                    .zIndex(200)
+            }
+        }
+    }
+
+    // MARK: - TILT helpers
+    private func triggerTiltEffect(index: Int) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.4)) {
+            tiltAngleX[index] = -18
+            tiltAngleY[index] = Double.random(in: -8...8)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
+                self.tiltAngleX[index] = 0
+                self.tiltAngleY[index] = 0
+            }
+        }
+    }
+
+    private func resetTilt(index: Int) {
+        tiltAngleX[index] = 0
+        tiltAngleY[index] = 0
+    }
+
+    // MARK: - Smoky Dissolve
+    private func triggerSmokyDissolve(index: Int) {
+        guard index < photos.count else { return }
+        let targetID = photos[index].id
+        deletingPhoto = photos[index]
+        deletingIndex = index
+        showDeleteButton = false
+
+        withAnimation(.easeOut(duration: 0.85)) {
+            deleteBlur = 20
+            deleteOpacity = 0
+            deleteOffsetY = 25
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
+                photos.removeAll { $0.id == targetID }
+                var newTiltX: [Int: Double] = [:]
+                var newTiltY: [Int: Double] = [:]
+                for (k, v) in tiltAngleX where k < index { newTiltX[k] = v }
+                for (k, v) in tiltAngleX where k > index { newTiltX[k - 1] = v }
+                for (k, v) in tiltAngleY where k < index { newTiltY[k] = v }
+                for (k, v) in tiltAngleY where k > index { newTiltY[k - 1] = v }
+                tiltAngleX = newTiltX
+                tiltAngleY = newTiltY
+                showingExpandedPhotos = photos.count > 0
+                let nextIdx = min(index, photos.count - 1)
+                if nextIdx >= 0 {
+                    selectedPhotoIndex = nextIdx
+                    triggerTiltEffect(index: nextIdx)
+                    showDeleteButton = false
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            if selectedPhotoIndex == nextIdx {
+                                showDeleteButton = true
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) {
+            deletingPhoto = nil
+            deletingIndex = nil
+            deleteBlur = 0
+            deleteOpacity = 1.0
+            deleteOffsetY = 0
+        }
     }
 }
 
