@@ -12,15 +12,6 @@
 		05B1C5EE301837BC00589328 /* ParkingTimerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		110F68C8F30F7220369D4617 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */; };
 		157F6325A2902DAE2BD0FCFA /* SpeedSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */; };
-		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
-		F3A0C001B2C3D4E5F6071829 /* SFXPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */; };
-		F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */; };
-		F3A0C003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */; };
-		F3A0C004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */; };
-		F3A0C005B2C3D4E5F6071829 /* BorderBeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */; };
-		F3A0C006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */; };
-		F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */; };
-		F3A0C008B2C3D4E5F6071829 /* TripPredictor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */; };
 		712AB096BC3B75DE0BA4E278 /* RoseFourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */; };
 		A10001 /* GorillaTranslateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001 /* GorillaTranslateApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20002 /* ContentView.swift */; };
@@ -41,13 +32,21 @@
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
 		D10001 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20001 /* Destination.swift */; };
 		E10001 /* ParkingPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20001 /* ParkingPhoto.swift */; };
-		F10001 /* ParkingRecognitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20001 /* ParkingRecognitionService.swift */; };
 		E14C057DE2641559B70A543F /* WeatherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759D5AC501F16B3C56606AE5 /* WeatherService.swift */; };
 		EA44CAF9DA9ACC24F1E1247F /* TimeBasedOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186CBC60988AE080898F728D /* TimeBasedOrbView.swift */; };
+		F10001 /* ParkingRecognitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20001 /* ParkingRecognitionService.swift */; };
+		F3A0C001B2C3D4E5F6071829 /* SFXPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */; };
+		F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */; };
+		F3A0C003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */; };
+		F3A0C004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */; };
+		F3A0C005B2C3D4E5F6071829 /* BorderBeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */; };
+		F3A0C006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */; };
+		F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */; };
+		F3A0C008B2C3D4E5F6071829 /* TripPredictor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */; };
+		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
+		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
+		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXCopyFilesBuildPhase section */
 		05B1C5F3301837BC00589328 /* Embed Foundation Extensions */ = {
@@ -70,18 +69,9 @@
 		05B1C5DC301837BB00589328 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		05B1C5F4301837EA00589328 /* ParkingTimerWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ParkingTimerWidgetExtension.entitlements; sourceTree = "<group>"; };
 		186CBC60988AE080898F728D /* TimeBasedOrbView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeBasedOrbView.swift; sourceTree = "<group>"; };
-		F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SFXPlayer.swift; sourceTree = "<group>"; };
-		F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_enter_stationary.mp3; sourceTree = "<group>"; };
-		F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_enter_driving.mp3; sourceTree = "<group>"; };
-		F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_acceleration_overlay.mp3; sourceTree = "<group>"; };
-		F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeam.swift; sourceTree = "<group>"; };
-		F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeamCapsuleDemo.swift; sourceTree = "<group>"; };
-		F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassCapsuleDemo.swift; sourceTree = "<group>"; };
-		F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TripPredictor.swift; sourceTree = "<group>"; };
 		65605E6361F50510E915CAAA /* MorphingText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MorphingText.swift; path = GorillaTranslate/Views/MorphingText.swift; sourceTree = "<group>"; };
 		759D5AC501F16B3C56606AE5 /* WeatherService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WeatherService.swift; sourceTree = "<group>"; };
 		7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeedSimulationView.swift; sourceTree = "<group>"; };
-		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
 		A20001 /* GorillaTranslateApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaTranslateApp.swift; sourceTree = "<group>"; };
 		A20002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		A20003 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
@@ -105,10 +95,21 @@
 		D20001 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
 		E20001 /* ParkingPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingPhoto.swift; sourceTree = "<group>"; };
 		F20001 /* ParkingRecognitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingRecognitionService.swift; sourceTree = "<group>"; };
+		F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SFXPlayer.swift; sourceTree = "<group>"; };
+		F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_enter_stationary.mp3; sourceTree = "<group>"; };
+		F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_enter_driving.mp3; sourceTree = "<group>"; };
+		F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_acceleration_overlay.mp3; sourceTree = "<group>"; };
+		F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeam.swift; sourceTree = "<group>"; };
+		F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeamCapsuleDemo.swift; sourceTree = "<group>"; };
+		F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassCapsuleDemo.swift; sourceTree = "<group>"; };
+		F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TripPredictor.swift; sourceTree = "<group>"; };
+		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
+		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
+		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */ = {
+		05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -118,18 +119,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ParkingTimerWidget;
-			sourceTree = "<group>";
-		};
+		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ParkingTimerWidget; sourceTree = "<group>"; };
+		SH2001 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -161,38 +152,13 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
-		F3A0B001B2C3D4E5F6071829 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				F3A0B002B2C3D4E5F6071829 /* Audio */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
-		F3A0B002B2C3D4E5F6071829 /* Audio */ = {
-			isa = PBXGroup;
-			children = (
-				F3A0B003B2C3D4E5F6071829 /* SFX */,
-			);
-			path = Audio;
-			sourceTree = "<group>";
-		};
-		F3A0B003B2C3D4E5F6071829 /* SFX */ = {
-			isa = PBXGroup;
-			children = (
-				F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */,
-				F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */,
-				F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */,
-			);
-			path = SFX;
-			sourceTree = "<group>";
-		};
 		A40001 = {
 			isa = PBXGroup;
 			children = (
 				05B1C5F4301837EA00589328 /* ParkingTimerWidgetExtension.entitlements */,
 				A40002 /* GorillaTranslate */,
 				05B1C5DE301837BB00589328 /* ParkingTimerWidget */,
+				SH2001 /* Shared */,
 				05B1C5D9301837BB00589328 /* Frameworks */,
 				A40005 /* Products */,
 				65605E6361F50510E915CAAA /* MorphingText.swift */,
@@ -217,14 +183,6 @@
 			path = GorillaTranslate;
 			sourceTree = "<group>";
 		};
-		P10003 /* Shaders */ = {
-			isa = PBXGroup;
-			children = (
-				P10001 /* Pixelate.metal */,
-			);
-			path = Shaders;
-			sourceTree = "<group>";
-		};
 		A40003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
@@ -239,6 +197,7 @@
 				F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */,
 				759D5AC501F16B3C56606AE5 /* WeatherService.swift */,
 				F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */,
+				LA20002 /* GorillaActivityManager.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -258,6 +217,7 @@
 				B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */,
 				F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */,
 				F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */,
+				LA20003 /* LiveActivityPreviewTestView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -296,6 +256,40 @@
 			path = "Preview Content";
 			sourceTree = "<group>";
 		};
+		F3A0B001B2C3D4E5F6071829 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				F3A0B002B2C3D4E5F6071829 /* Audio */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		F3A0B002B2C3D4E5F6071829 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				F3A0B003B2C3D4E5F6071829 /* SFX */,
+			);
+			path = Audio;
+			sourceTree = "<group>";
+		};
+		F3A0B003B2C3D4E5F6071829 /* SFX */ = {
+			isa = PBXGroup;
+			children = (
+				F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */,
+				F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */,
+				F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */,
+			);
+			path = SFX;
+			sourceTree = "<group>";
+		};
+		P10003 /* Shaders */ = {
+			isa = PBXGroup;
+			children = (
+				P10001 /* Pixelate.metal */,
+			);
+			path = Shaders;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -313,6 +307,7 @@
 			);
 			fileSystemSynchronizedGroups = (
 				05B1C5DE301837BB00589328 /* ParkingTimerWidget */,
+				SH2001 /* Shared */,
 			);
 			name = ParkingTimerWidgetExtension;
 			productName = ParkingTimerWidgetExtension;
@@ -331,6 +326,9 @@
 			buildRules = (
 			);
 			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				SH2001 /* Shared */,
 			);
 			name = GorillaTranslate;
 			productName = GorillaTranslate;
@@ -437,13 +435,12 @@
 				F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */,
 				F3A0C008B2C3D4E5F6071829 /* TripPredictor.swift in Sources */,
 				P10002 /* Pixelate.metal in Sources */,
+				LA10002 /* GorillaActivityManager.swift in Sources */,
+				LA10003 /* LiveActivityPreviewTestView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
-
-/* Begin PBXTargetDependency section */
-/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		05B1C5F1301837BC00589328 /* Debug */ = {
@@ -642,6 +639,7 @@
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gorilla Leading";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
@@ -649,10 +647,10 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice input.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion and altitude data to detect parking floor level.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser = YES;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -685,6 +683,7 @@
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gorilla Leading";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
@@ -692,10 +691,10 @@
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice input.";
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion and altitude data to detect parking floor level.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
+				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser = YES;
-				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";

@@ -1339,6 +1339,7 @@ struct ContentView: View {
             }
             guard hasDeparted else {
                 stopStationaryTimer()
+                syncLiveActivity()
                 return
             }
             if newStatus == "已停留", oldStatus != "已停留" {
@@ -1348,6 +1349,7 @@ struct ContentView: View {
             } else if newStatus != "已停留", oldStatus == "已停留" {
                 stopStationaryTimer()
             }
+            syncLiveActivity()
         }
         .onChange(of: visitSecondaryStatus) { oldStatus, newStatus in
             if newStatus == "已開車（未離場）", oldStatus != "已開車（未離場）" {
@@ -1382,7 +1384,14 @@ struct ContentView: View {
         }
         .onChange(of: hasDeparted) { _, _ in
             restartRandomInfoTimerIfNeeded()
+            syncLiveActivity()
         }
+        .onChange(of: drivingETASeconds) { _, _ in
+            syncLiveActivity()
+        }
+        .onChange(of: llmSpotNumber) { _, _ in syncLiveActivity() }
+        .onChange(of: llmAreaCode)  { _, _ in syncLiveActivity() }
+        .onChange(of: llmFloorText) { _, _ in syncLiveActivity() }
         .onAppear {
             if !isCapsuleExpanded && !isParkingMemoryExpanded {
                 startRandomInfoTimer()
@@ -2343,6 +2352,7 @@ struct ContentView: View {
             departureElapsedTimer = nil
             departureTime = nil
             departureElapsed = 0
+            GorillaActivityManager.shared.end()
             return
         }
 
@@ -2391,6 +2401,7 @@ struct ContentView: View {
         d.set(lastKnownArrivalDate, forKey: "lastKnownArrivalDate")
         d.set(locationManager.currentAddress, forKey: "parkingEntryLocation")
         d.synchronize()
+        syncLiveActivity()
         parkingTimer?.invalidate()
         let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
             let entry = parkingEntryTime
@@ -2949,58 +2960,30 @@ struct ContentView: View {
         }
     }
 
-    @ViewBuilder
     private func boostOrbs(w: CGFloat, h: CGFloat, t: Double, isBoosted: Bool, orbSize: CGFloat) -> some View {
-        let ax = w * 0.3
-        let ay = h * 0.3
-        Circle()
-            .fill(Color(hex: "F79B1C").opacity(isBoosted ? 0.5 : 0))
+        let ax: CGFloat = w * 0.3
+        let ay: CGFloat = h * 0.3
+        let baseX: CGFloat = w * 0.5 - orbSize / 2
+        let baseY: CGFloat = h * 0.5 - orbSize / 2
+        let op: CGFloat = isBoosted ? 0.5 : 0
+        return ZStack {
+            boostOrb(hex: "F79B1C", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.7, sxMul: 1.3, cy: 0.5, cyMul: 1.1, phase: 0.0, ax: ax, ay: ay)
+            boostOrb(hex: "DB7FFB", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.6, sxMul: 1.5, cy: 0.8, cyMul: 1.2, phase: 1.0, ax: ax, ay: ay)
+            boostOrb(hex: "FFFFFF", op: isBoosted ? 0.4 : 0, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.5, sxMul: 1.7, cy: 0.7, cyMul: 1.0, phase: 2.0, ax: ax, ay: ay)
+            boostOrb(hex: "03AAF6", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.8, sxMul: 1.1, cy: 0.6, cyMul: 1.4, phase: 3.0, ax: ax, ay: ay)
+            boostOrb(hex: "ED75FA", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.65, sxMul: 1.4, cy: 0.55, cyMul: 1.6, phase: 4.0, ax: ax, ay: ay)
+            boostOrb(hex: "F62B6A", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.75, sxMul: 1.2, cy: 0.65, cyMul: 1.5, phase: 5.0, ax: ax, ay: ay)
+        }
+    }
+
+    private func boostOrb(hex: String, op: CGFloat, orbSize: CGFloat, baseX: CGFloat, baseY: CGFloat, t: Double, sx: Double, sxMul: Double, cy: Double, cyMul: Double, phase: Double, ax: CGFloat, ay: CGFloat) -> some View {
+        let ox = baseX + CGFloat(sin(t * sx + phase) + 0.3 * sin(t * sxMul + phase * 0.5)) * ax
+        let oy = baseY + CGFloat(cos(t * cy + phase) + 0.3 * cos(t * cyMul + phase * 0.5)) * ay
+        return Circle()
+            .fill(Color(hex: hex).opacity(Double(op)))
             .blur(radius: 16)
             .frame(width: orbSize, height: orbSize)
-            .offset(
-                x: w * 0.5 + CGFloat(sin(t * 0.7) + 0.3 * sin(t * 1.3)) * ax - orbSize / 2,
-                y: h * 0.5 + CGFloat(cos(t * 0.5) + 0.3 * cos(t * 1.1)) * ay - orbSize / 2
-            )
-        Circle()
-            .fill(Color(hex: "DB7FFB").opacity(isBoosted ? 0.5 : 0))
-            .blur(radius: 16)
-            .frame(width: orbSize, height: orbSize)
-            .offset(
-                x: w * 0.5 + CGFloat(sin(t * 0.6 + 1.0) + 0.3 * sin(t * 1.5 + 0.5)) * ax - orbSize / 2,
-                y: h * 0.5 + CGFloat(cos(t * 0.8 + 1.0) + 0.3 * cos(t * 1.2 + 0.5)) * ay - orbSize / 2
-            )
-        Circle()
-            .fill(Color(hex: "FFFFFF").opacity(isBoosted ? 0.4 : 0))
-            .blur(radius: 16)
-            .frame(width: orbSize, height: orbSize)
-            .offset(
-                x: w * 0.5 + CGFloat(sin(t * 0.5 + 2.0) + 0.3 * sin(t * 1.7 + 1.0)) * ax - orbSize / 2,
-                y: h * 0.5 + CGFloat(cos(t * 0.7 + 2.0) + 0.3 * cos(t * 1.0 + 1.0)) * ay - orbSize / 2
-            )
-        Circle()
-            .fill(Color(hex: "03AAF6").opacity(isBoosted ? 0.5 : 0))
-            .blur(radius: 16)
-            .frame(width: orbSize, height: orbSize)
-            .offset(
-                x: w * 0.5 + CGFloat(sin(t * 0.8 + 3.0) + 0.3 * sin(t * 1.1 + 1.5)) * ax - orbSize / 2,
-                y: h * 0.5 + CGFloat(cos(t * 0.6 + 3.0) + 0.3 * cos(t * 1.4 + 1.5)) * ay - orbSize / 2
-            )
-        Circle()
-            .fill(Color(hex: "ED75FA").opacity(isBoosted ? 0.5 : 0))
-            .blur(radius: 16)
-            .frame(width: orbSize, height: orbSize)
-            .offset(
-                x: w * 0.5 + CGFloat(sin(t * 0.65 + 4.0) + 0.3 * sin(t * 1.4 + 2.0)) * ax - orbSize / 2,
-                y: h * 0.5 + CGFloat(cos(t * 0.55 + 4.0) + 0.3 * cos(t * 1.6 + 2.0)) * ay - orbSize / 2
-            )
-        Circle()
-            .fill(Color(hex: "F62B6A").opacity(isBoosted ? 0.5 : 0))
-            .blur(radius: 16)
-            .frame(width: orbSize, height: orbSize)
-            .offset(
-                x: w * 0.5 + CGFloat(sin(t * 0.75 + 5.0) + 0.3 * sin(t * 1.2 + 2.5)) * ax - orbSize / 2,
-                y: h * 0.5 + CGFloat(cos(t * 0.65 + 5.0) + 0.3 * cos(t * 1.5 + 2.5)) * ay - orbSize / 2
-            )
+            .offset(x: ox, y: oy)
     }
 
     private func triggerOrbSpeedBoost() {
@@ -3277,7 +3260,58 @@ struct ContentView: View {
             }
         }
     }
-    
+
+    // MARK: - Live Activity sync
+
+    /// Pushes the current visit state into the system Live Activity.
+    private func syncLiveActivity() {
+        guard !locationManager.visits.isEmpty else {
+            GorillaActivityManager.shared.end()
+            return
+        }
+
+        let d = Self.appGroupDefaults ?? .standard
+
+        let activityState: GorillaActivityState
+        let anchor: Date
+
+        switch visitStatus {
+        case "已泊車":
+            activityState = .parking
+            anchor = parkingStartTime
+        case "已開車":
+            activityState = .driving
+            anchor = departureTime ?? parkingStartTime
+        default: // 已停留
+            activityState = .stationary
+            anchor = hasDeparted
+                ? (stationaryStartTime ?? departureTime ?? parkingStartTime)
+                : parkingStartTime
+        }
+
+        var content = GorillaActivityAttributes.ContentState(
+            state: activityState, startDate: anchor
+        )
+
+        switch activityState {
+        case .driving:
+            content.speedKmh = Int(locationManager.speed)
+            let road = locationManager.currentAddress
+            content.road = road.isEmpty ? nil : road
+            if let secs = drivingETASeconds {
+                content.etaMinutes = max(1, Int(secs / 60))
+            }
+        case .parking, .stationary:
+            let entry = d.string(forKey: "parkingEntryLocation")
+            content.location = (entry?.isEmpty == false) ? entry : nil
+            content.area = llmAreaCode
+            content.floor = llmFloorText
+            content.spot = llmSpotNumber
+        }
+
+        GorillaActivityManager.shared.sync(content)
+    }
+
     // 检查GPS位置是否有显著变化（>20米）
     private func isGPSLocationChanged() -> Bool {
         guard let currentLocation = locationManager.manager.location,

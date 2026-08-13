@@ -435,6 +435,12 @@ struct ParkingFloorTestView: View {
             } label: {
                 Label("泊車辨識測試 (LLM)", systemImage: "brain.head.profile")
             }
+
+            NavigationLink {
+                LiveActivityPreviewTestView()
+            } label: {
+                Label("即時活動樣式預覽", systemImage: "iphone.and.dynamicIsland")
+            }
         }
         .navigationTitle("測試")
         .navigationBarTitleDisplayMode(.inline)
