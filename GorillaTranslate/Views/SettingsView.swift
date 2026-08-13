@@ -2731,6 +2731,8 @@ struct ParkingMemorySwipeTestView: View {
     @State private var isPhotoSwiping = false
     @State private var isPhotoAnimatingOut = false
     @State private var photoAnimatingOutIndex: Int? = nil
+    @State private var isSwipingPhoto = false        // true during slide-out + return
+    @State private var swipePhotoScale: CGFloat = 1  // animated scale during swipe
 
     // Delete animation state
     @State private var deletingPhoto: TestPhoto? = nil
@@ -3082,34 +3084,38 @@ struct ParkingMemorySwipeTestView: View {
                     }
 
                     // ═══════════════════════════════════════════════════════
-                    // Phase 1: Slide out — easeOut deceleration → stop at 180px
-                    // Starts fast, decelerates smoothly to a stop
+                    // New photo starts enlarging FIRST
                     // ═══════════════════════════════════════════════════════
-                    withAnimation(.easeOut(duration: 0.5)) {
-                        photoSwipeOffset = direction * 180
+                    triggerTiltEffect(index: nextIndex)
+
+                    // ═══════════════════════════════════════════════════════
+                    // Phase 1: Slide out + shrink (0.15s after TILT)
+                    // ═══════════════════════════════════════════════════════
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        let fullScale: CGFloat = (235 - 24) / (32 * 3.8)
+                        isSwipingPhoto = true
+                        swipePhotoScale = fullScale
+
+                        withAnimation(.easeOut(duration: 0.5)) {
+                            photoSwipeOffset = direction * 180
+                        }
+                        withAnimation(.easeOut(duration: 0.8)) {
+                            swipePhotoScale = 0.85
+                        }
                     }
 
                     // ═══════════════════════════════════════════════════════
                     // Phase 2: Drop z-index once photo is near the edge
                     // ═══════════════════════════════════════════════════════
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
                         photoAnimatingOutIndex = oldIndex
                         isPhotoAnimatingOut = true
                     }
 
                     // ═══════════════════════════════════════════════════════
-                    // At 2/3 of slide-out (~0.33s), start the next photo's TILT
-                    // so it begins rising while the old photo is still sliding out
+                    // Phase 3: Slide back to stack (photo already at stack scale)
                     // ═══════════════════════════════════════════════════════
-                    triggerTiltEffect(index: nextIndex)
-
-                    // ═══════════════════════════════════════════════════════
-                    // Phase 3: Slide back to stack
-                    // spring = slow start → fast middle → slow landing
-                    // Photo shrinks as it returns (deselection triggers scale)
-                    // ═══════════════════════════════════════════════════════
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
-                        // Reset swipe state — slower spring for a more leisurely return
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) {
                         withAnimation(.spring(response: 0.7, dampingFraction: 0.82)) {
                             photoSwipeOffset = 0
                         }
@@ -3117,9 +3123,11 @@ struct ParkingMemorySwipeTestView: View {
                         isPhotoAnimatingOut = false
                         photoAnimatingOutIndex = nil
 
-                        // Deselect old → springs to expanded stack position (shrinks)
+                        // Deselect old photo
                         resetTilt(index: oldIndex)
                         selectedPhotoIndex = nextIndex
+                        isSwipingPhoto = false
+                        swipePhotoScale = 1
 
                         // Show delete button after settle
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -3145,11 +3153,15 @@ struct ParkingMemorySwipeTestView: View {
         let thumbBaseY: CGFloat = -(235 / 2 - 18 - 32 / 2)
         let isSelected = selectedPhotoIndex == index
         let isAnimOut = photoAnimatingOutIndex == index
+        let isThisSwiping = isSelected && isSwipingPhoto
 
         let photoW = showingExpandedPhotos ? expandedW : baseW
         let photoH = showingExpandedPhotos ? expandedH : baseH
         let selectedScale: CGFloat = (235 - 24) / expandedH
-        let photoScale: CGFloat = isSelected ? selectedScale : (showingExpandedPhotos ? 0.85 : 1.0)
+        let photoScale: CGFloat = {
+            if isThisSwiping { return swipePhotoScale }
+            return isSelected ? selectedScale : (showingExpandedPhotos ? 0.85 : 1.0)
+        }()
 
         let finalOffsetX: CGFloat = {
             if isSelected {
@@ -3254,14 +3266,16 @@ struct ParkingMemorySwipeTestView: View {
         }
     }
 
-    // MARK: - TILT helpers
+    // MARK: - TILT helpers — slower for smooth overlap with slide-out
     private func triggerTiltEffect(index: Int) {
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.4)) {
+        // Phase 1: gentle lift — slower response so it enlarges gradually
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.6)) {
             tiltAngleX[index] = -18
             tiltAngleY[index] = Double.random(in: -8...8)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-            withAnimation(.spring(response: 0.6, dampingFraction: 0.5)) {
+        // Phase 2: settle flat — longer response for a leisurely bounce
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            withAnimation(.spring(response: 0.8, dampingFraction: 0.7)) {
                 self.tiltAngleX[index] = 0
                 self.tiltAngleY[index] = 0
             }
