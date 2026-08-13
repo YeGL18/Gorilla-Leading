@@ -4386,7 +4386,7 @@ struct CameraPhotoItem: View {
                 .zIndex(zIdx)
                 .animation(.spring(response: 0.45, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isExpanded)
                 .animation(.spring(response: 0.4, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isSelected)
-                .animation(isSwipingPhoto ? nil : .spring(response: 0.4, dampingFraction: 0.82), value: swipeOffset)
+                .animation(.spring(response: 0.4, dampingFraction: 0.82), value: swipeOffset)
         }
     }
 }
