@@ -1,173 +1,216 @@
-<title>Gorilla Live Activities</title>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gorilla Live Activities — SVG Design Reference</title>
 <style>
-  /* ============ TOKENS (dark-first: bare :root = dark) ============ */
-  :root{
-    --bg:#0b0b0c;
-    --surface:#161618;
-    --surface-2:#1c1c1e;
-    --text:#f5f5f7;
-    --muted:#98989d;
-    --line:rgba(255,255,255,.10);
-    --accent:#0098FF;
-    /* state colors (fixed, theme-independent) */
-    --testing:#FFD60A;
-    --stationary:#46ADB8;
-    --driving:#0098FF;
-    --island:#000;
-    --glass-hi:rgba(255,255,255,.14);
-  }
-  @media (prefers-color-scheme: light){
-    :root:not([data-theme="dark"]){
-      --bg:#f2f2f5;
-      --surface:#ffffff;
-      --surface-2:#e9e9ee;
-      --text:#101013;
-      --muted:#6e6e73;
-      --line:rgba(0,0,0,.12);
-    }
-  }
-  :root[data-theme="light"]{
-    --bg:#f2f2f5;
-    --surface:#ffffff;
-    --surface-2:#e9e9ee;
-    --text:#101013;
-    --muted:#6e6e73;
-    --line:rgba(0,0,0,.12);
-  }
+/* ============ TOKENS ============ */
+:root {
+  --bg: #0B0B0C;
+  --surface: #161618;
+  --text: #F5F5F7;
+  --muted: #8A8A8E;
+  --line: rgba(255,255,255,.10);
+  --testing: #FFD60A;
+  --stationary: #46ADB8;
+  --driving: #0098FF;
+  --island: #000;
+  --glass-hi: rgba(255,255,255,.14);
+  --expanded-bg-top: #2C2C2E;
+  --expanded-bg-bot: #1C1C1E;
+  --dim-white: rgba(255,255,255,.55);
+  --info-white: rgba(255,255,255,.85);
+}
 
-  *{box-sizing:border-box;margin:0;padding:0}
-  html{-webkit-text-size-adjust:100%}
-  body{
-    background:var(--bg);
-    color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang TC","Noto Sans TC","Segoe UI",sans-serif;
-    font-variant-numeric:tabular-nums;
-    line-height:1.5;
-    padding:0 0 96px;
-  }
-  .mono{font-family:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace}
-  .wrap{max-width:1040px;margin:0 auto;padding:0 28px}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang TC", "Noto Sans TC", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.5;
+  padding: 0 0 96px;
+}
+.mono { font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace; }
+.wrap { max-width: 1040px; margin: 0 auto; padding: 0 28px; }
 
-  /* ============ HEADER ============ */
-  header{padding:64px 0 8px}
-  .eyebrow{
-    display:inline-flex;align-items:center;gap:8px;
-    font-size:12px;letter-spacing:.14em;text-transform:uppercase;
-    color:var(--accent);font-weight:600;
-  }
-  .eyebrow .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
-  h1{
-    font-size:clamp(34px,5vw,52px);
-    font-weight:800;letter-spacing:-.02em;line-height:1.05;
-    margin:14px 0 10px;text-wrap:balance;
-  }
-  .sub{color:var(--muted);font-size:16px;max-width:60ch}
-  .chips{display:flex;gap:8px;margin-top:22px;flex-wrap:wrap}
-  .chip{
-    display:inline-flex;align-items:center;gap:7px;
-    font-size:13px;font-weight:600;color:var(--text);
-    background:var(--surface);border:1px solid var(--line);
-    border-radius:999px;padding:7px 14px;
-  }
-  .chip .sw{width:9px;height:9px;border-radius:50%}
+/* ============ HEADER ============ */
+header { padding: 64px 0 8px; }
+.eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  font-size: 12px; letter-spacing: .14em; text-transform: uppercase;
+  color: var(--driving); font-weight: 600;
+}
+.eyebrow .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--driving); }
+h1 {
+  font-size: clamp(34px, 5vw, 52px);
+  font-weight: 800; letter-spacing: -.02em; line-height: 1.05;
+  margin: 14px 0 10px; text-wrap: balance;
+}
+.sub { color: var(--muted); font-size: 16px; max-width: 60ch; }
+.chips { display: flex; gap: 8px; margin-top: 22px; flex-wrap: wrap; }
+.chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-size: 13px; font-weight: 600; color: var(--text);
+  background: var(--surface); border: 1px solid var(--line);
+  border-radius: 999px; padding: 7px 14px;
+}
+.chip .sw { width: 9px; height: 9px; border-radius: 50%; }
 
-  /* ============ SECTIONS ============ */
-  section{margin-top:72px}
-  .sec-head{display:flex;align-items:baseline;gap:14px;margin-bottom:8px;flex-wrap:wrap}
-  .sec-head h2{font-size:26px;font-weight:700;letter-spacing:-.01em}
-  .sec-head .dim{color:var(--muted);font-size:13px}
-  .sec-desc{color:var(--muted);font-size:14px;max-width:70ch;margin-bottom:26px}
+/* ============ SECTIONS ============ */
+section { margin-top: 72px; }
+.sec-head { display: flex; align-items: baseline; gap: 14px; margin-bottom: 8px; flex-wrap: wrap; }
+.sec-head h2 { font-size: 26px; font-weight: 700; letter-spacing: -.01em; }
+.sec-head .dim { color: var(--muted); font-size: 13px; }
+.sec-desc { color: var(--muted); font-size: 14px; max-width: 70ch; margin-bottom: 26px; }
 
-  /* device stage: simulates top of phone screen */
-  .stage{
-    background:
-      radial-gradient(120% 90% at 20% 0%, rgba(0,152,255,.16), transparent 55%),
-      radial-gradient(120% 90% at 85% 10%, rgba(70,173,184,.14), transparent 55%),
-      linear-gradient(180deg,#101322,#0b0d18);
-    border:1px solid var(--line);
-    border-radius:28px;
-    padding:56px 32px 40px;
-    display:flex;flex-direction:column;gap:36px;align-items:center;
-    overflow-x:auto;
-  }
-  .row-label{
-    align-self:flex-start;color:#8a8a8e;font-size:12px;letter-spacing:.06em;
-  }
+/* device stage */
+.stage {
+  background:
+    radial-gradient(120% 90% at 20% 0%, rgba(0,152,255,.16), transparent 55%),
+    radial-gradient(120% 90% at 85% 10%, rgba(70,173,184,.14), transparent 55%),
+    linear-gradient(180deg, #101322, #0B0D18);
+  border: 1px solid var(--line);
+  border-radius: 28px;
+  padding: 56px 32px 40px;
+  display: flex; flex-direction: column; gap: 36px; align-items: center;
+  overflow-x: auto;
+}
+.row-label {
+  align-self: flex-start; color: var(--muted); font-size: 12px; letter-spacing: .06em;
+}
 
-  /* ============ DYNAMIC ISLAND mockups ============ */
-  .island{
-    background:var(--island);
-    display:flex;align-items:center;justify-content:space-between;
-    color:#fff;position:relative;flex:0 0 auto;
-  }
-  .island .lead{display:flex;align-items:center;gap:8px;padding-left:13px}
-  .island .trail{padding-right:13px}
-  .island .zh{font-size:13px;font-weight:500}
-  .island .timer{font-family:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;font-weight:700}
-  .ic{width:17px;height:17px;flex:0 0 auto}
+/* ============ SVG ICONS (inline) ============ */
+.ic { width: 17px; height: 17px; flex: 0 0 auto; }
+.ic-sm { width: 14px; height: 14px; flex: 0 0 auto; }
+.ic-lg { width: 22px; height: 22px; flex: 0 0 auto; }
+.ic-xl { width: 20px; height: 20px; flex: 0 0 auto; }
 
-  .compact{width:230px;height:37px;border-radius:19px}
-  .compact .timer{font-size:14px}
-  .minimal{width:45px;height:37px;border-radius:19px;justify-content:center}
-  .expanded{
-    width:371px;height:160px;border-radius:44px;
-    background:linear-gradient(180deg,#2c2c2e,#1c1c1e);
-    display:block;padding:18px 20px;color:#fff;position:relative;
-  }
-  .expanded::before{ /* specular highlight */
-    content:"";position:absolute;left:8px;right:8px;top:4px;height:1.5px;border-radius:1px;
-    background:var(--glass-hi);
-  }
-  .expanded .cam{position:absolute;left:50%;top:17px;width:18px;height:18px;margin-left:-9px;border-radius:50%;background:#000}
-  .expanded .top{display:flex;justify-content:space-between;align-items:flex-start}
-  .expanded .ttl{display:flex;gap:12px;align-items:center}
-  .expanded .ttl .ic{width:22px;height:22px}
-  .expanded .name{font-size:17px;font-weight:600;line-height:1.1}
-  .expanded .brand{font-size:12px;color:#98989d;margin-top:2px}
-  .expanded .big{font-family:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;font-size:30px;font-weight:700}
-  .expanded .divider{position:absolute;left:20px;right:20px;top:96px;height:1px;background:rgba(255,255,255,.10)}
-  .expanded .bottom{position:absolute;left:20px;right:20px;top:112px;display:flex;justify-content:space-between;font-size:13px}
-  .expanded .bottom .l{color:#d1d1d6}
+/* ============ COMPACT ============ */
+.island {
+  background: var(--island);
+  display: flex; align-items: center; justify-content: space-between;
+  color: #fff; position: relative; flex: 0 0 auto;
+}
+.compact {
+  width: 230px; height: 37px; border-radius: 18.5px;
+}
+.compact .lead {
+  display: flex; align-items: center; gap: 6px; padding-left: 12px;
+}
+.compact .zh { font-size: 13px; font-weight: 500; }
+.compact .timer {
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 14px; font-weight: 700;
+  padding-right: 12px;
+}
 
-  /* ============ LOCK SCREEN mockups ============ */
-  .lock{
-    width:371px;height:100px;border-radius:22px;
-    background:linear-gradient(180deg,#2c2c2e,#1c1c1e);
-    color:#fff;position:relative;padding:16px;flex:0 0 auto;
-  }
-  .lock::before{content:"";position:absolute;left:6px;right:6px;top:4px;height:1.5px;border-radius:1px;background:var(--glass-hi)}
-  .lock .appicon{position:absolute;left:16px;top:16px;width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center}
-  .lock .appicon .ic{width:20px;height:20px}
-  .lock .t1{position:absolute;left:62px;top:18px;font-size:14px;font-weight:600}
-  .lock .t2{position:absolute;left:62px;top:38px;font-size:12px}
-  .lock .timer{position:absolute;right:16px;top:22px;font-family:"SF Mono","JetBrains Mono",ui-monospace,Menlo,monospace;font-size:22px;font-weight:700}
-  .lock .b1{position:absolute;left:16px;bottom:14px;font-size:12px;color:#98989d}
-  .lock .b2{position:absolute;right:16px;bottom:14px;font-size:12px;color:#98989d;font-family:"SF Mono",ui-monospace,Menlo,monospace}
+/* ============ MINIMAL ============ */
+.minimal {
+  width: 45px; height: 37px; border-radius: 18.5px;
+  justify-content: center;
+}
 
-  /* dimension callout */
-  .callout{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}
-  .callout .bar{height:1px;background:var(--muted);opacity:.5;position:relative;flex:0 0 auto}
+/* ============ EXPANDED ============ */
+.expanded {
+  width: 371px; height: 160px; border-radius: 44px;
+  background: linear-gradient(180deg, #2C2C2E, #1C1C1E);
+  position: relative; overflow: hidden;
+}
+.expanded::before {
+  content: ""; position: absolute; left: 8px; right: 8px; top: 4px; height: 1.5px; border-radius: 1px;
+  background: var(--glass-hi); z-index: 2;
+}
+.expanded .bg-img {
+  position: absolute; right: 0; top: 0; width: 163px; height: 160px;
+  opacity: 0.2; object-fit: cover; z-index: 0;
+}
+.expanded .content {
+  position: relative; z-index: 1;
+  display: flex; flex-direction: column;
+  padding: 18px 20px; height: 100%;
+}
+.expanded .top-row {
+  display: flex; justify-content: space-between; align-items: flex-start;
+}
+.expanded .ttl {
+  display: flex; gap: 10px; align-items: center;
+}
+.expanded .ttl-icon {
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+}
+.expanded .ttl-text .name { font-size: 17px; font-weight: 600; line-height: 1.1; }
+.expanded .ttl-text .brand { font-size: 12px; color: #98989D; margin-top: 2px; }
+.expanded .big-timer {
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 30px; font-weight: 700;
+}
+.expanded .divider {
+  position: absolute; left: 20px; right: 20px; top: 96px; height: 1px;
+  background: rgba(255,255,255,.10); z-index: 1;
+}
+.expanded .bottom-row {
+  display: flex; justify-content: space-between; align-items: center;
+  font-size: 13px; color: #D1D1D6;
+  margin-top: auto; padding-bottom: 2px;
+}
+.expanded .bottom-row .left { display: flex; gap: 12px; }
+.expanded .bottom-row .right { color: var(--driving); }
 
-  /* ============ TOKEN TABLE ============ */
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
-  .card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:20px}
-  .card h3{font-size:14px;font-weight:700;letter-spacing:.02em;margin-bottom:14px;color:var(--muted);text-transform:uppercase}
-  table{width:100%;border-collapse:collapse;font-size:13px}
-  td,th{padding:7px 4px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
-  tr:last-child td{border-bottom:none}
-  td.k{color:var(--muted)}
-  td.v{font-family:"SF Mono",ui-monospace,Menlo,monospace}
-  .swatch{display:inline-block;width:12px;height:12px;border-radius:4px;vertical-align:-2px;margin-right:7px}
+/* ============ LOCK SCREEN ============ */
+.lock {
+  width: 371px; height: 100px; border-radius: 22px;
+  background: linear-gradient(180deg, #2C2C2E, #1C1C1E);
+  position: relative; overflow: hidden;
+}
+.lock::before {
+  content: ""; position: absolute; left: 6px; right: 6px; top: 4px; height: 1.5px; border-radius: 1px;
+  background: var(--glass-hi); z-index: 2;
+}
+.lock .bg-img {
+  position: absolute; right: 0; top: 0; width: 163px; height: 100px;
+  opacity: 0.2; object-fit: cover; z-index: 0;
+}
+.lock .content { position: relative; z-index: 1; padding: 16px; height: 100%; }
+.lock .app-icon {
+  position: absolute; left: 16px; top: 16px;
+  width: 34px; height: 34px; border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+}
+.lock .t1 { position: absolute; left: 62px; top: 18px; font-size: 14px; font-weight: 600; }
+.lock .t2 { position: absolute; left: 62px; top: 38px; font-size: 12px; }
+.lock .timer {
+  position: absolute; right: 16px; top: 22px;
+  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
+  font-size: 22px; font-weight: 700;
+}
+.lock .b1 { position: absolute; left: 16px; bottom: 14px; font-size: 12px; color: var(--muted); }
+.lock .b2 { position: absolute; right: 16px; bottom: 14px; font-size: 12px; color: var(--muted); font-family: "SF Mono", ui-monospace, Menlo, monospace; }
 
-  footer{margin-top:80px;color:var(--muted);font-size:13px}
-  footer .rule{height:1px;background:var(--line);margin-bottom:24px}
+/* ============ TOKEN TABLE ============ */
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; }
+.card h3 { font-size: 14px; font-weight: 700; letter-spacing: .02em; margin-bottom: 14px; color: var(--muted); text-transform: uppercase; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+td, th { padding: 7px 4px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--line); }
+tr:last-child td { border-bottom: none; }
+td.k { color: var(--muted); }
+td.v { font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+.swatch { display: inline-block; width: 12px; height: 12px; border-radius: 4px; vertical-align: -2px; margin-right: 7px; }
+
+footer { margin-top: 80px; color: var(--muted); font-size: 13px; }
+footer .rule { height: 1px; background: var(--line); margin-bottom: 24px; }
 </style>
-
+</head>
+<body>
 <div class="wrap">
   <header>
     <span class="eyebrow"><span class="dot"></span>iOS 26 · ActivityKit · Liquid Glass</span>
     <h1>Gorilla Live Activities &amp; Dynamic Island</h1>
-    <p class="sub">泊車記憶 companion — three live states rendered to Apple Human Interface Guidelines. Every dimension below is in points, per the iOS 26 spec.</p>
+    <p class="sub">泊車記憶 companion — pixel-accurate design reference. Every dimension is in points, matched to the SVG source files.</p>
     <div class="chips">
       <span class="chip"><span class="sw" style="background:var(--testing)"></span>測試中 Testing</span>
       <span class="chip"><span class="sw" style="background:var(--stationary)"></span>停留中 Stationary</span>
@@ -178,7 +221,7 @@
   <!-- ================= COMPACT ================= -->
   <section>
     <div class="sec-head"><h2>Dynamic Island — Compact</h2><span class="dim mono">230 × 37 pt · capsule</span></div>
-    <p class="sec-desc">The always-on pill flanking the TrueDepth camera. Leading shows state icon + label; trailing shows the live timer in the state accent.</p>
+    <p class="sec-desc">The always-on pill flanking the TrueDepth camera. Leading shows state icon + label; trailing shows the live timer in the state accent color.</p>
     <div class="stage" id="stage-compact"></div>
   </section>
 
@@ -186,13 +229,13 @@
   <section>
     <div class="sec-head"><h2>Dynamic Island — Minimal</h2><span class="dim mono">45 × 37 pt</span></div>
     <p class="sec-desc">The compact flag shown when another activity already occupies the island. A single glyph identifies the app at a glance.</p>
-    <div class="stage" id="stage-minimal" style="flex-direction:row;gap:48px"></div>
+    <div class="stage" id="stage-minimal" style="flex-direction:row;gap:48px;justify-content:center"></div>
   </section>
 
   <!-- ================= EXPANDED ================= -->
   <section>
     <div class="sec-head"><h2>Dynamic Island — Expanded</h2><span class="dim mono">371 × 160 pt · r44</span></div>
-    <p class="sec-desc">Long-press reveal. Four regions — leading, trailing, center (camera), bottom — with a Liquid Glass gradient and specular highlight.</p>
+    <p class="sec-desc">Long-press reveal. Four regions with a Liquid Glass gradient and specular highlight.</p>
     <div class="stage" id="stage-expanded"></div>
   </section>
 
@@ -213,8 +256,8 @@
           <tr><td class="k">Compact pill</td><td class="v">230 × 37 · capsule</td></tr>
           <tr><td class="k">Compact (Pro Max)</td><td class="v">250 × 37</td></tr>
           <tr><td class="k">Minimal flag</td><td class="v">45 × 37</td></tr>
-          <tr><td class="k">Expanded</td><td class="v">371 × 84–160 · r44</td></tr>
-          <tr><td class="k">Lock Screen card</td><td class="v">371 × 84–160 · r22</td></tr>
+          <tr><td class="k">Expanded</td><td class="v">371 × 160 · r44</td></tr>
+          <tr><td class="k">Lock Screen card</td><td class="v">371 × 100 · r22</td></tr>
           <tr><td class="k">Expanded inner pad</td><td class="v">16–20</td></tr>
           <tr><td class="k">Lock screen margin</td><td class="v">14</td></tr>
         </table>
@@ -244,68 +287,228 @@
 
   <footer>
     <div class="rule"></div>
-    Built to Apple HIG (Live Activities, Dynamic Island) and WWDC25 “Meet Liquid Glass”. Importable SVG sources live in <span class="mono">design/</span>.
+    Built to match the SVG source files in <span class="mono">design/</span>. All dimensions and colors are exact.
   </footer>
 </div>
 
 <script>
-  const STATES = [
-    {zh:"測試中", en:"Testing",    color:"var(--testing)",   hex:"#FFD60A", icon:"gear"},
-    {zh:"停留中", en:"Stationary", color:"var(--stationary)",hex:"#46ADB8", icon:"park"},
-    {zh:"開車中", en:"Driving",    color:"var(--driving)",   hex:"#0098FF", icon:"car"},
-  ];
-  const ICONS = {
-    gear:`<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="COL" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="4.5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M19.1 4.9L17 7M7 17l-2.1 2.1"/></svg>`,
-    park:`<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="COL" stroke-width="2.2"><rect x="3" y="3" width="18" height="18" rx="5"/><text x="12" y="16.5" font-size="12" font-weight="700" fill="COL" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text></svg>`,
-    car:`<svg class="ic" viewBox="0 0 24 24" fill="COL"><path d="M3 13c.3-2.4 1.6-3.6 3.4-4l1-1.6c.4-.6 1-1 1.8-1h3.6c.8 0 1.4.4 1.8 1l1 1.6c1.8.4 3.1 1.6 3.4 4v2.4c0 .6-.4 1-1 1h-1.2c-.6 0-1-.4-1-1v-.6H6.2v.6c0 .6-.4 1-1 1H4c-.6 0-1-.4-1-1z"/></svg>`,
-  };
-  const icon = (kind,hex)=>ICONS[kind].replaceAll("COL",hex);
+// ============ ICON SVGs (exact from SVG designs) ============
 
-  function compactRow(st){
-    return `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
-      <div class="island compact">
-        <div class="lead">${icon(st.icon,st.hex)}<span class="zh">${st.zh}</span></div>
-        <div class="trail"><span class="timer" style="color:${st.color}">01:23:45</span></div>
-      </div>
-      <span class="row-label mono">Compact — ${st.zh} ${st.en}</span>
+// Pause icon (yellow) — two vertical bars, from di-compact 2.svg
+function pauseIcon(color) {
+  return `<svg class="ic" viewBox="0 0 24 24" fill="${color}">
+    <rect x="8" y="5" width="5" height="14" rx="1"/>
+    <rect x="15" y="5" width="5" height="14" rx="1"/>
+  </svg>`;
+}
+
+// P icon (parking) — rounded rect with white stroke, "P" letter inside
+function parkIcon(color) {
+  return `<svg class="ic" viewBox="0 0 24 24" fill="none">
+    <rect x="3" y="3" width="18" height="18" rx="5" stroke="${color}" stroke-width="3"/>
+    <text x="12" y="16.5" font-size="12" font-weight="700" fill="${color}" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
+  </svg>`;
+}
+
+// Car icon (driving)
+function carIcon(color) {
+  return `<svg class="ic" viewBox="0 0 24 24">
+    <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#292828" stroke-width="0.5"/>
+    <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#292828" stroke-width="0.5"/>
+    <path d="M5.5 11.5H20.5L18.5 6.5C18.2 5.8 17.5 5.5 16.8 5.5H9.2C8.5 5.5 7.8 5.8 7.5 6.5L5.5 11.5Z" fill="${color}" stroke="#F8F7F7" stroke-width="2"/>
+  </svg>`;
+}
+
+// P icon for app icon (white version, on colored background)
+function parkIconWhite() {
+  return `<svg class="ic-xl" viewBox="0 0 24 24" fill="none">
+    <rect x="3" y="3" width="18" height="18" rx="5" stroke="white" stroke-width="3"/>
+    <text x="12" y="16.5" font-size="12" font-weight="700" fill="white" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
+  </svg>`;
+}
+
+// Car icon white for app icon
+function carIconWhite() {
+  return `<svg class="ic-xl" viewBox="0 0 24 24">
+    <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
+    <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
+    <path d="M5.5 11.5H20.5L18.5 6.5C18.2 5.8 17.5 5.5 16.8 5.5H9.2C8.5 5.5 7.8 5.8 7.5 6.5L5.5 11.5Z" fill="white" stroke="#C6C6C6" stroke-width="2"/>
+  </svg>`;
+}
+
+// Pause icon white for app icon
+function pauseIconWhite() {
+  return `<svg class="ic-xl" viewBox="0 0 24 24" fill="white">
+    <rect x="8" y="5" width="5" height="14" rx="1"/>
+    <rect x="15" y="5" width="5" height="14" rx="1"/>
+  </svg>`;
+}
+
+// ============ EXPANDED ICON (larger, for expanded view) ============
+function expandedIcon(state) {
+  if (state.color === '#FFD60A') {
+    // Pause icon — yellow bars
+    return `<svg class="ic-lg" viewBox="0 0 24 24" fill="white">
+      <rect x="8" y="5" width="5" height="14" rx="1"/>
+      <rect x="15" y="5" width="5" height="14" rx="1"/>
+    </svg>`;
+  }
+  if (state.color === '#46ADB8') {
+    // P icon — teal
+    return `<svg class="ic-lg" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="3" width="18" height="18" rx="5" stroke="white" stroke-width="3"/>
+      <text x="12" y="16.5" font-size="12" font-weight="700" fill="white" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
+    </svg>`;
+  }
+  // Car icon — blue
+  return `<svg class="ic-lg" viewBox="0 0 24 24">
+    <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
+    <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
+    <path d="M5.5 11.5H20.5L18.5 6.5C18.2 5.8 17.5 5.5 16.8 5.5H9.2C8.5 5.5 7.8 5.8 7.5 6.5L5.5 11.5Z" fill="white" stroke="#C6C6C6" stroke-width="2"/>
+  </svg>`;
+}
+
+// ============ MINIMAL ICON (slightly smaller) ============
+function minimalIcon(state) {
+  if (state.color === '#FFD60A') {
+    return `<svg class="ic-sm" viewBox="0 0 24 24" fill="${state.color}">
+      <rect x="8" y="5" width="5" height="14" rx="1"/>
+      <rect x="15" y="5" width="5" height="14" rx="1"/>
+    </svg>`;
+  }
+  if (state.color === '#46ADB8') {
+    return `<svg class="ic-sm" viewBox="0 0 24 24" fill="none">
+      <rect x="3" y="3" width="18" height="18" rx="5" stroke="${state.color}" stroke-width="3"/>
+      <text x="12" y="16.5" font-size="12" font-weight="700" fill="${state.color}" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
+    </svg>`;
+  }
+  return `<svg class="ic-sm" viewBox="0 0 24 24">
+    <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#414141" stroke-width="0.5"/>
+    <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#414141" stroke-width="0.5"/>
+    <path d="M5.5 11.5H20.5L18.5 6.5C18.2 5.8 17.5 5.5 16.8 5.5H9.2C8.5 5.5 7.8 5.8 7.5 6.5L5.5 11.5Z" fill="${state.color}" stroke="#C6C6C6" stroke-width="2"/>
+  </svg>`;
+}
+
+// ============ APP ICON SVG (for lock screen) ============
+function appIconSVG(state) {
+  if (state.color === '#FFD60A') {
+    return pauseIconWhite();
+  }
+  if (state.color === '#46ADB8') {
+    return parkIconWhite();
+  }
+  return carIconWhite();
+}
+
+// ============ STATE DEFINITIONS ============
+// Three states matching the SVG designs
+const STATES = [
+  { zh: '停車中', en: 'Stationary', color: '#FFD60A', hex: '#FFD60A', icon: 'pause' },
+  { zh: '泊車中', en: 'Parking',   color: '#46ADB8', hex: '#46ADB8', icon: 'park' },
+  { zh: '開車中', en: 'Driving',   color: '#0098FF', hex: '#0098FF', icon: 'car' },
+];
+
+// ============ RENDER FUNCTIONS ============
+
+// Compact row
+function compactRow(st) {
+  const iconFn = st.icon === 'pause' ? pauseIcon : (st.icon === 'park' ? parkIcon : carIcon);
+  return `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
+    <div class="island compact">
+      <div class="lead">${iconFn(st.color)}<span class="zh">${st.zh}</span></div>
+      <div class="trail"><span class="timer" style="color:${st.color}">01:23:45</span></div>
+    </div>
+    <span class="row-label mono">Compact — ${st.zh} ${st.en} · 230×37pt</span>
+  </div>`;
+}
+
+// Minimal row
+function minimalRow(st) {
+  return `<div style="display:flex;flex-direction:column;gap:8px;align-items:center">
+    <div class="island minimal">${minimalIcon(st)}</div>
+    <span class="row-label mono">${st.zh}</span>
+  </div>`;
+}
+
+// Expanded row
+function expandedRow(st) {
+  const bgImg = st.icon === 'car'
+    ? `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, rgba(0,152,255,0.4), transparent 70%)"></div>`
+    : `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, ${st.color === '#FFD60A' ? 'rgba(255,214,10,0.3)' : 'rgba(70,173,184,0.3)'}, transparent 70%)"></div>`;
+
+  let bottomHTML = '';
+  if (st.icon === 'car') {
+    bottomHTML = `<div class="left"><span>Sai Sha Rd 599</span></div>
+      <div class="right mono" style="color:${st.color}">
+        <span style="color:white;font-weight:bold;">2</span> <span style="color:${st.color};font-size:11px">km/h</span>
+        &nbsp;&nbsp;
+        <span style="color:white;font-weight:bold;">39</span> <span style="color:${st.color};font-size:11px">mins</span>
+      </div>`;
+  } else {
+    bottomHTML = `<div class="left">
+      <span>台北101</span><span>P1區域</span><span>B2</span><span>· B1258</span>
     </div>`;
   }
-  function minimalRow(st){
-    return `<div style="display:flex;flex-direction:column;gap:8px;align-items:center">
-      <div class="island minimal">${icon(st.icon,st.hex)}</div>
-      <span class="row-label mono">${st.zh}</span>
-    </div>`;
-  }
-  function expandedRow(st){
-    return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
-      <div class="expanded">
-        <div class="cam"></div>
-        <div class="top">
-          <div class="ttl">${icon(st.icon,st.hex)}<div><div class="name">${st.zh}</div><div class="brand">Gorilla</div></div></div>
-          <div class="big" style="color:${st.color}">01:23:45</div>
+
+  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+    <div class="expanded">
+      ${bgImg}
+      <div class="content" style="position:relative;z-index:1">
+        <div class="top-row">
+          <div class="ttl">
+            <div class="ttl-icon" style="background:${st.color}">${expandedIcon(st)}</div>
+            <div class="ttl-text">
+              <div class="name">${st.zh}</div>
+              <div class="brand">Gorilla</div>
+            </div>
+          </div>
+          <div class="big-timer" style="color:${st.color}">01:23:45</div>
         </div>
         <div class="divider"></div>
-        <div class="bottom"><span class="l">台北101 B2 · 已停 45 分</span><span style="color:${st.color}" class="mono">km/h 0</span></div>
+        <div class="bottom-row">${bottomHTML}</div>
       </div>
-      <span class="row-label mono">Expanded — ${st.zh} ${st.en} · 371×160 r44</span>
-    </div>`;
+    </div>
+    <span class="row-label mono">Expanded — ${st.zh} ${st.en} · 371×160 r44</span>
+  </div>`;
+}
+
+// Lock screen row
+function lockRow(st) {
+  const bgImg = st.icon === 'car'
+    ? `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, rgba(0,152,255,0.4), transparent 70%)"></div>`
+    : `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, ${st.color === '#FFD60A' ? 'rgba(255,214,10,0.3)' : 'rgba(70,173,184,0.3)'}, transparent 70%)"></div>`;
+
+  let bottomLeft = '';
+  let bottomRight = '';
+  if (st.icon === 'car') {
+    bottomLeft = 'Sai Sha Rd 599';
+    bottomRight = '2 km/h · 39 mins';
+  } else {
+    bottomLeft = '台北101 停車場 B2';
+    bottomRight = '入場 14:05';
   }
-  function lockRow(st){
-    return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
-      <div class="lock">
-        <div class="appicon" style="background:${st.hex}">${icon(st.icon,"#0b0b0c")}</div>
+
+  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+    <div class="lock">
+      ${bgImg}
+      <div class="content" style="position:relative;z-index:1">
+        <div class="app-icon" style="background:${st.color}">${appIconSVG(st)}</div>
         <div class="t1">Gorilla 泊車記憶</div>
         <div class="t2" style="color:${st.color}">${st.zh}</div>
         <div class="timer">01:23:45</div>
-        <div class="b1">台北101 停車場 B2</div>
-        <div class="b2">入場 14:05</div>
+        <div class="b1">${bottomLeft}</div>
+        <div class="b2">${bottomRight}</div>
       </div>
-      <span class="row-label mono">Lock Screen — ${st.zh} ${st.en} · 371×100 r22</span>
-    </div>`;
-  }
+    </div>
+    <span class="row-label mono">Lock Screen — ${st.zh} ${st.en} · 371×100 r22</span>
+  </div>`;
+}
 
-  document.getElementById("stage-compact").innerHTML = STATES.map(compactRow).join("");
-  document.getElementById("stage-minimal").innerHTML = STATES.map(minimalRow).join("");
-  document.getElementById("stage-expanded").innerHTML = STATES.map(expandedRow).join("");
-  document.getElementById("stage-lock").innerHTML = STATES.map(lockRow).join("");
+// Render all
+document.getElementById('stage-compact').innerHTML = STATES.map(compactRow).join('');
+document.getElementById('stage-minimal').innerHTML = STATES.map(minimalRow).join('');
+document.getElementById('stage-expanded').innerHTML = STATES.map(expandedRow).join('');
+document.getElementById('stage-lock').innerHTML = STATES.map(lockRow).join('');
 </script>
+</body>
+</html>
