@@ -59,11 +59,12 @@ struct GorillaLiveActivity: Widget {
                     }
                 }
                 // Expanded — bottom: full-height gorilla watermark pinned to
-                // the top-right (the v1 structure proven to render in-region)
-                // + contextual info row pinned to the bottom-left.
-                // The watermark is part of the layout so the island keeps
-                // its full height (camera cutout lands on the gorilla's eye —
-                // intentional per design).
+                // the top-right + contextual info row pinned to the bottom.
+                // ALL children are fixed-size — no Spacer / infinity frames:
+                // flexible elements have collapsed this region on-device
+                // before, wiping the text and the watermark. The watermark
+                // stays layout-affecting so the island keeps its full height
+                // (camera cutout lands on the gorilla's eye — intentional).
                 DynamicIslandExpandedRegion(.bottom) {
                     ZStack(alignment: .topTrailing) {
                         Image("GorillaWatermark")
@@ -71,12 +72,10 @@ struct GorillaLiveActivity: Widget {
                             .scaledToFill()
                             .frame(width: 148, height: 160)
                             .opacity(0.14)
-                        VStack(spacing: 0) {
-                            Spacer(minLength: 0)
-                            GorillaInfoRow(state: context.state)
-                                .padding(.horizontal, 20)
-                                .padding(.bottom, 4)
-                        }
+                        GorillaInfoRow(state: context.state)
+                            .padding(.horizontal, 20)
+                            .padding(.bottom, 4)
+                            .frame(height: 160, alignment: .bottom)
                     }
                 }
             } compactLeading: {

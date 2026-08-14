@@ -1688,7 +1688,12 @@ struct AddDestinationView: View {
         search.start { response, error in
             if let item = response?.mapItems.first {
                 DispatchQueue.main.async {
-                    selectedCoordinate = item.placemark.coordinate
+                    // In mainland China, MKLocalSearch returns GCJ-02 coordinates
+                    // (AutoNavi map data). Convert back to WGS-84 so the stored
+                    // destination matches the app's coordinate convention
+                    // (store WGS-84, convert to GCJ-02 at display/route time).
+                    // Outside China this is a no-op.
+                    selectedCoordinate = item.placemark.coordinate.gcj02ToWGS84
                     searchText = item.name ?? ""
                     searchResults.removeAll()
                 }
@@ -1752,7 +1757,10 @@ struct MapSelectionView: View {
             .onAppear {
                 if let location = locationManager.manager.location {
                     region = MKCoordinateRegion(
-                        center: location.coordinate,
+                        // GPS is WGS-84; centre the map in GCJ-02 so the user
+                        // starts over the correct road in mainland China
+                        // (no-op outside China).
+                        center: location.coordinate.wgs84ToGCJ02,
                         span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
                     )
                 }
@@ -1778,11 +1786,14 @@ struct MapViewWrapper: UIViewRepresentable {
     
     func updateUIView(_ uiView: MKMapView, context: Context) {
         uiView.region = region
-        
+
         uiView.removeAnnotations(uiView.annotations)
         if let coordinate = selectedCoordinate {
             let annotation = MKPointAnnotation()
-            annotation.coordinate = coordinate
+            // selectedCoordinate is stored as WGS-84; display it in GCJ-02 so
+            // the pin lands exactly where the user tapped / the search result
+            // is on the China tiles (no-op outside China).
+            annotation.coordinate = coordinate.wgs84ToGCJ02
             uiView.addAnnotation(annotation)
         }
     }
@@ -1800,12 +1811,15 @@ struct MapViewWrapper: UIViewRepresentable {
         
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
             guard let mapView = gesture.view as? MKMapView else { return }
-            
+
             if gesture.state == .began {
                 let point = gesture.location(in: mapView)
                 let coordinate = mapView.convert(point, toCoordinateFrom: mapView)
                 DispatchQueue.main.async { [self] in
-                    parent.selectedCoordinate = coordinate
+                    // In mainland China the map's screen→coordinate conversion
+                    // yields GCJ-02 (the display frame of the AutoNavi tiles).
+                    // Convert back to WGS-84 before storing (no-op outside China).
+                    parent.selectedCoordinate = coordinate.gcj02ToWGS84
                 }
             }
         }

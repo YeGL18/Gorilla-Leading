@@ -162,8 +162,11 @@ class DestinationManager: ObservableObject {
     // 计算从当前位置到目的地的路线
     func calculateRoute(from currentLocation: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D, completion: @escaping (Double?, Double?) -> Void) {
         let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination))
+        // 与其他路线请求保持一致：存储的是 WGS-84，中国大陆需转 GCJ-02
+        // (Consistent with the other MKDirections call sites: stored coords are
+        // WGS-84; convert to GCJ-02 for mainland China — no-op elsewhere.)
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.wgs84ToGCJ02))
         request.transportType = .automobile
         
         let directions = MKDirections(request: request)

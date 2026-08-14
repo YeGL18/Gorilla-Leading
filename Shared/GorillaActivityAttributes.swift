@@ -55,5 +55,10 @@ struct GorillaActivityAttributes: ActivityAttributes {
         // Stationary context (停留中)
         var destinationName: String?  // 家
         var distanceText: String?     // 46.1 km
+        /// Foreground-refresh nonce: guarantees the update payload differs from
+        /// the archived render so the system re-renders with the latest widget
+        /// binary (otherwise iOS can keep showing a stale render forever).
+        /// Optional → old archived payloads decode fine (decodeIfPresent).
+        var renderNonce: Int? = nil
     }
 }

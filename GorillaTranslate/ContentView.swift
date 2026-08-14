@@ -165,6 +165,7 @@ struct ContentView: View {
     @State private var llmError: String? = nil
     @State private var llmPollTimer: Timer? = nil
     @State private var showLLMActionPrompt = false
+    @State private var showNoDestinationAlert = false
     @State private var llmShortcutName: String = UserDefaults.standard.string(forKey: "llm_shortcut_name") ?? "泊車辨識"
     @State private var parkingInfoDisplayMode: Bool = true
     @State private var parkingInfoSwitchTimer: Timer? = nil
@@ -330,7 +331,9 @@ struct ContentView: View {
                     // Force the Live Activity to re-render with the latest
                     // widget build — the system keeps the archived render of
                     // the previous build until the next content update.
-                    syncLiveActivity()
+                    // forceRefresh bumps the render nonce so the payload is
+                    // guaranteed to differ from the archived render.
+                    syncLiveActivity(forceRefresh: true)
                 }
             }
         }
@@ -496,15 +499,28 @@ struct ContentView: View {
                     }
                 }, onMoveParkingPoint: { id, coordinate in
                     parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate)
-                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0)
+                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, onMapBlankTap: {
+                    // 點擊地圖空白處收縮膠囊 — 由 MKMapView 自己嘅 tap
+                    // gesture 處理，所以展開時依然可以正常拖動/縮放地圖
+                    // （舊版用全屏透明 overlay 接 tap，會擋住地圖操作）
+                    guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                        isCapsuleExpanded = false
+                        isParkingMemoryExpanded = false
+                        selectedPhotoIndex = nil
+                        showDeleteButton = false
+                        capsuleOnRight = false
+                    }
+                })
                     .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()
             }
 
-            // 點擊空白處收縮膠囊（喺按鈕下面、地圖上面）
-            if isCapsuleExpanded || isParkingMemoryExpanded {
+            // 冇開地圖時嘅收縮膠囊 fallback（開咗地圖就由 MKMapView 自己嘅
+            // tap gesture 處理，噉先唔會擋住地圖操作）
+            if (isCapsuleExpanded || isParkingMemoryExpanded) && !showMap {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -1573,7 +1589,10 @@ struct ContentView: View {
                             lastRerouteRequestAt = nil
                             offRouteStrikeCount = 0
                         } else {
-                            guard let destination = destinationManager.selectedDestination else { return }
+                            guard let destination = destinationManager.selectedDestination else {
+                                showNoDestinationAlert = true
+                                return
+                            }
                             guard let currentLocation = locationManager.lastLocation else { return }
                             let routeToken = UUID()
                             routePriorityToken = routeToken
@@ -1638,6 +1657,11 @@ struct ContentView: View {
                             )
                     }
                     .opacity(showingRoute ? 1.0 : 0.7)
+                    .alert("請選擇目的地", isPresented: $showNoDestinationAlert) {
+                        Button("確定", role: .cancel) {}
+                    } message: {
+                        Text("請先選擇目的地，再計算最優路線")
+                    }
                 }
             }
             .padding(.horizontal, 20)
@@ -3268,7 +3292,7 @@ struct ContentView: View {
     // MARK: - Live Activity sync
 
     /// Pushes the current visit state into the system Live Activity.
-    private func syncLiveActivity() {
+    private func syncLiveActivity(forceRefresh: Bool = false) {
         guard !locationManager.visits.isEmpty else {
             GorillaActivityManager.shared.end()
             return
@@ -3327,7 +3351,7 @@ struct ContentView: View {
             }
         }
 
-        GorillaActivityManager.shared.sync(content)
+        GorillaActivityManager.shared.sync(content, forceRefresh: forceRefresh)
     }
 
     // 检查GPS位置是否有显著变化（>20米）

@@ -18,27 +18,58 @@ final class GorillaActivityManager {
     private init() {}
 
     private var activity: Activity<GorillaActivityAttributes>?
+    /// The last state we pushed, used to detect 泊車/開車/停留 transitions.
+    private var lastState: GorillaActivityState?
 
     /// Starts the Live Activity, or updates the running one with the latest snapshot.
-    func sync(_ state: GorillaActivityAttributes.ContentState) {
+    /// - Parameter forceRefresh: bumps `renderNonce` so the payload is always
+    ///   different from the archived render — used when the app foregrounds to
+    ///   guarantee the system re-renders with the latest widget build.
+    func sync(_ newState: GorillaActivityAttributes.ContentState, forceRefresh: Bool = false) {
         guard ActivityAuthorizationInfo().areActivitiesEnabled else { return }
 
         // Recover an activity that survived an app relaunch.
         if activity == nil {
-            activity = Activity<GorillaActivityAttributes>.activities.first
+            if let existing = Activity<GorillaActivityAttributes>.activities.first {
+                activity = existing
+                // Baseline for transition detection = what's actually showing.
+                lastState = existing.content.state.state
+            }
+        }
+
+        var content = newState
+        if forceRefresh {
+            content.renderNonce = Int(Date().timeIntervalSince1970)
         }
 
         if let activity {
+            // 狀態轉變（泊車/開車/停留 互換）→ 帶 alert 更新，
+            // 靈動島會擴展一次展示新狀態，然後自動收返 compact。
+            let stateChanged = lastState != nil && lastState != content.state
+            lastState = content.state
             Task {
-                await activity.update(ActivityContent(state: state, staleDate: nil))
+                if stateChanged {
+                    let alert = AlertConfiguration(
+                        title: "Gorilla 泊車記憶",
+                        body: LocalizedStringResource(stringLiteral: content.state.label),
+                        sound: .default
+                    )
+                    await activity.update(
+                        ActivityContent(state: content, staleDate: nil),
+                        alertConfiguration: alert
+                    )
+                } else {
+                    await activity.update(ActivityContent(state: content, staleDate: nil))
+                }
             }
             return
         }
 
+        lastState = content.state
         do {
             activity = try Activity.request(
                 attributes: GorillaActivityAttributes(),
-                contentState: state,
+                contentState: content,
                 pushType: nil
             )
         } catch {
@@ -53,5 +84,6 @@ final class GorillaActivityManager {
             await activity.end(nil, dismissalPolicy: .immediate)
         }
         self.activity = nil
+        self.lastState = nil
     }
 }

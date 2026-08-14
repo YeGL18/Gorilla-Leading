@@ -63,6 +63,9 @@ struct MapView: UIViewRepresentable {
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
     var centerOffsetX: CGFloat = 0
+    /// Called when the user taps an empty (annotation-free) area of the map.
+    /// Used to collapse the expanded capsule without blocking map pan/zoom.
+    var onMapBlankTap: (() -> Void)? = nil
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.colorScheme) private var colorScheme
 
@@ -105,7 +108,10 @@ struct MapView: UIViewRepresentable {
         mapView.addGestureRecognizer(pan)
         mapView.addGestureRecognizer(pinch)
         mapView.addGestureRecognizer(rotate)
-        
+
+        let blankTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleBlankTap(_:)))
+        mapView.addGestureRecognizer(blankTap)
+
         let parkingDrag = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleParkingDrag(_:)))
         parkingDrag.minimumPressDuration = 0.12
         parkingDrag.allowableMovement = 1000
@@ -792,6 +798,19 @@ struct MapView: UIViewRepresentable {
             }
         }
 
+        /// 點擊地圖空白處（冇撳中任何 annotation）— 用嚟收縮展開咗嘅膠囊。
+        /// 因為係 MKMapView 自己嘅 gesture，pan/pinch/rotate 完全唔受影響。
+        @objc func handleBlankTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let mapView else { return }
+            // 撳中泊車點等 annotation 時唔觸發，保留 annotation 選擇行為
+            for annotation in mapView.annotations where !(annotation is MKUserLocation) {
+                guard let view = mapView.view(for: annotation) else { continue }
+                let p = gesture.location(in: view)
+                if view.bounds.contains(p) { return }
+            }
+            parent.onMapBlankTap?()
+        }
+
         @objc func handleParkingDrag(_ gesture: UILongPressGestureRecognizer) {
             guard let mapView else { return }
             let pt = gesture.location(in: mapView)
@@ -1357,6 +1376,7 @@ struct VignetteMapView: View {
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
     var centerOffsetX: CGFloat = 0
+    var onMapBlankTap: (() -> Void)? = nil
     @EnvironmentObject private var locationManager: LocationManager
     @State private var flyTrigger = 0
     @State private var isLandscape = false
@@ -1364,7 +1384,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX, onMapBlankTap: onMapBlankTap)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

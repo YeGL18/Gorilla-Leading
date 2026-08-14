@@ -420,6 +420,30 @@ extension CLLocationCoordinate2D {
 
         return CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
     }
+
+    /// Convert GCJ-02 coordinate back to WGS-84 (iterative inverse).
+    /// In China, MKLocalSearch results and MKMapView screen-tap coordinates
+    /// come back in GCJ-02 (the map data's own frame). Since this app stores
+    /// everything as WGS-84 and converts to GCJ-02 only at display/route time,
+    /// China search/map-picked coordinates must be converted back before saving.
+    var gcj02ToWGS84: CLLocationCoordinate2D {
+        // Same China bounding box check as wgs84ToGCJ02 — outside China this
+        // is an exact no-op.
+        guard longitude >= 72.004 && longitude <= 137.8347 &&
+              latitude >= 0.8293 && latitude <= 55.8271 else {
+            return self
+        }
+        var wgs = self
+        // 5 iterations converge to sub-millimetre accuracy.
+        for _ in 0..<5 {
+            let shifted = wgs.wgs84ToGCJ02
+            wgs = CLLocationCoordinate2D(
+                latitude: wgs.latitude + (latitude - shifted.latitude),
+                longitude: wgs.longitude + (longitude - shifted.longitude)
+            )
+        }
+        return wgs
+    }
 }
 
 struct ParkingLotFloorLearning: Codable, Hashable {
