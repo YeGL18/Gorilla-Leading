@@ -327,6 +327,10 @@ struct ContentView: View {
                 DispatchQueue.main.async {
                     locationManager.startLocationServicesIfNeeded()
                     refreshVisitAndTimersForForeground()
+                    // Force the Live Activity to re-render with the latest
+                    // widget build — the system keeps the archived render of
+                    // the previous build until the next content update.
+                    syncLiveActivity()
                 }
             }
         }
@@ -3301,12 +3305,26 @@ struct ContentView: View {
             if let secs = drivingETASeconds {
                 content.etaMinutes = max(1, Int(secs / 60))
             }
-        case .parking, .stationary:
+        case .parking:
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = (entry?.isEmpty == false) ? entry : nil
             content.area = llmAreaCode
             content.floor = llmFloorText
             content.spot = llmSpotNumber
+        case .stationary:
+            let entry = d.string(forKey: "parkingEntryLocation")
+            content.location = (entry?.isEmpty == false) ? entry : nil
+            content.area = llmAreaCode
+            content.floor = llmFloorText
+            content.spot = llmSpotNumber
+            // Design row: 目的地 + distance | road | eta
+            content.destinationName = destinationManager.selectedDestination?.name
+            content.distanceText = drivingDistanceText
+            let road = locationManager.currentAddress
+            content.road = road.isEmpty ? nil : road
+            if let secs = drivingETASeconds {
+                content.etaMinutes = max(1, Int(secs / 60))
+            }
         }
 
         GorillaActivityManager.shared.sync(content)

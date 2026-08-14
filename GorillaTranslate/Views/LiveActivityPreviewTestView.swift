@@ -1,10 +1,30 @@
 import SwiftUI
 
-// MARK: - Test gallery: all 12 Live Activity style × state combinations
+// MARK: - Test gallery: all Live Activity style × state combinations
+// Ported 1:1 from design/live-activities-preview.html
 
 struct LiveActivityPreviewTestView: View {
     private let states: [GorillaActivityState] = [.parking, .driving, .stationary]
     private let anchor = Date(timeIntervalSinceNow: -3723) // 01:02:03 ago
+
+    // MARK: Design tokens (from live-activities-preview.html)
+
+    private let timerColor = Color(red: 234/255, green: 234/255, blue: 234/255)  // #EAEAEA
+    private let pauseGlyph = Color(red: 29/255,  green: 27/255,  blue: 32/255)   // #1D1B20
+    /// Rainbow gradient for "P1區域 B2 · B1258" (look-screen 1.svg paint0_linear)
+    private let infoGradient = LinearGradient(
+        colors: [
+            Color(red: 190/255, green: 190/255, blue: 190/255),  // #BEBEBE
+            Color(red: 237/255, green: 117/255, blue: 250/255),  // #ED75FA
+            Color(red: 246/255, green: 43/255,  blue: 106/255),  // #F62B6A
+            Color(red: 247/255, green: 155/255, blue: 28/255),   // #F79B1C
+            Color(red: 3/255,   green: 170/255, blue: 246/255),  // #03AAF6
+            Color(red: 219/255, green: 127/255, blue: 251/255),  // #DB7FFB
+        ],
+        startPoint: .leading, endPoint: .trailing
+    )
+
+    // MARK: - Body
 
     var body: some View {
         ScrollView {
@@ -36,24 +56,24 @@ struct LiveActivityPreviewTestView: View {
                 VStack(spacing: 16) {
                     ForEach(states, id: \.self) { state in
                         column {
-                            expandedView(state: state)
+                            expandedCard(state: state)
                             stateLabel(state)
                         }
                     }
                 }
 
                 // ── Lock Screen ──
-                sectionHeader("Lock Screen", dim: "371 × 100 pt · r22")
+                sectionHeader("Lock Screen", dim: "371 × 160 pt · r25 · Liquid Glass")
                 VStack(spacing: 16) {
                     ForEach(states, id: \.self) { state in
                         column {
-                            lockScreenView(state: state)
+                            lockBackdrop(state: state)
                             stateLabel(state)
                         }
                     }
                 }
             }
-            .padding(.horizontal, 20)
+            .padding(.horizontal, 12)
             .padding(.vertical, 32)
         }
         .background(Color.black)
@@ -96,92 +116,164 @@ struct LiveActivityPreviewTestView: View {
             .background(Color.black, in: Capsule())
     }
 
-    // MARK: - Expanded (371 × 160)
+    // MARK: - Expanded card (371 × 160 · r44 · pure black, no divider)
 
     @ViewBuilder
-    private func expandedView(state: GorillaActivityState) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Top row: icon+label | timer
-            HStack(alignment: .top) {
-                HStack(spacing: 10) {
-                    Image(systemName: state.symbol)
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 34, height: 34)
-                        .background(state.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    Text(state.label)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
-                Spacer()
-                timerText(anchor, size: 30, color: .white)
+    private func expandedCard(state: GorillaActivityState) -> some View {
+        cardContent(state: state)
+            .frame(width: 371, height: 160)
+            .background(alignment: .topTrailing) {
+                Image("GorillaWatermark")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 148, height: 160)
+                    .opacity(0.14)
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 20)
-
-            Spacer()
-
-            // Divider
-            Rectangle()
-                .fill(Color.white.opacity(0.10))
-                .frame(height: 1)
-                .padding(.horizontal, 20)
-
-            // Bottom info row
-            infoRow(state: state, dimmed: false)
-                .padding(.horizontal, 20)
-                .padding(.top, 14)
-                .padding(.bottom, 18)
-        }
-        .frame(width: 371, height: 160)
-        .background(
-            LinearGradient(colors: [Color(white: 0.17), Color(white: 0.11)], startPoint: .top, endPoint: .bottom),
-            in: RoundedRectangle(cornerRadius: 44, style: .continuous)
-        )
-        .overlay(alignment: .top) {
-            // Specular highlight
-            RoundedRectangle(cornerRadius: 1)
-                .fill(Color.white.opacity(0.08))
-                .frame(width: 355, height: 1.5)
-                .offset(y: 4)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
+            .background(Color.black)
+            .clipShape(RoundedRectangle(cornerRadius: 44, style: .continuous))
     }
 
-    // MARK: - Lock Screen (371 × 100)
+    // MARK: - Lock Screen card (371 × 160 · r25 · Liquid Glass)
 
     @ViewBuilder
-    private func lockScreenView(state: GorillaActivityState) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .top) {
-                Image(systemName: state.symbol)
-                    .font(.system(size: 16, weight: .bold))
+    private func lockCard(state: GorillaActivityState) -> some View {
+        cardContent(state: state)
+            .frame(width: 371, height: 160)
+            .background(alignment: .topTrailing) {
+                Image("GorillaWatermark")
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 148, height: 160)
+                    .opacity(0.20)
+            }
+            .background(
+                LinearGradient(colors: [.white.opacity(0.46), .white.opacity(0.30)],
+                               startPoint: .top, endPoint: .bottom)
+            )
+            .background(.ultraThinMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 25, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.5), lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.35), radius: 20, x: 0, y: 16)
+    }
+
+    /// A dark wallpaper-ish backdrop so the Liquid Glass material has
+    /// something to blur (mirrors the HTML stage gradient).
+    @ViewBuilder
+    private func lockBackdrop(state: GorillaActivityState) -> some View {
+        lockCard(state: state)
+            .padding(.vertical, 16)
+            .padding(.horizontal, 3)
+            .background(
+                LinearGradient(colors: [
+                    Color(red: 0.10, green: 0.12, blue: 0.22),
+                    Color(red: 0.05, green: 0.06, blue: 0.11),
+                ], startPoint: .topLeading, endPoint: .bottomTrailing),
+                in: RoundedRectangle(cornerRadius: 32, style: .continuous)
+            )
+    }
+
+    // MARK: - Shared card content (Expanded & Lock are identical layouts)
+
+    @ViewBuilder
+    private func cardContent(state: GorillaActivityState) -> some View {
+        VStack(spacing: 0) {
+            topRow(state: state)
+            Spacer()
+            bottomRow(state: state)
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 20)
+    }
+
+    /// Top row: tile icon + state name | big timer
+    @ViewBuilder
+    private func topRow(state: GorillaActivityState) -> some View {
+        HStack {
+            HStack(spacing: 10) {
+                tileIcon(state)
+                Text(state.label)
+                    .font(.system(size: 21, weight: .semibold))
                     .foregroundStyle(.white)
-                    .frame(width: 34, height: 34)
-                    .background(state.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+            }
+            Spacer()
+            timerText(anchor, size: 28, color: timerColor)
+        }
+    }
 
+    /// Test-page style tile icon: colored tile + white SF Symbol.
+    /// Exception: 停留中 pause bars are black on the yellow tile.
+    @ViewBuilder
+    private func tileIcon(_ state: GorillaActivityState) -> some View {
+        Image(systemName: state.symbol)
+            .font(.system(size: 15, weight: .bold))
+            .foregroundStyle(state == .stationary ? pauseGlyph : .white)
+            .frame(width: 34, height: 34)
+            .background(state.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+    }
+
+    /// Bottom info row — one variant per state (per HTML design).
+    @ViewBuilder
+    private func bottomRow(state: GorillaActivityState) -> some View {
+        switch state {
+        case .parking:
+            // 台北101 white · rainbow-gradient info, left aligned with 30pt gap
+            HStack(spacing: 30) {
+                Text("台北101")
+                    .foregroundStyle(.white)
+                Text("P1區域\u{2003}\u{2003}B2 · B1258")
+                    .foregroundStyle(infoGradient)
+                    .lineLimit(1)
+            }
+            .font(.system(size: 16))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .driving:
+            // speed left · road name center (larger) · time right
+            HStack(alignment: .firstTextBaseline) {
+                valueUnit("2", "km/h")
                 Spacer()
-
-                timerText(anchor, size: 24, color: .white)
+                Text("Sai Sha Rd 599")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                valueUnit("39", "mins")
             }
 
-            Spacer(minLength: 12)
+        case .stationary:
+            // destination label above distance · road center · time right
+            HStack(alignment: .bottom) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("目的地: 家")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.white.opacity(0.75))
+                    valueUnit("46.1", "km")
+                }
+                Spacer()
+                Text("Sai Sha Rd 599")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                valueUnit("39", "mins")
+            }
+        }
+    }
 
-            infoRow(state: state, dimmed: state == .stationary)
+    /// Bold number + smaller unit, e.g. "39 mins"
+    @ViewBuilder
+    private func valueUnit(_ value: String, _ unit: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 4) {
+            Text(value)
+                .font(.system(size: 17, weight: .bold))
+                .foregroundStyle(.white)
+            Text(unit)
+                .font(.system(size: 12.5, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.9))
         }
-        .padding(16)
-        .frame(width: 371, height: 100)
-        .background(
-            LinearGradient(colors: [Color(white: 0.17), Color(white: 0.11)], startPoint: .top, endPoint: .bottom),
-            in: RoundedRectangle(cornerRadius: 22, style: .continuous)
-        )
-        .overlay(alignment: .top) {
-            RoundedRectangle(cornerRadius: 1)
-                .fill(Color.white.opacity(0.08))
-                .frame(width: 359, height: 1.5)
-                .offset(y: 4)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
     }
 
     // MARK: - Shared components
@@ -193,51 +285,6 @@ struct LiveActivityPreviewTestView: View {
             .monospacedDigit()
             .foregroundStyle(color)
             .multilineTextAlignment(.trailing)
-    }
-
-    @ViewBuilder
-    private func infoRow(state: GorillaActivityState, dimmed: Bool) -> some View {
-        let infoColor: Color = dimmed ? .white.opacity(0.55) : .white.opacity(0.85)
-        switch state {
-        case .driving:
-            HStack {
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("2")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("km/h")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-                Spacer()
-                Text("Sai Sha Rd 599")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-                HStack(alignment: .firstTextBaseline, spacing: 3) {
-                    Text("39")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundStyle(.white)
-                    Text("mins")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.white.opacity(0.6))
-                }
-            }
-        default:
-            HStack(spacing: 12) {
-                Text("台北101")
-                    .foregroundStyle(infoColor)
-                Text("P1區域")
-                    .foregroundStyle(infoColor)
-                Text("B2")
-                    .foregroundStyle(infoColor)
-                Text("· B1258")
-                    .foregroundStyle(infoColor)
-            }
-            .font(.system(size: 13, weight: .medium))
-            .lineLimit(1)
-        }
     }
 
     // MARK: - Layout helpers

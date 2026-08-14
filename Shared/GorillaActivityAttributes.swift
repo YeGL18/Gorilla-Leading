@@ -48,9 +48,12 @@ struct GorillaActivityAttributes: ActivityAttributes {
         var area: String?       // P1區域
         var floor: String?      // B2
         var spot: String?       // B1258
-        // Driving context (開車中)
+        // Driving context (開車中) — road/eta also reused by 停留中
         var speedKmh: Int?      // 2
         var road: String?       // Sai Sha Rd 599
         var etaMinutes: Int?    // 39
+        // Stationary context (停留中)
+        var destinationName: String?  // 家
+        var distanceText: String?     // 46.1 km
     }
 }

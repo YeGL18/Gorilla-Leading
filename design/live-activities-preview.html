@@ -12,15 +12,14 @@
   --text: #F5F5F7;
   --muted: #8A8A8E;
   --line: rgba(255,255,255,.10);
-  --testing: #FFD60A;
-  --stationary: #46ADB8;
-  --driving: #0098FF;
+  --stationary: #FFD60A;   /* 停留中 yellow */
+  --parking: #46ADB8;      /* 泊車中 teal   */
+  --driving: #0098FF;      /* 開車中 blue   */
   --island: #000;
-  --glass-hi: rgba(255,255,255,.14);
-  --expanded-bg-top: #2C2C2E;
-  --expanded-bg-bot: #1C1C1E;
-  --dim-white: rgba(255,255,255,.55);
-  --info-white: rgba(255,255,255,.85);
+  --timer: #EAEAEA;
+  --pause-glyph: #1D1B20;  /* black pause bars on yellow tile */
+  --dim-white: rgba(255,255,255,.75);
+  --unit-white: rgba(255,255,255,.9);
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -86,7 +85,6 @@ section { margin-top: 72px; }
 .ic { width: 17px; height: 17px; flex: 0 0 auto; }
 .ic-sm { width: 14px; height: 14px; flex: 0 0 auto; }
 .ic-lg { width: 22px; height: 22px; flex: 0 0 auto; }
-.ic-xl { width: 20px; height: 20px; flex: 0 0 auto; }
 
 /* ============ COMPACT ============ */
 .island {
@@ -113,82 +111,68 @@ section { margin-top: 72px; }
   justify-content: center;
 }
 
-/* ============ EXPANDED ============ */
-.expanded {
-  width: 371px; height: 160px; border-radius: 44px;
-  background: linear-gradient(180deg, #2C2C2E, #1C1C1E);
+/* ============ EXPANDED + LOCK (shared card layout) ============ */
+.card-la {
+  width: 408px; height: 160px;
   position: relative; overflow: hidden;
-}
-.expanded::before {
-  content: ""; position: absolute; left: 8px; right: 8px; top: 4px; height: 1.5px; border-radius: 1px;
-  background: var(--glass-hi); z-index: 2;
-}
-.expanded .bg-img {
-  position: absolute; right: 0; top: 0; width: 163px; height: 160px;
-  opacity: 0.2; object-fit: cover; z-index: 0;
-}
-.expanded .content {
-  position: relative; z-index: 1;
   display: flex; flex-direction: column;
-  padding: 18px 20px; height: 100%;
+  padding: 20px 24px;
 }
-.expanded .top-row {
-  display: flex; justify-content: space-between; align-items: flex-start;
+.expanded {
+  border-radius: 44px;
+  background: #000;
 }
-.expanded .ttl {
-  display: flex; gap: 10px; align-items: center;
-}
-.expanded .ttl-icon {
-  width: 34px; height: 34px; border-radius: 9px;
-  display: flex; align-items: center; justify-content: center;
-}
-.expanded .ttl-text .name { font-size: 17px; font-weight: 600; line-height: 1.1; }
-.expanded .ttl-text .brand { font-size: 12px; color: #98989D; margin-top: 2px; }
-.expanded .big-timer {
-  font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
-  font-size: 30px; font-weight: 700;
-}
-.expanded .divider {
-  position: absolute; left: 20px; right: 20px; top: 96px; height: 1px;
-  background: rgba(255,255,255,.10); z-index: 1;
-}
-.expanded .bottom-row {
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 13px; color: #D1D1D6;
-  margin-top: auto; padding-bottom: 2px;
-}
-.expanded .bottom-row .left { display: flex; gap: 12px; }
-.expanded .bottom-row .right { color: var(--driving); }
-
-/* ============ LOCK SCREEN ============ */
+/* Liquid Glass — same content as Expanded, only the corner radius differs */
 .lock {
-  width: 371px; height: 100px; border-radius: 22px;
-  background: linear-gradient(180deg, #2C2C2E, #1C1C1E);
-  position: relative; overflow: hidden;
+  border-radius: 25px;
+  background: linear-gradient(180deg, rgba(255,255,255,.46), rgba(255,255,255,.30));
+  -webkit-backdrop-filter: blur(14px) saturate(1.3);
+  backdrop-filter: blur(14px) saturate(1.3);
+  border: 1px solid rgba(255,255,255,.5);
+  box-shadow: 0 16px 40px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.55);
 }
-.lock::before {
-  content: ""; position: absolute; left: 6px; right: 6px; top: 4px; height: 1.5px; border-radius: 1px;
-  background: var(--glass-hi); z-index: 2;
+.card-la .bg-img {
+  position: absolute; right: 0; top: 0; width: 163px; height: 160px;
+  object-fit: cover; z-index: 0; pointer-events: none;
 }
-.lock .bg-img {
-  position: absolute; right: 0; top: 0; width: 163px; height: 100px;
-  opacity: 0.2; object-fit: cover; z-index: 0;
+.expanded .bg-img { opacity: .14; }
+.lock .bg-img { opacity: .2; }
+.card-la .top-row {
+  position: relative; z-index: 1;
+  display: flex; justify-content: space-between; align-items: center;
 }
-.lock .content { position: relative; z-index: 1; padding: 16px; height: 100%; }
-.lock .app-icon {
-  position: absolute; left: 16px; top: 16px;
+.card-la .ttl { display: flex; gap: 10px; align-items: center; }
+.card-la .ttl-icon {
   width: 34px; height: 34px; border-radius: 9px;
   display: flex; align-items: center; justify-content: center;
 }
-.lock .t1 { position: absolute; left: 62px; top: 18px; font-size: 14px; font-weight: 600; }
-.lock .t2 { position: absolute; left: 62px; top: 38px; font-size: 12px; }
-.lock .timer {
-  position: absolute; right: 16px; top: 22px;
+.card-la .name { font-size: 21px; font-weight: 600; color: #fff; line-height: 1.1; }
+.card-la .big-timer {
   font-family: "SF Mono", "JetBrains Mono", ui-monospace, Menlo, monospace;
-  font-size: 22px; font-weight: 700;
+  font-size: 28px; font-weight: 700; color: var(--timer);
 }
-.lock .b1 { position: absolute; left: 16px; bottom: 14px; font-size: 12px; color: var(--muted); }
-.lock .b2 { position: absolute; right: 16px; bottom: 14px; font-size: 12px; color: var(--muted); font-family: "SF Mono", ui-monospace, Menlo, monospace; }
+.card-la .bottom-row {
+  position: relative; z-index: 1;
+  margin-top: auto;
+  display: flex; justify-content: space-between; align-items: flex-end;
+  font-size: 16px; color: #fff;
+}
+.card-la .bottom-row.park { justify-content: flex-start; gap: 30px; }
+.card-la .num { font-weight: 700; font-size: 17px; color: #fff; }
+.card-la .unit { font-style: normal; font-size: 12.5px; font-weight: 600; color: var(--unit-white); }
+/* road name sits slightly larger than the speed / time figures flanking it */
+.card-la .road { font-size: 18px; font-weight: 700; color: #fff; }
+.card-la .dest { font-size: 13px; color: var(--dim-white); margin-bottom: 2px; }
+.card-la .left-col { display: flex; flex-direction: column; }
+/* rainbow gradient info text — from look-screen 1.svg paint0_linear */
+.grad {
+  background: linear-gradient(90deg,
+    #BEBEBE 0%, #ED75FA 18%, #F62B6A 40%,
+    #F79B1C 58%, #03AAF6 76%, #DB7FFB 100%);
+  -webkit-background-clip: text; background-clip: text;
+  color: transparent;
+}
+.grad .sp { display: inline-block; width: 30px; }
 
 /* ============ TOKEN TABLE ============ */
 .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
@@ -212,8 +196,8 @@ footer .rule { height: 1px; background: var(--line); margin-bottom: 24px; }
     <h1>Gorilla Live Activities &amp; Dynamic Island</h1>
     <p class="sub">泊車記憶 companion — pixel-accurate design reference. Every dimension is in points, matched to the SVG source files.</p>
     <div class="chips">
-      <span class="chip"><span class="sw" style="background:var(--testing)"></span>測試中 Testing</span>
       <span class="chip"><span class="sw" style="background:var(--stationary)"></span>停留中 Stationary</span>
+      <span class="chip"><span class="sw" style="background:var(--parking)"></span>泊車中 Parking</span>
       <span class="chip"><span class="sw" style="background:var(--driving)"></span>開車中 Driving</span>
     </div>
   </header>
@@ -234,15 +218,15 @@ footer .rule { height: 1px; background: var(--line); margin-bottom: 24px; }
 
   <!-- ================= EXPANDED ================= -->
   <section>
-    <div class="sec-head"><h2>Dynamic Island — Expanded</h2><span class="dim mono">371 × 160 pt · r44</span></div>
-    <p class="sec-desc">Long-press reveal. Four regions with a Liquid Glass gradient and specular highlight.</p>
+    <div class="sec-head"><h2>Dynamic Island — Expanded</h2><span class="dim mono">408 × 160 pt · r44</span></div>
+    <p class="sec-desc">Long-press reveal on a pure-black canvas with the gorilla watermark at 14% opacity. No dividers — one continuous surface.</p>
     <div class="stage" id="stage-expanded"></div>
   </section>
 
   <!-- ================= LOCK SCREEN ================= -->
   <section>
-    <div class="sec-head"><h2>Lock Screen — Live Activity</h2><span class="dim mono">371 × 100 pt · r22</span></div>
-    <p class="sec-desc">The richest presentation on the Lock Screen: app icon, title, live state, timer, and parking context.</p>
+    <div class="sec-head"><h2>Lock Screen — Live Activity</h2><span class="dim mono">408 × 160 pt · r25 · Liquid Glass</span></div>
+    <p class="sec-desc">Identical layout to Expanded — only the corner radius changes (r25 vs r44). The body is Liquid Glass: blurred, translucent, never black. Watermark at 20%.</p>
     <div class="stage" id="stage-lock"></div>
   </section>
 
@@ -254,31 +238,45 @@ footer .rule { height: 1px; background: var(--line); margin-bottom: 24px; }
         <h3>Geometry (pt)</h3>
         <table>
           <tr><td class="k">Compact pill</td><td class="v">230 × 37 · capsule</td></tr>
-          <tr><td class="k">Compact (Pro Max)</td><td class="v">250 × 37</td></tr>
           <tr><td class="k">Minimal flag</td><td class="v">45 × 37</td></tr>
-          <tr><td class="k">Expanded</td><td class="v">371 × 160 · r44</td></tr>
-          <tr><td class="k">Lock Screen card</td><td class="v">371 × 100 · r22</td></tr>
-          <tr><td class="k">Expanded inner pad</td><td class="v">16–20</td></tr>
-          <tr><td class="k">Lock screen margin</td><td class="v">14</td></tr>
+          <tr><td class="k">Expanded</td><td class="v">408 × 160 · r44</td></tr>
+          <tr><td class="k">Lock Screen card</td><td class="v">408 × 160 · r25</td></tr>
+          <tr><td class="k">Gorilla watermark</td><td class="v">163 × 160 right · op .14 / .20</td></tr>
+          <tr><td class="k">Title tile</td><td class="v">34 × 34 · r9</td></tr>
+          <tr><td class="k">Card inner pad</td><td class="v">20–24</td></tr>
         </table>
       </div>
       <div class="card">
         <h3>State colors</h3>
         <table>
-          <tr><td class="k"><span class="swatch" style="background:#FFD60A"></span>Testing 測試中</td><td class="v">#FFD60A</td></tr>
-          <tr><td class="k"><span class="swatch" style="background:#46ADB8"></span>Stationary 停留中</td><td class="v">#46ADB8</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#FFD60A"></span>Stationary 停留中</td><td class="v">#FFD60A</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#46ADB8"></span>Parking 泊車中</td><td class="v">#46ADB8</td></tr>
           <tr><td class="k"><span class="swatch" style="background:#0098FF"></span>Driving 開車中</td><td class="v">#0098FF</td></tr>
-          <tr><td class="k"><span class="swatch" style="background:#000;border:1px solid var(--line)"></span>Island body</td><td class="v">#000000</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#000;border:1px solid var(--line)"></span>Island / Expanded body</td><td class="v">#000000</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#1D1B20"></span>Pause glyph on yellow</td><td class="v">#1D1B20</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#EAEAEA"></span>Big timer</td><td class="v">#EAEAEA</td></tr>
+        </table>
+      </div>
+      <div class="card">
+        <h3>Info gradient (P1區域 B2 · B1258)</h3>
+        <table>
+          <tr><td class="k"><span class="swatch" style="background:#BEBEBE"></span>0–30%</td><td class="v">#BEBEBE</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#ED75FA"></span>45%</td><td class="v">#ED75FA</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#F62B6A"></span>60%</td><td class="v">#F62B6A</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#F79B1C"></span>75%</td><td class="v">#F79B1C</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#03AAF6"></span>90%</td><td class="v">#03AAF6</td></tr>
+          <tr><td class="k"><span class="swatch" style="background:#DB7FFB"></span>100%</td><td class="v">#DB7FFB</td></tr>
         </table>
       </div>
       <div class="card">
         <h3>Typography</h3>
         <table>
-          <tr><td class="k">Compact label</td><td class="v">13 · Medium</td></tr>
-          <tr><td class="k">Compact timer</td><td class="v">14 · Mono Bold</td></tr>
-          <tr><td class="k">Expanded title</td><td class="v">17 · Semibold</td></tr>
-          <tr><td class="k">Expanded timer</td><td class="v">30 · Mono Bold</td></tr>
-          <tr><td class="k">Lock title / timer</td><td class="v">14 / 22</td></tr>
+          <tr><td class="k">Compact label / timer</td><td class="v">13 Medium / 14 Mono Bold</td></tr>
+          <tr><td class="k">Expanded title</td><td class="v">21 · Semibold</td></tr>
+          <tr><td class="k">Expanded timer</td><td class="v">28 · Mono Bold · #EAEAEA</td></tr>
+          <tr><td class="k">Bottom info / units</td><td class="v">16 / 12.5</td></tr>
+          <tr><td class="k">Road name / numbers</td><td class="v">18 / 17 · Bold</td></tr>
+          <tr><td class="k">Destination label</td><td class="v">13 · 75% white</td></tr>
           <tr><td class="k">Digits</td><td class="v">monospacedDigit()</td></tr>
         </table>
       </div>
@@ -287,14 +285,14 @@ footer .rule { height: 1px; background: var(--line); margin-bottom: 24px; }
 
   <footer>
     <div class="rule"></div>
-    Built to match the SVG source files in <span class="mono">design/</span>. All dimensions and colors are exact.
+    Built to match the SVG source files in <span class="mono">design/</span> (di-compact 2.svg · di-expanded 1.svg · look-screen 1.svg) and the gorilla watermark <span class="mono">gorilla-watermark.png</span>.
   </footer>
 </div>
 
 <script>
 // ============ ICON SVGs (exact from SVG designs) ============
 
-// Pause icon (yellow) — two vertical bars, from di-compact 2.svg
+// Pause bars — yellow on black (compact / minimal)
 function pauseIcon(color) {
   return `<svg class="ic" viewBox="0 0 24 24" fill="${color}">
     <rect x="8" y="5" width="5" height="14" rx="1"/>
@@ -302,7 +300,7 @@ function pauseIcon(color) {
   </svg>`;
 }
 
-// P icon (parking) — rounded rect with white stroke, "P" letter inside
+// P icon (parking) — teal outline rounded square + teal P
 function parkIcon(color) {
   return `<svg class="ic" viewBox="0 0 24 24" fill="none">
     <rect x="3" y="3" width="18" height="18" rx="5" stroke="${color}" stroke-width="3"/>
@@ -310,7 +308,7 @@ function parkIcon(color) {
   </svg>`;
 }
 
-// Car icon (driving)
+// Car icon (driving) — blue body, grey wheels
 function carIcon(color) {
   return `<svg class="ic" viewBox="0 0 24 24">
     <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#292828" stroke-width="0.5"/>
@@ -319,48 +317,23 @@ function carIcon(color) {
   </svg>`;
 }
 
-// P icon for app icon (white version, on colored background)
-function parkIconWhite() {
-  return `<svg class="ic-xl" viewBox="0 0 24 24" fill="none">
-    <rect x="3" y="3" width="18" height="18" rx="5" stroke="white" stroke-width="3"/>
-    <text x="12" y="16.5" font-size="12" font-weight="700" fill="white" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
-  </svg>`;
-}
-
-// Car icon white for app icon
-function carIconWhite() {
-  return `<svg class="ic-xl" viewBox="0 0 24 24">
-    <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
-    <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
-    <path d="M5.5 11.5H20.5L18.5 6.5C18.2 5.8 17.5 5.5 16.8 5.5H9.2C8.5 5.5 7.8 5.8 7.5 6.5L5.5 11.5Z" fill="white" stroke="#C6C6C6" stroke-width="2"/>
-  </svg>`;
-}
-
-// Pause icon white for app icon
-function pauseIconWhite() {
-  return `<svg class="ic-xl" viewBox="0 0 24 24" fill="white">
-    <rect x="8" y="5" width="5" height="14" rx="1"/>
-    <rect x="15" y="5" width="5" height="14" rx="1"/>
-  </svg>`;
-}
-
-// ============ EXPANDED ICON (larger, for expanded view) ============
-function expandedIcon(state) {
-  if (state.color === '#FFD60A') {
-    // Pause icon — yellow bars
-    return `<svg class="ic-lg" viewBox="0 0 24 24" fill="white">
+// ============ EXPANDED / LOCK title-tile icons (22pt in 34pt tile) ============
+function tileIcon(st) {
+  if (st.icon === 'pause') {
+    // yellow tile + BLACK pause bars
+    return `<svg class="ic-lg" viewBox="0 0 24 24" fill="#1D1B20">
       <rect x="8" y="5" width="5" height="14" rx="1"/>
       <rect x="15" y="5" width="5" height="14" rx="1"/>
     </svg>`;
   }
-  if (state.color === '#46ADB8') {
-    // P icon — teal
+  if (st.icon === 'park') {
+    // outline teal square + teal P (no tile fill)
     return `<svg class="ic-lg" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="3" width="18" height="18" rx="5" stroke="white" stroke-width="3"/>
-      <text x="12" y="16.5" font-size="12" font-weight="700" fill="white" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
+      <rect x="3" y="3" width="18" height="18" rx="5" stroke="#46ADB8" stroke-width="3"/>
+      <text x="12" y="16.5" font-size="12" font-weight="700" fill="#46ADB8" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
     </svg>`;
   }
-  // Car icon — blue
+  // blue tile + white car
   return `<svg class="ic-lg" viewBox="0 0 24 24">
     <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
     <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="white" stroke-width="0.5"/>
@@ -368,49 +341,21 @@ function expandedIcon(state) {
   </svg>`;
 }
 
-// ============ MINIMAL ICON (slightly smaller) ============
-function minimalIcon(state) {
-  if (state.color === '#FFD60A') {
-    return `<svg class="ic-sm" viewBox="0 0 24 24" fill="${state.color}">
-      <rect x="8" y="5" width="5" height="14" rx="1"/>
-      <rect x="15" y="5" width="5" height="14" rx="1"/>
-    </svg>`;
-  }
-  if (state.color === '#46ADB8') {
-    return `<svg class="ic-sm" viewBox="0 0 24 24" fill="none">
-      <rect x="3" y="3" width="18" height="18" rx="5" stroke="${state.color}" stroke-width="3"/>
-      <text x="12" y="16.5" font-size="12" font-weight="700" fill="${state.color}" stroke="none" text-anchor="middle" font-family="-apple-system,sans-serif">P</text>
-    </svg>`;
-  }
-  return `<svg class="ic-sm" viewBox="0 0 24 24">
-    <circle cx="8.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#414141" stroke-width="0.5"/>
-    <circle cx="17.5" cy="18" r="2.2" fill="#C6C6C6" stroke="#414141" stroke-width="0.5"/>
-    <path d="M5.5 11.5H20.5L18.5 6.5C18.2 5.8 17.5 5.5 16.8 5.5H9.2C8.5 5.5 7.8 5.8 7.5 6.5L5.5 11.5Z" fill="${state.color}" stroke="#C6C6C6" stroke-width="2"/>
-  </svg>`;
-}
-
-// ============ APP ICON SVG (for lock screen) ============
-function appIconSVG(state) {
-  if (state.color === '#FFD60A') {
-    return pauseIconWhite();
-  }
-  if (state.color === '#46ADB8') {
-    return parkIconWhite();
-  }
-  return carIconWhite();
+// ============ MINIMAL ICON ============
+function minimalIcon(st) {
+  if (st.icon === 'pause') return pauseIcon(st.color).replace('class="ic"', 'class="ic-sm"');
+  if (st.icon === 'park')  return parkIcon(st.color).replace('class="ic"', 'class="ic-sm"');
+  return carIcon(st.color).replace('class="ic"', 'class="ic-sm"');
 }
 
 // ============ STATE DEFINITIONS ============
-// Three states matching the SVG designs
 const STATES = [
-  { zh: '停車中', en: 'Stationary', color: '#FFD60A', hex: '#FFD60A', icon: 'pause' },
-  { zh: '泊車中', en: 'Parking',   color: '#46ADB8', hex: '#46ADB8', icon: 'park' },
-  { zh: '開車中', en: 'Driving',   color: '#0098FF', hex: '#0098FF', icon: 'car' },
+  { zh: '停留中', en: 'Stationary', color: '#FFD60A', icon: 'pause', timer: '3:45' },
+  { zh: '泊車中', en: 'Parking',   color: '#46ADB8', icon: 'park',  timer: '11:23:45' },
+  { zh: '開車中', en: 'Driving',   color: '#0098FF', icon: 'car',   timer: '01:23:45' },
 ];
 
-// ============ RENDER FUNCTIONS ============
-
-// Compact row
+// ============ RENDER: COMPACT / MINIMAL ============
 function compactRow(st) {
   const iconFn = st.icon === 'pause' ? pauseIcon : (st.icon === 'park' ? parkIcon : carIcon);
   return `<div style="display:flex;flex-direction:column;gap:8px;align-items:flex-start">
@@ -422,7 +367,6 @@ function compactRow(st) {
   </div>`;
 }
 
-// Minimal row
 function minimalRow(st) {
   return `<div style="display:flex;flex-direction:column;gap:8px;align-items:center">
     <div class="island minimal">${minimalIcon(st)}</div>
@@ -430,85 +374,67 @@ function minimalRow(st) {
   </div>`;
 }
 
-// Expanded row
-function expandedRow(st) {
-  const bgImg = st.icon === 'car'
-    ? `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, rgba(0,152,255,0.4), transparent 70%)"></div>`
-    : `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, ${st.color === '#FFD60A' ? 'rgba(255,214,10,0.3)' : 'rgba(70,173,184,0.3)'}, transparent 70%)"></div>`;
-
-  let bottomHTML = '';
-  if (st.icon === 'car') {
-    bottomHTML = `<div class="left"><span>Sai Sha Rd 599</span></div>
-      <div class="right mono" style="color:${st.color}">
-        <span style="color:white;font-weight:bold;">2</span> <span style="color:${st.color};font-size:11px">km/h</span>
-        &nbsp;&nbsp;
-        <span style="color:white;font-weight:bold;">39</span> <span style="color:${st.color};font-size:11px">mins</span>
-      </div>`;
-  } else {
-    bottomHTML = `<div class="left">
-      <span>台北101</span><span>P1區域</span><span>B2</span><span>· B1258</span>
+// ============ RENDER: EXPANDED / LOCK (shared layout) ============
+function bottomRow(st) {
+  if (st.icon === 'park') {
+    // 台北101 white · rainbow-gradient info, left aligned with 30pt gaps
+    return `<div class="bottom-row park">
+      <span>台北101</span>
+      <span class="grad">P1區域<span class="sp"></span>B2 · B1258</span>
     </div>`;
   }
-
-  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
-    <div class="expanded">
-      ${bgImg}
-      <div class="content" style="position:relative;z-index:1">
-        <div class="top-row">
-          <div class="ttl">
-            <div class="ttl-icon" style="background:${st.color}">${expandedIcon(st)}</div>
-            <div class="ttl-text">
-              <div class="name">${st.zh}</div>
-              <div class="brand">Gorilla</div>
-            </div>
-          </div>
-          <div class="big-timer" style="color:${st.color}">01:23:45</div>
-        </div>
-        <div class="divider"></div>
-        <div class="bottom-row">${bottomHTML}</div>
-      </div>
-    </div>
-    <span class="row-label mono">Expanded — ${st.zh} ${st.en} · 371×160 r44</span>
-  </div>`;
-}
-
-// Lock screen row
-function lockRow(st) {
-  const bgImg = st.icon === 'car'
-    ? `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, rgba(0,152,255,0.4), transparent 70%)"></div>`
-    : `<div class="bg-img" style="background:radial-gradient(ellipse at 70% 50%, ${st.color === '#FFD60A' ? 'rgba(255,214,10,0.3)' : 'rgba(70,173,184,0.3)'}, transparent 70%)"></div>`;
-
-  let bottomLeft = '';
-  let bottomRight = '';
   if (st.icon === 'car') {
-    bottomLeft = 'Sai Sha Rd 599';
-    bottomRight = '2 km/h · 39 mins';
-  } else {
-    bottomLeft = '台北101 停車場 B2';
-    bottomRight = '入場 14:05';
+    // speed left · road name center (larger) · time right
+    return `<div class="bottom-row">
+      <span><span class="num">2</span> <span class="unit">km/h</span></span>
+      <span class="road">Sai Sha Rd 599</span>
+      <span><span class="num">39</span> <span class="unit">mins</span></span>
+    </div>`;
   }
-
-  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
-    <div class="lock">
-      ${bgImg}
-      <div class="content" style="position:relative;z-index:1">
-        <div class="app-icon" style="background:${st.color}">${appIconSVG(st)}</div>
-        <div class="t1">Gorilla 泊車記憶</div>
-        <div class="t2" style="color:${st.color}">${st.zh}</div>
-        <div class="timer">01:23:45</div>
-        <div class="b1">${bottomLeft}</div>
-        <div class="b2">${bottomRight}</div>
-      </div>
-    </div>
-    <span class="row-label mono">Lock Screen — ${st.zh} ${st.en} · 371×100 r22</span>
+  // stationary: destination label above the distance, road center, time right
+  return `<div class="bottom-row">
+    <span class="left-col"><span class="dest">目的地: 家</span><span><span class="num">46.1</span> <span class="unit">km</span></span></span>
+    <span class="road">Sai Sha Rd 599</span>
+    <span><span class="num">39</span> <span class="unit">mins</span></span>
   </div>`;
 }
 
-// Render all
+function cardLA(st, mode) {
+  const tileBg = st.icon === 'pause' ? '#FFD60A' : (st.icon === 'car' ? '#0098FF' : 'transparent');
+  return `<div class="card-la ${mode}">
+    <img class="bg-img" src="gorilla-watermark.png" alt="">
+    <div class="top-row">
+      <div class="ttl">
+        <div class="ttl-icon" style="background:${tileBg}">${tileIcon(st)}</div>
+        <div class="name">${st.zh}</div>
+      </div>
+      <div class="big-timer">${st.timer}</div>
+    </div>
+    ${bottomRow(st)}
+  </div>`;
+}
+
+function expandedRow(st) {
+  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+    ${cardLA(st, 'expanded')}
+    <span class="row-label mono">Expanded — ${st.zh} ${st.en} · 408×160 r44</span>
+  </div>`;
+}
+
+function lockRow(st) {
+  return `<div style="display:flex;flex-direction:column;gap:10px;align-items:flex-start">
+    ${cardLA(st, 'lock')}
+    <span class="row-label mono">Lock Screen — ${st.zh} ${st.en} · 408×160 r25 · Liquid Glass</span>
+  </div>`;
+}
+
+// ============ RENDER ALL ============
+// Figma board order: expanded/lock show Parking → Driving → Stationary
+const boardOrder = [STATES[1], STATES[2], STATES[0]];
 document.getElementById('stage-compact').innerHTML = STATES.map(compactRow).join('');
 document.getElementById('stage-minimal').innerHTML = STATES.map(minimalRow).join('');
-document.getElementById('stage-expanded').innerHTML = STATES.map(expandedRow).join('');
-document.getElementById('stage-lock').innerHTML = STATES.map(lockRow).join('');
+document.getElementById('stage-expanded').innerHTML = boardOrder.map(expandedRow).join('');
+document.getElementById('stage-lock').innerHTML = boardOrder.map(lockRow).join('');
 </script>
 </body>
 </html>
