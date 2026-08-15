@@ -31,11 +31,11 @@ final class SFXPlayer: ObservableObject {
     }
     
     func playEnterStationary() {
-        playOnce(&stationaryPlayer, fallbackName: "sfx_enter_stationary")
+        playOnce(&stationaryPlayer, fallbackName: "sfx_enter_stationary", volumeMultiplier: 1.5)
     }
-    
+
     func playEnterDriving() {
-        playOnce(&drivingPlayer, fallbackName: "sfx_enter_driving")
+        playOnce(&drivingPlayer, fallbackName: "sfx_enter_driving", volumeMultiplier: 1.5)
     }
     
     func playAccelerationBurst(burstDuration: TimeInterval = 2.4, fadeInDuration: TimeInterval = 0.5, fadeOutDuration: TimeInterval = 0.9) {
@@ -125,15 +125,16 @@ final class SFXPlayer: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + burstDuration, execute: stopWork)
     }
     
-    private func playOnce(_ player: inout AVAudioPlayer?, fallbackName: String) {
+    private func playOnce(_ player: inout AVAudioPlayer?, fallbackName: String, volumeMultiplier: Float = 1.0) {
         configureAudioSession()
+        let vol = baseVolume * volumeMultiplier
         if player == nil {
-            player = loadPlayer(name: fallbackName, volume: baseVolume)
+            player = loadPlayer(name: fallbackName, volume: vol)
         }
         guard let p = player else { return }
         p.stop()
         p.currentTime = 0
-        p.volume = baseVolume
+        p.volume = vol
         p.prepareToPlay()
         p.play()
     }
