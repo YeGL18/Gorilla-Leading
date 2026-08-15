@@ -49,6 +49,9 @@ struct DotMatrixView: View {
 
 struct DotMatrixWebView: UIViewRepresentable {
     @Binding var speed: Double
+    /// canvas 嘅 CSS 縮放。時速頁傳 1.0（靠超大 canvas＋更多圓點鋪滿，
+    /// 唔放大圓點）；demo 頁維持原本嘅 1.15。
+    var canvasScale: CGFloat = 1.15
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -87,7 +90,7 @@ struct DotMatrixWebView: UIViewRepresentable {
         *{margin:0;padding:0;box-sizing:border-box}
         body{background:transparent;overflow:hidden;height:100%;margin:0}
         html{height:100%;margin:0}
-        canvas{position:absolute;top:0;left:0;width:100%;height:100%;transform:scale(1.15);transform-origin:center center}
+        canvas{position:absolute;top:0;left:0;width:100%;height:100%;transform:scale(\(canvasScale));transform-origin:center center}
         #blur{filter:blur(3px);pointer-events:none}
         </style>
         </head>
@@ -98,9 +101,9 @@ struct DotMatrixWebView: UIViewRepresentable {
         var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
         var blurCanvas=document.getElementById('blur'),bCtx=blurCanvas.getContext('2d');
         var dots=[],cx,cy,mr,target=0,display=0,raf=null,lastTs=0,accumPhase=0;
+        var dpr=Math.min(2,window.devicePixelRatio||1);
 
         function resize(){
-            var dpr=window.devicePixelRatio||1;
             canvas.width=canvas.clientWidth*dpr;canvas.height=canvas.clientHeight*dpr;
             blurCanvas.width=canvas.width;blurCanvas.height=canvas.height;
             cx=canvas.clientWidth/2;cy=canvas.clientHeight/2;mr=Math.sqrt(cx*cx+cy*cy);gen();
@@ -144,7 +147,7 @@ struct DotMatrixWebView: UIViewRepresentable {
         }
 
         function draw(ts){
-            var dpr=window.devicePixelRatio||1,s=display,norm=s/240;
+            var s=display,norm=s/240;
             ctx.clearRect(0,0,canvas.width,canvas.height);
             ctx.save();ctx.scale(dpr,dpr);
             ctx.globalCompositeOperation='screen';

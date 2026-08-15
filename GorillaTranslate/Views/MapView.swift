@@ -91,11 +91,12 @@ struct MapView: UIViewRepresentable {
         mapView.delegate = context.coordinator
         context.coordinator.mapView = mapView
 
-        // 默认定位到香港，避免首次打开闪 San Jose
-        let hongKong = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
+        // 預設定位到用戶所在城市；GPS 未就緒時退回香港，避免閃 San Jose
+        let fallbackHK = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
+        let center = locationManager.manager.location?.coordinate ?? fallbackHK
         mapView.allowCameraChange = true
         let camera = MKMapCamera()
-        camera.centerCoordinate = hongKong
+        camera.centerCoordinate = center
         camera.centerCoordinateDistance = 50000
         mapView.setCamera(camera, animated: false)
         mapView.allowCameraChange = false
