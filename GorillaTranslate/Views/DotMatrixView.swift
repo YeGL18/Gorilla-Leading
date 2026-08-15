@@ -61,8 +61,19 @@ struct DotMatrixWebView: UIViewRepresentable {
         return webView
     }
 
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
     func updateUIView(_ webView: WKWebView, context: Context) {
-        webView.evaluateJavaScript("target=\(Int(speed))")
+        // SwiftUI re-renders this view many times per second (tilt parallax,
+        // speed changes…) — only push a new target into JS when it changed.
+        let target = Int(speed)
+        guard context.coordinator.lastSentTarget != target else { return }
+        context.coordinator.lastSentTarget = target
+        webView.evaluateJavaScript("target=\(target)")
+    }
+
+    final class Coordinator {
+        var lastSentTarget: Int?
     }
 
     private var htmlContent: String {
