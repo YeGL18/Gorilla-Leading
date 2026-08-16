@@ -250,6 +250,7 @@ struct ContentView: View {
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
 
     // Trip Predictor UI state
+    @State private var showDemoAnimation = false
     @State private var showingTripConfirm = false
     @State private var tripConfirmPrediction: PendingTripPrediction? = nil
     @State private var tripToastPrediction: PendingTripPrediction? = nil
@@ -317,6 +318,7 @@ struct ContentView: View {
     }
 
     var body: some View {
+        ZStack {
         TabView(selection: $selectedTab) {
             SpeedView(showMap: showMap && !focusActive, animationClock: animationClock, mapCamera: $mapCamera, focusMode: $focusMode, focusFrameRate: $focusFrameRate, onEnterFocus: enterFocusMode, onExitFocus: exitFocusMode)
                 .environment(\.colorScheme, effectiveColorScheme)
@@ -521,8 +523,28 @@ struct ContentView: View {
                 showDeleteButton = false
             }
         }
+
+        // MARK: - Demo Animation Overlay
+        if showDemoAnimation {
+            ZStack {
+                Color.black.opacity(0.85)
+                    .ignoresSafeArea()
+                LaunchAnimationView(
+                    isDemoMode: true,
+                    onFadeOutStart: {},
+                    onFinish: {
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            showDemoAnimation = false
+                        }
+                    }
+                )
+            }
+            .transition(.opacity)
+            .zIndex(100)
+        }
+        } // ZStack
     }
-    
+
     // MARK: - Home Content
     var homeContent: some View {
         GeometryReader { geo in
@@ -604,9 +626,45 @@ struct ContentView: View {
             ZStack {
                 VStack(spacing: 0) {
                     HStack(alignment: .center) {
-                        Text("🦍 Gorilla")
-                            .font(.largeTitle.bold())
-                            .foregroundStyle(adaptiveTextColor())
+                        // 液態玻璃標題
+                        let titleText = Text("🦍 Gorilla").font(.largeTitle.bold())
+                        ZStack {
+                            // 玻璃材料
+                            Color.white.opacity(0.01)
+                                .frame(width: 220, height: 50)
+                                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+                                .mask(titleText)
+
+                            // 頂部高光邊緣
+                            titleText
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.white.opacity(0.7), .clear],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                                .blendMode(.overlay)
+                                .opacity(0.6)
+
+                            // 左上斜角高光
+                            titleText
+                                .foregroundStyle(
+                                    LinearGradient(
+                                        colors: [.white.opacity(0.5), .clear, .white.opacity(0.2)],
+                                        startPoint: .topLeading,
+                                        endPoint: .bottomTrailing
+                                    )
+                                )
+                                .blendMode(.screen)
+                                .opacity(0.4)
+                        }
+                        .compositingGroup()
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.5)) {
+                                showDemoAnimation = true
+                            }
+                        }
                         Spacer()
                         gpsStatusBadge
                     }
