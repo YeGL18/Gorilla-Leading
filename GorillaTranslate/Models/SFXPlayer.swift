@@ -38,6 +38,27 @@ final class SFXPlayer: ObservableObject {
         playOnce(&drivingPlayer, fallbackName: "sfx_enter_driving", volumeMultiplier: 1.5)
     }
     
+    private static var launchPlayer: AVAudioPlayer?
+
+    func playLaunchSound() {
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .default, options: [])
+        try? session.setActive(true, options: [])
+        if let url = resolveURL(name: "gorilla_launch") {
+            let p = try? AVAudioPlayer(contentsOf: url)
+            p?.delegate = nil
+            p?.volume = baseVolume
+            p?.prepareToPlay()
+            p?.play()
+            SFXPlayer.launchPlayer = p // 防止被回收
+            // 播放完畢後恢復 ambient session
+            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                SFXPlayer.launchPlayer = nil
+                self.configureAudioSession()
+            }
+        }
+    }
+
     func playAccelerationBurst(burstDuration: TimeInterval = 2.4, fadeInDuration: TimeInterval = 0.5, fadeOutDuration: TimeInterval = 0.9) {
         guard burstDuration > 0 else { return }
         configureAudioSession()

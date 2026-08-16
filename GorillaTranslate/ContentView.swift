@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import UserNotifications
 import FoundationModels
 import Speech
 import Accelerate
@@ -480,6 +481,14 @@ struct ContentView: View {
             }
         }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
+            // 泊車狀態推送通知
+            let content = UNMutableNotificationContent()
+            content.title = "Gorilla 泊車記憶"
+            content.body = expanded ? "泊車記憶已開啟" : "泊車記憶已退出"
+            content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
+            let req = UNNotificationRequest(identifier: "parking-\(UUID().uuidString)", content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+
             if expanded {
                 isCameraActive = true
                 cameraFadeOpacity = 0
