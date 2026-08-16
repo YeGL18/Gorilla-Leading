@@ -21,34 +21,57 @@ struct GorillaTranslateApp: App {
     @StateObject private var locationManager = LocationManager()
     @StateObject private var parkingFloorStore = ParkingFloorStore.shared
     @State private var bootstrapped = false
+    @State private var showSplash = true
+    @State private var splashDone = false
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(destinationManager)
-                .environmentObject(locationManager)
-                .environmentObject(parkingFloorStore)
-                .onAppear {
-                    guard !bootstrapped else { return }
-                    bootstrapped = true
+            ZStack {
+                ContentView()
+                    .environmentObject(destinationManager)
+                    .environmentObject(locationManager)
+                    .environmentObject(parkingFloorStore)
+                    .blur(radius: splashDone ? 0 : 30)
+                    .opacity(splashDone ? 1 : 0.6)
+                    .animation(.easeOut(duration: 1.5), value: splashDone)
+                    .onAppear {
+                        guard !bootstrapped else { return }
+                        bootstrapped = true
 
-                    // 通知權限 + 前台 delegate
-                    let center = UNUserNotificationCenter.current()
-                    center.delegate = appDelegate
-                    center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+                        // 通知權限 + 前台 delegate
+                        let center = UNUserNotificationCenter.current()
+                        center.delegate = appDelegate
+                        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
 
-                    Task { @MainActor in
-                    // 啟動音效（延遲確保音頻系統就緒）
-                    try? await Task.sleep(nanoseconds: 300_000_000)
-                    SFXPlayer().playLaunchSound()
-                        try? await Task.sleep(nanoseconds: 50_000_000)
-                        parkingFloorStore.prepare()
-                        try? await Task.sleep(nanoseconds: 50_000_000)
-                        destinationManager.prepare()
-                        try? await Task.sleep(nanoseconds: 50_000_000)
-                        TripPredictor.shared.prepare()
+                        Task { @MainActor in
+                            // 啟動音效（延遲確保音頻系統就緒）
+                            try? await Task.sleep(nanoseconds: 300_000_000)
+                            SFXPlayer().playLaunchSound()
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                            parkingFloorStore.prepare()
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                            destinationManager.prepare()
+                            try? await Task.sleep(nanoseconds: 50_000_000)
+                            TripPredictor.shared.prepare()
+                        }
                     }
-                }
+
+                LaunchAnimationView(
+                    onFadeOutStart: {
+                        // 大猩猩開始淡出時，背景模糊同步漸降到 0
+                        splashDone = true
+                    },
+                    onFinish: {
+                        // 圖標淡出完成 → splash 漸隱
+                        withAnimation(.easeOut(duration: 0.8)) {
+                            showSplash = false
+                        }
+                    }
+                )
+                .opacity(showSplash ? 1 : 0)
+                .zIndex(1)
+                .allowsHitTesting(showSplash)
+            }
         }
     }
 }

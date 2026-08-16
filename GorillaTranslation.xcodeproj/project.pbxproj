@@ -46,6 +46,8 @@
 		F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */; };
 		F3A0C008B2C3D4E5F6071829 /* TripPredictor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */; };
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
+		P10005 /* MetaballEffect.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10004 /* MetaballEffect.metal */; };
+		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
 		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
 		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
 /* End PBXBuildFile section */
@@ -108,6 +110,8 @@
 		F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassCapsuleDemo.swift; sourceTree = "<group>"; };
 		F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TripPredictor.swift; sourceTree = "<group>"; };
 		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
+		P10004 /* MetaballEffect.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = MetaballEffect.metal; sourceTree = "<group>"; };
+		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
 		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
 		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -221,6 +225,7 @@
 				B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */,
 				F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */,
 				F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */,
+				P10006 /* LaunchAnimationView.swift */,
 				LA20003 /* LiveActivityPreviewTestView.swift */,
 			);
 			path = Views;
@@ -292,6 +297,7 @@
 			isa = PBXGroup;
 			children = (
 				P10001 /* Pixelate.metal */,
+				P10004 /* MetaballEffect.metal */,
 			);
 			path = Shaders;
 			sourceTree = "<group>";
@@ -443,6 +449,8 @@
 				F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */,
 				F3A0C008B2C3D4E5F6071829 /* TripPredictor.swift in Sources */,
 				P10002 /* Pixelate.metal in Sources */,
+				P10005 /* MetaballEffect.metal in Sources */,
+				P10007 /* LaunchAnimationView.swift in Sources */,
 				LA10002 /* GorillaActivityManager.swift in Sources */,
 				LA10003 /* LiveActivityPreviewTestView.swift in Sources */,
 			);
