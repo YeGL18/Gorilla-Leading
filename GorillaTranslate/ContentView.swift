@@ -526,8 +526,9 @@ struct ContentView: View {
 
         // MARK: - Demo Animation Overlay
         if showDemoAnimation {
+            let overlayColor: Color = colorScheme == .dark ? .black : .white
             ZStack {
-                Color.black.opacity(0.85)
+                overlayColor.opacity(0.85)
                     .ignoresSafeArea()
                 LaunchAnimationView(
                     isDemoMode: true,
@@ -1642,11 +1643,11 @@ struct ContentView: View {
                         Text("\(visitStatus):")
                             .font(.body.bold())
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                        Text(hasDeparted ? (visitStatus == "已停留" ? formatStationaryDuration() : formatDepartureDuration()) : formatCapsuleDuration())
+                        Text(hasDeparted ? (visitStatus == "已停留" ? formatStationaryDuration() : formatDepartureDuration()) : formatParkingElapsed())
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                             .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.15), value: hasDeparted ? (visitStatus == "已停留" ? stationaryElapsed : departureElapsed) : capsuleDuration)
+                            .animation(.easeInOut(duration: 0.15), value: hasDeparted ? (visitStatus == "已停留" ? stationaryElapsed : departureElapsed) : parkingElapsed)
                     }
                     if let secondary = visitSecondaryStatus {
                         Text(secondary)
@@ -1859,8 +1860,6 @@ struct ContentView: View {
                                 isParkingMemoryExpanded = false
                                 orbOpacity = 1.0
                                 capsuleOnRight = false
-                                timeAdjustAccumulated = 0
-                                timeAdjustText = nil
                                 showingExpandedPhotos = false
                                 selectedPhotoIndex = nil
                                 tiltAngleX = [:]
@@ -2088,8 +2087,6 @@ struct ContentView: View {
                             isParkingMemoryExpanded = false
                             orbOpacity = 1.0
                             capsuleOnRight = false
-                            timeAdjustAccumulated = 0
-                            timeAdjustText = nil
                             showingExpandedPhotos = false
                             selectedPhotoIndex = nil
                             tiltAngleX = [:]

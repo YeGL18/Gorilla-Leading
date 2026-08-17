@@ -122,6 +122,7 @@ struct LaunchAnimationView: View {
 
     @ViewBuilder
     private func iconView(name: String) -> some View {
+        // 啟動動畫 & 彩蛋均跟隨系統深淺色
         let iconColor = colorScheme == .dark ? Color.white : Color.black
         if name == "gorilla" {
             Text("🦍")
