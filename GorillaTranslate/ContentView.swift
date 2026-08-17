@@ -165,6 +165,8 @@ struct ContentView: View {
     @State private var isCameraActive = true
     @State private var cameraInactivityTimer: Timer?
     @State private var cameraFadeOpacity: Double = 0  // 0 = camera visible, 1 = black
+    @State private var cameraButtonBlurIn: Bool = false  // 拍照按鈕模糊入場動畫
+    @State private var viewfinderBreathe: Bool = false   // viewfinder 呼吸動畫
     @State private var showingExpandedPhotos = false
     @State private var selectedPhotoIndex: Int?
     @State private var showDeleteButton = false
@@ -349,7 +351,7 @@ struct ContentView: View {
                 animationClock.start()
                 guard !hasPlayedEntrance else { return }
                 hasPlayedEntrance = true
-                triggerEntranceEffect()
+                // triggerEntranceEffect() 不調用 — 光球不需要加速入場
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation(.easeOut(duration: 1.2)) {
                         capsuleAppeared = true
@@ -494,7 +496,13 @@ struct ContentView: View {
             if expanded {
                 isCameraActive = true
                 cameraFadeOpacity = 0
+                cameraButtonBlurIn = false  // 先重置
+                viewfinderBreathe = false   // 先停止呼吸
                 resetCameraInactivityTimer()
+                // 拍照按鈕模糊入場動畫
+                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                    cameraButtonBlurIn = true
+                }
                 if hasDeparted {
                     hasDeparted = false
                     manualDeparted = false
@@ -2940,6 +2948,11 @@ struct ContentView: View {
 
     private func activateCamera() {
         isCameraActive = true
+        viewfinderBreathe = false  // 停止呼吸
+        // 拍照按鈕模糊入場動畫
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            cameraButtonBlurIn = true
+        }
         withAnimation(.easeInOut(duration: 0.8)) {
             cameraFadeOpacity = 0
         }
@@ -2947,6 +2960,12 @@ struct ContentView: View {
     }
 
     private func deactivateCamera() {
+        // viewfinder 呼吸動畫開始
+        viewfinderBreathe = true
+        // 拍照按鈕模糊退場動畫
+        withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+            cameraButtonBlurIn = false
+        }
         withAnimation(.easeInOut(duration: 0.8)) {
             cameraFadeOpacity = 1
         }
@@ -3568,10 +3587,23 @@ struct ContentView: View {
                 .frame(width: camW, height: camH)
                 .overlay(
                     VStack(spacing: 10) {
-                        Image(systemName: "camera.viewfinder")
-                            .font(.system(size: 36))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .symbolEffect(.pulse, isActive: true)
+                        ZStack {
+                            // 底層：整個 symbol（含四角框框）
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.white.opacity(0.6))
+                            // 頂層：中央 icon 裁切掉邊框區域
+                            Image(systemName: "camera.viewfinder")
+                                .font(.system(size: 36))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .mask(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .frame(width: 20, height: 18)
+                                )
+                        }
+                        // 統一呼吸動畫
+                        .opacity(viewfinderBreathe ? 0.45 : 0.7)
+                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: viewfinderBreathe)
                         Text("輕觸以開啟相機")
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
@@ -3589,9 +3621,8 @@ struct ContentView: View {
             cameraPhotoStack
                 .allowsHitTesting(isCameraActive)
             captureAnimationOverlay
-            if isCameraActive && cameraFadeOpacity < 0.1 {
-                cameraButton
-            }
+            cameraButton
+                .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
 
             // Delete button on selected photo (positioned at photo's top-left corner)
             if let idx = selectedPhotoIndex, idx < photoStorage.photos.count,
@@ -3907,9 +3938,9 @@ struct ContentView: View {
     private var cameraButton: some View {
         Button(action: { capturePhoto() }) {
             ZStack {
-                RoundedRectangle(cornerRadius: 22)
-                    .frame(width: 59, height: 148)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 22))
+                RoundedRectangle(cornerRadius: 24)
+                    .frame(width: 66, height: 166)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 24))
                     .tint(.clear)
                 GeometryReader { geo in
                     let w = geo.size.width
@@ -3918,29 +3949,29 @@ struct ContentView: View {
                     ZStack {
                         Circle()
                             .fill(Color(hex: "3497FF").opacity(0.85))
-                            .blur(radius: 16)
-                            .frame(width: 100, height: 100)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 50,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 50)
+                            .blur(radius: 18)
+                            .frame(width: 112, height: 112)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
                         Circle()
                             .fill(Color(hex: "FFC46D").opacity(0.85))
-                            .frame(width: 110, height: 110)
-                            .blur(radius: 16)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 55,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 55)
+                            .frame(width: 124, height: 124)
+                            .blur(radius: 18)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
                         Circle()
                             .fill(Color(hex: "FF825C").opacity(0.85))
-                            .frame(width: 90, height: 90)
-                            .blur(radius: 16)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 45,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 45)
+                            .frame(width: 102, height: 102)
+                            .blur(radius: 18)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
                     }
                 }
-                .frame(width: 51, height: 140)
-                .clipShape(.rect(cornerRadius: 18))
-                .overlay(RoundedRectangle(cornerRadius: 18).strokeBorder(Color.white, lineWidth: 1.6))
+                .frame(width: 57, height: 158)
+                .clipShape(.rect(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white.opacity(0.2), lineWidth: 1.6))
                 Image(systemName: "camera.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 27))
                     .foregroundStyle(.white)
             }
         }
@@ -3951,13 +3982,16 @@ struct ContentView: View {
         }, perform: {})
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .padding(.trailing, 10)
-        .blur(radius: showingExpandedPhotos || photoStorage.photos.count >= PhotoStorage.maxPhotos ? 12 : 0)
-        .opacity(showingExpandedPhotos || photoStorage.photos.count >= PhotoStorage.maxPhotos ? 0 : 1)
+        .blur(radius: !cameraButtonBlurIn || showingExpandedPhotos || photoStorage.photos.count >= PhotoStorage.maxPhotos ? 12 : 0)
+        .opacity(!cameraButtonBlurIn || showingExpandedPhotos || photoStorage.photos.count >= PhotoStorage.maxPhotos ? 0 : 1)
+        .animation(.spring(response: 0.45, dampingFraction: 0.85), value: cameraButtonBlurIn)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: showingExpandedPhotos)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: photoStorage.photos.count)
     }
 
     // MARK: - GPS Status Badge
+    @State private var gpsGlowPhase: CGFloat = 0
+
     private var gpsStatusBadge: some View {
         HStack(spacing: 6) {
             Circle()
@@ -3969,7 +4003,7 @@ struct ContentView: View {
                 } animation: { _ in
                     .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
                 }
-            
+
             ZStack {
                 Text("VADY").hidden()
                     .font(.system(size: 12, weight: .medium))
@@ -3981,7 +4015,39 @@ struct ContentView: View {
         .animation(.easeInOut(duration: 0.5), value: locationManager.gpsQuality)
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
+        .overlay(alignment: .leading) {
+            // 光暈：從圓點位置向外擴散，覆蓋膠囊後淡出
+            GeometryReader { geo in
+                let capsuleWidth = geo.size.width
+                // 圓點中心距離 leading edge = 18 (padding) + 4 (半徑)
+                let dotCenterX: CGFloat = 22
+                // 需要放大多少倍才能覆蓋整個膠囊
+                let requiredScale = max(capsuleWidth * 1.5 / 8.0, 20)
+                Circle()
+                    .fill(gpsColor.opacity(0.5))
+                    .frame(width: 8, height: 8)
+                    .scaleEffect(gpsGlowPhase > 0 ? requiredScale : 1)
+                    .opacity(gpsGlowPhase > 0 ? 0 : 0.5)
+                    .position(x: dotCenterX, y: geo.size.height / 2)
+                    .allowsHitTesting(false)
+            }
+        }
+        .clipShape(.rect(cornerRadius: 22))
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .onChange(of: locationManager.gpsQuality) { _, _ in
+            // 每次 GPS 狀態變化都觸發一次光暈脈動
+            gpsGlowPhase = 0
+            withAnimation(.easeOut(duration: 1.8)) {
+                gpsGlowPhase = 1
+            }
+            // 動畫結束後重置，準備下一次觸發
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.9) {
+                gpsGlowPhase = 0
+            }
+        }
+        .onAppear {
+            // 不觸發入場光暈，只保留日常狀態變化時的光暈
+        }
     }
 
     private var gpsColor: Color {

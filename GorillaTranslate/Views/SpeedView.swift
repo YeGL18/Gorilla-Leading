@@ -20,6 +20,11 @@ struct SpeedView: View {
     @State private var lastSpeedSampleAt: Date = Date()
     @State private var accelerationCooldownUntil: Date = .distantPast
 
+    /// GPS 失聯時保留最後已知時速
+    @State private var lastKnownSpeed: Int = 0
+    /// GPS 失聯動畫狀態（用於透明度漸變）
+    @State private var gpsLostAnim: Bool = false
+
     /// 呼吸動畫：true/false 交替驅動透明度脈動
     @State private var breatheIn = false
 
@@ -94,7 +99,8 @@ struct SpeedView: View {
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
                 let textColor: Color = colorScheme == .dark ? .white : .black
-                let speedText = "\(Int(locationManager.speed))"
+                let speedText = "\(lastKnownSpeed)"
+                let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
                 ZStack {
                     // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
                     ForEach([20, 10, 4], id: \.self) { blurRadius in
@@ -103,10 +109,10 @@ struct SpeedView: View {
                             Spacer()
                             Text(speedText)
                                 .font(.system(size: 96, weight: .heavy, design: .rounded))
-                                .foregroundColor(textColor.opacity(opacity))
+                                .foregroundColor(textColor.opacity(opacity * speedOpacity))
                             Text("km/h")
                                 .font(.title3)
-                                .foregroundColor(textColor.opacity(opacity * 0.6))
+                                .foregroundColor(textColor.opacity(opacity * 0.6 * speedOpacity))
                             Spacer()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -118,12 +124,12 @@ struct SpeedView: View {
                         Spacer()
                         Text(speedText)
                             .font(.system(size: 96, weight: .heavy, design: .rounded))
-                            .foregroundColor(textColor.opacity(0.6))
+                            .foregroundColor(textColor.opacity(0.6 * speedOpacity))
                             .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.15), value: Int(locationManager.speed))
+                            .animation(.easeInOut(duration: 0.15), value: lastKnownSpeed)
                         Text("km/h")
                             .font(.title3)
-                            .foregroundColor(textColor.opacity(0.6))
+                            .foregroundColor(textColor.opacity(0.6 * speedOpacity))
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -182,6 +188,23 @@ struct SpeedView: View {
             }
         }
         .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
+        .onChange(of: locationManager.speed) { _, newSpeed in
+            // GPS 正常時持續更新最後已知時速
+            let gpsLost = locationManager.gpsQuality == .bad || locationManager.gpsQuality == .unknown
+            if !gpsLost {
+                lastKnownSpeed = max(0, Int(newSpeed))
+            }
+        }
+        .onChange(of: locationManager.gpsQuality) { _, newQuality in
+            let gpsLost = newQuality == .bad || newQuality == .unknown
+            if !gpsLost {
+                lastKnownSpeed = max(0, Int(locationManager.speed))
+            }
+            // GPS 狀態切換時播放透明度漸變動畫
+            withAnimation(.easeInOut(duration: 0.5)) {
+                gpsLostAnim = gpsLost
+            }
+        }
         .onReceive(locationManager.$speed) { newSpeed in
             guard sfxAccelerationEnabled else { return }
             let now = Date()
