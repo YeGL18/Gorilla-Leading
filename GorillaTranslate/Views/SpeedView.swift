@@ -87,9 +87,9 @@ struct SpeedView: View {
             .ignoresSafeArea(edges: .all)
             // 陀螺儀視差（深層）：圓點平面朝傾斜反方向擺動並做 3D 透視旋轉，
             // 同前景文字形成前後深度。
-            .rotation3DEffect(.degrees(tiltMotion.tiltX * 7), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
-            .rotation3DEffect(.degrees(tiltMotion.tiltY * 7), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
-            .offset(x: tiltMotion.tiltX * -12, y: tiltMotion.tiltY * -12)
+            .rotation3DEffect(.degrees(tiltMotion.tiltX * 12), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+            .rotation3DEffect(.degrees(tiltMotion.tiltY * 12), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+            .offset(x: tiltMotion.tiltX * -20, y: tiltMotion.tiltY * -20)
 
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
