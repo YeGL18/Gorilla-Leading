@@ -407,9 +407,9 @@ struct ParkingFloorTestView: View {
             }
 
             NavigationLink {
-                TripPatternDebugView()
+                PlaceManagementView()
             } label: {
-                Label("路線學習記錄（目的地預測）", systemImage: "brain.head.profile")
+                Label("地點管理", systemImage: "brain.head.profile")
             }
 
             NavigationLink {
@@ -1923,20 +1923,108 @@ struct DestinationNameEditorView: View {
     }
 }
 
-// MARK: - 路線學習記錄 Debug 頁（透明度：俾用戶睇晒所有 pattern 學習結果）
-struct TripPatternDebugView: View {
+// MARK: - 地點管理（統一改名 + 路線學習記錄）
+struct PlaceManagementView: View {
     @ObservedObject private var predictor = TripPredictor.shared
-    @State private var showSimulateSheet = false
-    @State private var simulateFrom = ""
-    @State private var simulateTo = ""
-    @State private var simulateWeekday: Int = 2
-    @State private var simulateSlot: TripTimeSlot = .evening
+    @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
+    @State private var renamingKey: String?        // placeCatalog key or "lot:\(lotID)"
+    @State private var renamingText: String = ""
+    @State private var showRenameAlert = false
+    @State private var mapPreviewCoordinate: CLLocationCoordinate2D?
+    @State private var mapPreviewName: String = ""
 
     var body: some View {
         List {
+            // ── Section 1：停車場（ParkingFloorStore.lots）──
+            Section {
+                if parkingFloorStore.lots.isEmpty {
+                    Text("暫無停車場數據。")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(parkingFloorStore.lots) { lot in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lot.name ?? "未命名")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            renamingKey = "lot:\(lot.id.uuidString)"
+                            renamingText = lot.name ?? ""
+                            showRenameAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        mapPreviewName = lot.name ?? "未命名停車場"
+                        mapPreviewCoordinate = CLLocationCoordinate2D(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Label("停車場", systemImage: "parkingsign.circle.fill")
+            }
+
+            // ── Section 2：地址叢集（placeCatalog 中的 .addressCluster）──
+            let clusters = predictor.placeCatalog.values
+                .filter { $0.kind == .addressCluster }
+                .sorted { $0.updatedAt > $1.updatedAt }
+            Section {
+                if clusters.isEmpty {
+                    Text("暫無地址叢集。")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(clusters) { p in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(p.displayName)
+                                .font(.subheadline.weight(.semibold))
+                            Text(String(format: "%.5f, %.5f", p.latitude, p.longitude))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                            Text(p.updatedAt, format: .dateTime.month().day().hour().minute())
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                        Spacer()
+                        Button {
+                            renamingKey = p.key
+                            renamingText = p.displayName
+                            showRenameAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        mapPreviewName = p.displayName
+                        mapPreviewCoordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Label("地址叢集", systemImage: "mappin.and.ellipse")
+            }
+
+            // ── 總覽 ──
             Section("總覽") {
                 HStack {
-                    Text("已學習地點（Place Catalog）")
+                    Text("已學習地點")
                     Spacer()
                     Text("\(predictor.placeCatalog.count)")
                         .foregroundStyle(.secondary)
@@ -1948,7 +2036,7 @@ struct TripPatternDebugView: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack {
-                    Text("最近 10 個到訪 place")
+                    Text("最近到訪 place")
                     Spacer()
                     Text("\(predictor.recentPlaceHistory.count)")
                         .foregroundStyle(.secondary)
@@ -1964,40 +2052,7 @@ struct TripPatternDebugView: View {
                 }
             }
 
-            Section("已學習地點") {
-                if predictor.placeCatalog.isEmpty {
-                    Text("暫無數據，用幾次後會自動學習。")
-                        .foregroundStyle(.secondary)
-                }
-                ForEach(Array(predictor.placeCatalog.values.sorted(by: { $0.updatedAt > $1.updatedAt }))) { p in
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text(p.kind == .namedLot ? "🏷️ 已命名 Lot" : "📍 地址叢集")
-                                .font(.caption2.weight(.semibold))
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 3)
-                                .background(
-                                    Capsule()
-                                        .fill(p.kind == .namedLot ? Color.blue.opacity(0.15) : Color.gray.opacity(0.15))
-                                )
-                            Spacer()
-                            Text(p.updatedAt, format: .dateTime.month().day().hour().minute())
-                                .font(.caption2)
-                                .foregroundStyle(.tertiary)
-                        }
-                        Text(p.displayName)
-                            .font(.subheadline.weight(.semibold))
-                        Text(String(format: "%.5f, %.5f  ·  key: %@",
-                                    p.latitude, p.longitude,
-                                    p.key.count > 40 ? String(p.key.suffix(40)) : p.key))
-                            .font(.caption2.monospaced())
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                    }
-                    .padding(.vertical, 3)
-                }
-            }
-
+            // ── Pattern 規則（只讀）──
             Section("Pattern 規則（從 place 出發 → 下一站分布）") {
                 if predictor.patterns.isEmpty {
                     Text("暫無 pattern，需要至少 2 次真實到訪 + 離開先會有第一條。")
@@ -2006,9 +2061,23 @@ struct TripPatternDebugView: View {
                 ForEach(Array(predictor.patterns.values.sorted(by: { $0.updatedAt > $1.updatedAt }))) { rec in
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
+                            let fromKey = rec.key.fromKey ?? ""
+                            let fromPlace = predictor.placeCatalog[fromKey]
                             Text(headerLabel(for: rec.key))
                                 .font(.caption.weight(.semibold))
                                 .foregroundStyle(.secondary)
+                            if !fromKey.isEmpty && fromPlace != nil {
+                                Button {
+                                    renamingKey = fromKey
+                                    renamingText = fromPlace?.displayName ?? ""
+                                    showRenameAlert = true
+                                } label: {
+                                    Image(systemName: "pencil")
+                                        .font(.system(size: 10, weight: .semibold))
+                                        .foregroundStyle(.orange.opacity(0.7))
+                                }
+                                .buttonStyle(.plain)
+                            }
                             Spacer()
                             Text(rec.updatedAt, format: .dateTime.month().day().hour().minute())
                                 .font(.caption2)
@@ -2036,6 +2105,20 @@ struct TripPatternDebugView: View {
                                     }
                                 }
                                 Spacer()
+                                if place != nil {
+                                    Button {
+                                        renamingKey = key
+                                        renamingText = place?.displayName ?? ""
+                                        showRenameAlert = true
+                                    } label: {
+                                        Image(systemName: "pencil")
+                                            .font(.system(size: 12, weight: .semibold))
+                                            .foregroundStyle(.orange)
+                                            .frame(width: 28, height: 28)
+                                            .contentShape(Rectangle())
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                                 VStack(alignment: .trailing, spacing: 2) {
                                     HStack(spacing: 10) {
                                         Text("\(hits) 次")
@@ -2076,6 +2159,7 @@ struct TripPatternDebugView: View {
                 }
             }
 
+            // ── 最近到訪歷史 ──
             Section("最近到訪歷史（2-gram / 3-gram 用）") {
                 if predictor.recentPlaceHistory.isEmpty {
                     Text("尚未有到訪記錄。")
@@ -2098,6 +2182,7 @@ struct TripPatternDebugView: View {
                 }
             }
 
+            // ── Reset ──
             Section("手動 Reset 數據") {
                 Button(role: .destructive) {
                     let ud = UserDefaults.standard
@@ -2112,8 +2197,37 @@ struct TripPatternDebugView: View {
                 }
             }
         }
-        .navigationTitle("路線學習記錄")
+        .navigationTitle("地點管理")
         .navigationBarTitleDisplayMode(.inline)
+        .alert("地點改名", isPresented: $showRenameAlert) {
+            TextField("名稱", text: $renamingText)
+            Button("取消", role: .cancel) { renamingKey = nil }
+            Button("確定") {
+                guard let key = renamingKey else { return }
+                let newName = renamingText.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !newName.isEmpty else { return }
+                if key.hasPrefix("lot:") {
+                    // 停車場改名：更新 ParkingLotRecord + placeCatalog
+                    let lotIDStr = String(key.dropFirst(4))
+                    if let lotID = UUID(uuidString: lotIDStr) {
+                        parkingFloorStore.setLotName(lotID: lotID, name: newName)
+                    }
+                } else {
+                    // 地址叢集改名：升級為 namedLot + 同步 DestinationManager
+                    predictor.renamePlace(key: key, newName: newName)
+                }
+                renamingKey = nil
+            }
+        }
+        .sheet(item: Binding<MapPinItem?>(
+            get: {
+                guard let coord = mapPreviewCoordinate else { return nil }
+                return MapPinItem(name: mapPreviewName, coordinate: coord)
+            },
+            set: { _ in mapPreviewCoordinate = nil }
+        )) { item in
+            PlaceMapPreviewSheet(name: item.name, coordinate: item.coordinate)
+        }
     }
 
     private func headerLabel(for k: TripPatternKey) -> String {
@@ -2126,6 +2240,52 @@ struct TripPatternDebugView: View {
             return "\(prefix)\(extra) → \(fromName)  ·  星期\(wd)  \(k.timeSlot.description)"
         }
         return "\(prefix)from: \(fromName)  ·  星期\(wd)  \(k.timeSlot.description)"
+    }
+}
+
+// MARK: - Map Pin Item（for sheet binding）
+private struct MapPinItem: Identifiable {
+    let id = UUID()
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+}
+
+// MARK: - Place Map Preview Sheet
+private struct PlaceMapPreviewSheet: View {
+    let name: String
+    let coordinate: CLLocationCoordinate2D
+    @Environment(\.dismiss) private var dismiss
+    @State private var region: MKCoordinateRegion
+
+    init(name: String, coordinate: CLLocationCoordinate2D) {
+        self.name = name
+        self.coordinate = coordinate
+        // 地圖中心用 GCJ02（中國地圖磚偏移），確保標記和中心對齊
+        let gcj = coordinate.wgs84ToGCJ02
+        _region = State(initialValue: MKCoordinateRegion(
+            center: gcj,
+            span: MKCoordinateSpan(latitudeDelta: 0.003, longitudeDelta: 0.003)
+        ))
+    }
+
+    var body: some View {
+        NavigationStack {
+            Map(position: .constant(.region(region))) {
+                Marker(name, coordinate: coordinate.wgs84ToGCJ02)
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .navigationTitle(name)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium])
+        .interactiveDismissDisabled()
     }
 }
 

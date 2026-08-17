@@ -835,9 +835,16 @@ final class ParkingFloorStore: ObservableObject {
 
     func setLotName(lotID: UUID, name: String?) {
         guard let idx = lots.firstIndex(where: { $0.id == lotID }) else { return }
-        lots[idx].name = name?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == true ? nil : name
+        let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        lots[idx].name = trimmed?.isEmpty == true ? nil : trimmed
         lots[idx].updatedAt = Date()
         persist()
+        // 同步更新 TripPredictor placeCatalog 中的 displayName
+        if let newName = lots[idx].name {
+            DispatchQueue.main.async {
+                TripPredictor.shared.renameLotPlace(lotID: lotID, newName: newName)
+            }
+        }
     }
 
     func nudgePoint(pointID: UUID, northMeters: Double, eastMeters: Double) {

@@ -610,16 +610,19 @@ struct ContentView: View {
 
             // 冇開地圖時嘅收縮膠囊 fallback（開咗地圖就由 MKMapView 自己嘅
             // tap gesture 處理，噉先唔會擋住地圖操作）
-            if (isCapsuleExpanded || isParkingMemoryExpanded) && !showMap {
+            if (isCapsuleExpanded || isParkingMemoryExpanded || showingExpandedPhotos) && !showMap {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                             isCapsuleExpanded = false
                             isParkingMemoryExpanded = false
+                            showingExpandedPhotos = false
                             selectedPhotoIndex = nil
                             showDeleteButton = false
                             capsuleOnRight = false
+                            tiltAngleX = [:]
+                            tiltAngleY = [:]
                         }
                     }
             }
@@ -3559,7 +3562,7 @@ struct ContentView: View {
                         .stroke(Color.white.opacity(0.8), lineWidth: 4)
                 )
 
-            // Black fade overlay (persistent, opacity-driven)
+            // Black fade overlay — 相機未啟動時顯示，攔截觸控開啟相機
             RoundedRectangle(cornerRadius: camCR)
                 .fill(Color.black)
                 .frame(width: camW, height: camH)
@@ -3582,7 +3585,9 @@ struct ContentView: View {
                 }
 
             cameraDimOverlay
+            // 相機未啟動時禁用 hit testing，讓觸控穿透到黑色遮罩
             cameraPhotoStack
+                .allowsHitTesting(isCameraActive)
             captureAnimationOverlay
             if isCameraActive && cameraFadeOpacity < 0.1 {
                 cameraButton
@@ -3634,17 +3639,22 @@ struct ContentView: View {
             .contentShape(Rectangle())
             .allowsHitTesting(isCameraActive && cameraFadeOpacity < 0.1)
             .onTapGesture {
-                guard showingExpandedPhotos else { return }
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                    if let idx = selectedPhotoIndex {
-                        resetTilt(index: idx)
-                        selectedPhotoIndex = nil
-                    } else {
-                        showingExpandedPhotos = false
+                    if showingExpandedPhotos {
+                        if let idx = selectedPhotoIndex {
+                            resetTilt(index: idx)
+                            selectedPhotoIndex = nil
+                        } else {
+                            showingExpandedPhotos = false
+                            selectedPhotoIndex = nil
+                        }
+                        tiltAngleX = [:]
+                        tiltAngleY = [:]
+                    } else if !photoStorage.photos.isEmpty {
+                        // Camera active + compact mode → expand photo stack
+                        showingExpandedPhotos = true
                         selectedPhotoIndex = nil
                     }
-                    tiltAngleX = [:]
-                    tiltAngleY = [:]
                 }
             }
     }
@@ -3680,6 +3690,7 @@ struct ContentView: View {
                                     // Deselect — reset tilt
                                     resetTilt(index: index)
                                     selectedPhotoIndex = nil
+                                    showDeleteButton = false
                                 } else {
                                     // Select new — reset old, trigger TILT on new
                                     if let oldIdx = selectedPhotoIndex {
@@ -3697,6 +3708,10 @@ struct ContentView: View {
                                         }
                                     }
                                 }
+                            } else {
+                                // 緊湊態：點擊縮圖展開照片堆疊
+                                showingExpandedPhotos = true
+                                selectedPhotoIndex = nil
                             }
                         }
                     }
@@ -3707,6 +3722,32 @@ struct ContentView: View {
         }
         .frame(width: isLandscape ? 304 : 338, height: isLandscape ? 211 : 235, alignment: .center)
         .contentShape(Rectangle())
+        .onTapGesture {
+            // 相機未啟動 → 啟動相機
+            if !isCameraActive {
+                activateCamera()
+                return
+            }
+            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
+                if showingExpandedPhotos {
+                    // 展開態：點擊空白處收起（有選中照片則先取消選中）
+                    if let idx = selectedPhotoIndex {
+                        resetTilt(index: idx)
+                        selectedPhotoIndex = nil
+                        showDeleteButton = false
+                    } else {
+                        showingExpandedPhotos = false
+                        selectedPhotoIndex = nil
+                    }
+                    tiltAngleX = [:]
+                    tiltAngleY = [:]
+                } else if !photos.isEmpty {
+                    // 緊湊態：點擊展開照片堆疊
+                    showingExpandedPhotos = true
+                    selectedPhotoIndex = nil
+                }
+            }
+        }
         .mask(
             Group {
                 if showingExpandedPhotos {

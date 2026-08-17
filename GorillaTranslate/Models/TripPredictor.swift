@@ -42,7 +42,7 @@ enum PlaceKind: Int, Codable, Hashable {
 // MARK: - PlaceInfo (canonical 地點單位：named lot 優先)
 struct PlaceInfo: Codable, Hashable, Identifiable, CustomStringConvertible {
     let key: String       // namedLot: "lot:\(lotID)"；addressCluster: "addr:\(lat4):\(lng4):\(streetPrefix)"
-    let kind: PlaceKind
+    var kind: PlaceKind
     var displayName: String    // named lot → lot name；addressCluster → address first line
     let latitude: Double
     let longitude: Double
@@ -493,6 +493,29 @@ final class TripPredictor: ObservableObject {
             placeCatalog[p.key] = existing
         } else {
             placeCatalog[p.key] = p
+        }
+    }
+
+    // MARK: - Place Rename
+
+    /// 統一改名：更新 placeCatalog 中的 displayName
+    /// addressCluster 保持 addressCluster（不升級為 namedLot，因為沒有對應 ParkingLotRecord）
+    func renamePlace(key: String, newName: String) {
+        guard var place = placeCatalog[key] else { return }
+        place.displayName = newName
+        place.updatedAt = Date()
+        placeCatalog[key] = place
+        saveState()
+    }
+
+    /// 根據 lotID 更新 placeCatalog 中對應的 displayName
+    func renameLotPlace(lotID: UUID, newName: String) {
+        let key = "lot:\(lotID.uuidString)"
+        if var place = placeCatalog[key] {
+            place.displayName = newName
+            place.updatedAt = Date()
+            placeCatalog[key] = place
+            saveState()
         }
     }
 
