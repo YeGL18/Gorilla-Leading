@@ -41,6 +41,8 @@
 		F3A0C004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */; };
 		F3A0C009B2C3D4E5F6071829 /* gorilla_launch.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */; };
 		F3A0C00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */; };
+		F3A0C00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */; };
+		F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */; };
 		F3A0C005B2C3D4E5F6071829 /* BorderBeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */; };
 		F3A0C006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */; };
 		F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */; };
@@ -105,6 +107,8 @@
 		F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_acceleration_overlay.mp3; sourceTree = "<group>"; };
 		F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_launch.mp3; sourceTree = "<group>"; };
 		F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_parking_status_notifi.mp3; sourceTree = "<group>"; };
+		F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_loading.mp3; sourceTree = "<group>"; };
+		F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_done.mp3; sourceTree = "<group>"; };
 		F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeam.swift; sourceTree = "<group>"; };
 		F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeamCapsuleDemo.swift; sourceTree = "<group>"; };
 		F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassCapsuleDemo.swift; sourceTree = "<group>"; };
@@ -287,6 +291,8 @@
 				F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */,
 				F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */,
 				F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */,
+				F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */,
+				F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */,
 				F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */,
 				F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */,
 			);
@@ -401,6 +407,8 @@
 				F3A0C004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 in Resources */,
 				F3A0C009B2C3D4E5F6071829 /* gorilla_launch.mp3 in Resources */,
 				F3A0C00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 in Resources */,
+				F3A0C00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 in Resources */,
+				F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */,
 				F3A0C003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 in Resources */,
 				F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */,
 			);

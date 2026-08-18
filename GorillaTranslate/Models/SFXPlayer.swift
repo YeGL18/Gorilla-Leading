@@ -12,7 +12,13 @@ final class SFXPlayer: ObservableObject {
     private var accelerationFadeStartWork: DispatchWorkItem?
     private var accelerationFadeTimer: Timer?
     private var accelerationFadeInTimer: Timer?
-    
+
+    private var vlmLoadingPlayer: AVAudioPlayer?
+    private var vlmDonePlayer: AVAudioPlayer?
+    private var vlmLoadingDelegate: VLMLoadingDelegate?
+    /// true = 播完當前循環後停止（唔再循環）
+    private var vlmLoadingStopAfterCurrent = false
+
     private let baseVolume: Float = 1.0
     private var hasPrepared = false
     
@@ -187,5 +193,97 @@ final class SFXPlayer: ObservableObject {
             return url
         }
         return Bundle.main.url(forResource: name, withExtension: "mp3")
+    }
+
+    // MARK: - VLM 識別音效
+
+    /// 開始循環播放 loading 音效
+    func playVLMLoading() {
+        configureAudioSession()
+        vlmLoadingStopAfterCurrent = false
+        if vlmLoadingPlayer == nil {
+            vlmLoadingPlayer = loadPlayer(name: "gorilla_ai_loading", volume: baseVolume)
+        }
+        guard let p = vlmLoadingPlayer else { return }
+        p.numberOfLoops = -1  // 無限循環
+        // 設定 delegate 回調：播完時重置狀態
+        if vlmLoadingDelegate == nil {
+            vlmLoadingDelegate = VLMLoadingDelegate()
+        }
+        vlmLoadingDelegate?.onFinished = { [weak self] in
+            guard let self else { return }
+            // 如果係要停止（播完最後一次），唔好重設循環
+            if self.vlmLoadingStopAfterCurrent {
+                self.vlmLoadingStopAfterCurrent = false
+            } else {
+                self.vlmLoadingPlayer?.numberOfLoops = -1  // 重置為循環（下次用）
+            }
+        }
+        p.delegate = vlmLoadingDelegate
+        p.currentTime = 0
+        p.volume = baseVolume
+        p.prepareToPlay()
+        p.play()
+    }
+
+    /// 停止 loading 音效：播完當前循環後停止（唔再播下一輪）
+    func stopVLMLoadingGracefully() {
+        vlmLoadingStopAfterCurrent = true
+        // numberOfLoops = 0 表示播完當前循環就停
+        vlmLoadingPlayer?.numberOfLoops = 0
+    }
+
+    /// 立即停止 loading 音效
+    func stopVLMLoadingImmediately() {
+        vlmLoadingStopAfterCurrent = false
+        vlmLoadingPlayer?.stop()
+        vlmLoadingPlayer?.currentTime = 0
+    }
+
+    /// 播放一次 done 音效（loading 淡出 0.2s，done 延遲 0.2s）
+    func playVLMDone() {
+        // loading 淡出 0.2 秒
+        let loadingPlayer = vlmLoadingPlayer
+        let startVolume = loadingPlayer?.volume ?? 0
+        let fadeDuration = 0.2
+        let fadeStartTime = Date()
+        vlmLoadingStopAfterCurrent = false
+        let fadeTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { timer in
+            let elapsed = Date().timeIntervalSince(fadeStartTime)
+            let progress = min(elapsed / fadeDuration, 1.0)
+            loadingPlayer?.volume = startVolume * Float(1.0 - progress)
+            if progress >= 1.0 {
+                timer.invalidate()
+                loadingPlayer?.stop()
+                loadingPlayer?.currentTime = 0
+                loadingPlayer?.volume = startVolume
+            }
+        }
+        RunLoop.main.add(fadeTimer, forMode: .common)
+
+        // done 音效延遲 0.2 秒播放
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self else { return }
+            self.configureAudioSession()
+            if self.vlmDonePlayer == nil {
+                self.vlmDonePlayer = self.loadPlayer(name: "gorilla_ai_done", volume: self.baseVolume)
+            }
+            guard let p = self.vlmDonePlayer else { return }
+            p.numberOfLoops = 0
+            p.currentTime = 0
+            p.volume = self.baseVolume
+            p.prepareToPlay()
+            p.play()
+        }
+    }
+}
+
+// MARK: - Loading 音效播完回調
+
+/// 獨立 delegate helper：避免 SFXPlayer 同時繼承 NSObject 同 ObservableObject
+private final class VLMLoadingDelegate: NSObject, AVAudioPlayerDelegate {
+    var onFinished: (() -> Void)?
+    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) {
+        onFinished?()
     }
 }

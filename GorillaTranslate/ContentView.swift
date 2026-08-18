@@ -3653,7 +3653,6 @@ struct ContentView: View {
             cameraDimOverlay
             // 相機未啟動時禁用 hit testing，讓觸控穿透到黑色遮罩
             cameraPhotoStack
-                .allowsHitTesting(isCameraActive)
             captureAnimationOverlay
             cameraButton
                 .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
@@ -3702,7 +3701,6 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
             .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
             .contentShape(Rectangle())
-            .allowsHitTesting(isCameraActive && cameraFadeOpacity < 0.1)
             .onTapGesture {
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
                     if showingExpandedPhotos {
@@ -3787,32 +3785,6 @@ struct ContentView: View {
         }
         .frame(width: isLandscape ? 304 : 338, height: isLandscape ? 211 : 235, alignment: .center)
         .contentShape(Rectangle())
-        .onTapGesture {
-            // 相機未啟動 → 啟動相機
-            if !isCameraActive {
-                activateCamera()
-                return
-            }
-            withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                if showingExpandedPhotos {
-                    // 展開態：點擊空白處收起（有選中照片則先取消選中）
-                    if let idx = selectedPhotoIndex {
-                        resetTilt(index: idx)
-                        selectedPhotoIndex = nil
-                        showDeleteButton = false
-                    } else {
-                        showingExpandedPhotos = false
-                        selectedPhotoIndex = nil
-                    }
-                    tiltAngleX = [:]
-                    tiltAngleY = [:]
-                } else if !photos.isEmpty {
-                    // 緊湊態：點擊展開照片堆疊
-                    showingExpandedPhotos = true
-                    selectedPhotoIndex = nil
-                }
-            }
-        }
         .mask(
             Group {
                 if showingExpandedPhotos {
@@ -3861,7 +3833,7 @@ struct ContentView: View {
                         isSwipingPhoto = true
                         swipePhotoScale = fullScale
 
-                        withAnimation(.easeOut(duration: 0.5)) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
                             photoSwipeOffset = direction * 180
                         }
                         withAnimation(.easeOut(duration: 0.8)) {
@@ -4728,7 +4700,7 @@ struct CameraPhotoItem: View {
                 if isSelected { return 0 }
                 if isExpanded {
                     let raw = CGFloat(photo.offsetY) * 12
-                    let maxY: CGFloat = (190 - expandedH) / 2 - 5
+                    let maxY: CGFloat = (235 - expandedH) / 2 - 5
                     return max(-maxY, min(maxY, raw))
                 }
                 return thumbOffsetY + CGFloat(photo.offsetY)
@@ -4779,7 +4751,6 @@ struct CameraPhotoItem: View {
                 .zIndex(zIdx)
                 .animation(.spring(response: 0.45, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isExpanded)
                 .animation(.spring(response: 0.4, dampingFraction: 0.82).delay(Double(totalCount - 1 - index) * 0.06), value: isSelected)
-                .animation(.spring(response: 0.4, dampingFraction: 0.82), value: swipeOffset)
         }
     }
 }
