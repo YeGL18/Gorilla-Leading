@@ -7,7 +7,19 @@ struct SpeedView: View {
     @StateObject private var timePhaseManager = TimePhaseManager()
     @StateObject private var sfxPlayer = SFXPlayer()
     @StateObject private var tiltMotion = TiltParallaxMotion()
+    @StateObject private var gForceMotion = GForceParallaxMotion()
+    @AppStorage("parallaxMode") private var parallaxMode: ParallaxMode = .tilt
+    @State private var showParallaxToggle = false
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
+
+    /// 當前視差 X 值（-1…1），根據模式切換來源
+    private var parallaxX: Double {
+        parallaxMode == .gforce ? gForceMotion.gForceX : tiltMotion.tiltX
+    }
+    /// 當前視差 Y 值（-1…1），根據模式切換來源
+    private var parallaxY: Double {
+        parallaxMode == .gforce ? gForceMotion.gForceY : tiltMotion.tiltY
+    }
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
@@ -92,9 +104,9 @@ struct SpeedView: View {
             .ignoresSafeArea(edges: .all)
             // 陀螺儀視差（深層）：圓點平面朝傾斜反方向擺動並做 3D 透視旋轉，
             // 同前景文字形成前後深度。
-            .rotation3DEffect(.degrees(tiltMotion.tiltX * 12), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
-            .rotation3DEffect(.degrees(tiltMotion.tiltY * 12), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
-            .offset(x: tiltMotion.tiltX * -20, y: tiltMotion.tiltY * -20)
+            .rotation3DEffect(.degrees(parallaxX * 12), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+            .rotation3DEffect(.degrees(parallaxY * 12), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+            .offset(x: parallaxX * -20, y: parallaxY * -20)
 
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
@@ -117,7 +129,7 @@ struct SpeedView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .blur(radius: CGFloat(blurRadius))
-                        .offset(x: tiltMotion.tiltX * 14, y: tiltMotion.tiltY * 14)
+                        .offset(x: parallaxX * 14, y: parallaxY * 14)
                     }
                     // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大
                     VStack(spacing: 4) {
@@ -130,10 +142,21 @@ struct SpeedView: View {
                         Text("km/h")
                             .font(.title3)
                             .foregroundColor(textColor.opacity(0.6 * speedOpacity))
+                        // 視差模式切換膠囊
+                        if showParallaxToggle {
+                            parallaxToggleCapsule
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: tiltMotion.tiltX * 24, y: tiltMotion.tiltY * 24)
+                    .offset(x: parallaxX * 24, y: parallaxY * 24)
+                    // 雙擊時速數字：彈出視差模式切換膠囊
+                    .onTapGesture(count: 2) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            showParallaxToggle.toggle()
+                        }
+                    }
                 }
                 .offset(y: landscape ? 20 : 0)
             }
@@ -159,21 +182,24 @@ struct SpeedView: View {
                     .onAppear {
                         let angle: Double = isLandscape ? .pi / 2 : 0
                         tiltMotion.setScreenRotation(angle)
+                        gForceMotion.setScreenRotation(angle)
                     }
                     .onChange(of: isLandscape) { _, newValue in
                         let angle: Double = newValue ? .pi / 2 : 0
                         tiltMotion.setScreenRotation(angle)
+                        gForceMotion.setScreenRotation(angle)
                     }
             }
         }
         .onAppear {
             timePhaseManager.start()
-            tiltMotion.start()
+            startActiveParallax()
             syncParallaxFrameRate()
         }
         .onDisappear {
             timePhaseManager.stop()
             tiltMotion.stop()
+            gForceMotion.stop()
         }
         // 視差取樣率跟背景動畫幀率對齊：進出專注模式／改幀率都即時生效
         .onChange(of: focusMode) { _, newMode in
@@ -188,6 +214,7 @@ struct SpeedView: View {
             }
         }
         .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
+        .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
         .onChange(of: locationManager.speed) { _, newSpeed in
             // GPS 正常時持續更新最後已知時速
             let gpsLost = locationManager.gpsQuality == .bad || locationManager.gpsQuality == .unknown
@@ -271,11 +298,70 @@ struct SpeedView: View {
         .padding(.bottom, 12)
     }
 
+    // MARK: - 視差模式切換膠囊
+
+    private var parallaxToggleCapsule: some View {
+        HStack(spacing: 0) {
+            ForEach([ParallaxMode.tilt, ParallaxMode.gforce], id: \.self) { mode in
+                let isSelected = parallaxMode == mode
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        parallaxMode = mode
+                    }
+                    // 切換後延遲收起膠囊
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            showParallaxToggle = false
+                        }
+                    }
+                } label: {
+                    Text(mode == .tilt ? "傾斜" : "G值")
+                        .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
+                        .foregroundStyle(isSelected ? .primary : .secondary)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 6)
+                        .background {
+                            if isSelected {
+                                Capsule()
+                                    .fill(.ultraThinMaterial)
+                                    .overlay {
+                                        Capsule()
+                                            .fill(Color.white.opacity(0.15))
+                                    }
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(4)
+        .background {
+            Capsule()
+                .fill(.ultraThinMaterial)
+                .overlay {
+                    Capsule()
+                        .strokeBorder(Color.white.opacity(0.12), lineWidth: 0.5)
+                }
+        }
+    }
+
     /// 陀螺儀視差取樣率 = 背景動畫幀率：專注模式開住就用所選幀率，
     /// 否則預設 60Hz，同動畫時鐘保持一致。
     private func syncParallaxFrameRate() {
         let fps: Double = focusMode != nil ? Double(focusFrameRate.rawValue) : 60
         tiltMotion.setUpdateRate(fps)
+        gForceMotion.setUpdateRate(fps)
+    }
+
+    /// 根據當前模式啟動對應嘅 motion manager
+    private func startActiveParallax() {
+        if parallaxMode == .gforce {
+            tiltMotion.stop()
+            gForceMotion.start()
+        } else {
+            gForceMotion.stop()
+            tiltMotion.start()
+        }
     }
 
     private var highAltitudeCamera: MKMapCamera? {
@@ -419,6 +505,89 @@ final class TiltParallaxMotion: ObservableObject {
     }
 
     private static func clamp(_ v: Double) -> Double { max(-1, min(1, v)) }
+}
+
+// MARK: - G-force 視差動畫
+
+/// 用 CoreMotion 嘅 userAcceleration 讀取車輛動態 G-force（加速／減速／轉彎），
+/// 輸出平滑後嘅 -1…1 值畀視差效果用。
+///
+/// 方向映射（跟車輛慣性一致）：
+///   - 煞車 → gForceY 正（畫面向前傾）
+///   - 加速 → gForceY 負（畫面向後傾）
+///   - 左轉 → gForceX 負（畫面向左傾）
+///   - 右轉 → gForceX 正（畫面向右傾）
+final class GForceParallaxMotion: ObservableObject {
+    /// -1…1：+ = 右轉 G-force
+    @Published private(set) var gForceX: Double = 0
+    /// -1…1：+ = 煞車 G-force（向前）
+    @Published private(set) var gForceY: Double = 0
+
+    private let motion = CMMotionManager()
+    private var updateRate: Double = 60
+    private var screenRotation: Double = 0
+
+    /// 靈敏度：約 0.5g = 滿幅（激烈煞車／急轉彎）
+    private let gain: Double = 2.0
+    /// 每幀 lerp 比例（以 60Hz 為基準）
+    private let smoothing: Double = 0.12
+    /// 死區：低於此值嘅微小震動忽略
+    private let deadband: Double = 0.03
+
+    func start() {
+        guard motion.isDeviceMotionAvailable else { return }
+        motion.deviceMotionUpdateInterval = 1.0 / updateRate
+        motion.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] dm, _ in
+            guard let self, let dm else { return }
+            let ua = dm.userAcceleration
+
+            // 將裝置坐標系嘅加速度旋轉到螢幕坐標系
+            let cosR = cos(self.screenRotation)
+            let sinR = sin(self.screenRotation)
+            let ax = ua.x * cosR - ua.y * sinR   // 螢幕左右
+            let ay = ua.x * sinR + ua.y * cosR   // 螢幕上下
+
+            // 死區過濾
+            let filteredX = abs(ax) < self.deadband ? 0 : ax
+            let filteredY = abs(ay) < self.deadband ? 0 : ay
+
+            // 增益 + 限制
+            let targetX = Self.clamp(filteredX * self.gain)
+            let targetY = Self.clamp(filteredY * self.gain)
+
+            // 幀率補償 lerp
+            let alpha = 1 - pow(1 - self.smoothing, 60.0 / self.updateRate)
+            self.gForceX += (targetX - self.gForceX) * alpha
+            self.gForceY += (targetY - self.gForceY) * alpha
+        }
+    }
+
+    func stop() {
+        motion.stopDeviceMotionUpdates()
+        gForceX = 0
+        gForceY = 0
+    }
+
+    func setUpdateRate(_ fps: Double) {
+        guard fps > 0, fps != updateRate else { return }
+        updateRate = fps
+        if motion.isDeviceMotionActive {
+            motion.deviceMotionUpdateInterval = 1.0 / fps
+        }
+    }
+
+    func setScreenRotation(_ radians: Double) {
+        screenRotation = radians
+    }
+
+    private static func clamp(_ v: Double) -> Double { max(-1, min(1, v)) }
+}
+
+// MARK: - 視差模式
+
+enum ParallaxMode: String {
+    case tilt    // 傾斜（手機傾斜）
+    case gforce  // G-force（車輛加速度）
 }
 
 // MARK: - 專注模式選擇頁
