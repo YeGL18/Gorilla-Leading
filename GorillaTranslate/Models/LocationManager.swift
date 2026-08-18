@@ -60,6 +60,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var visits: [VisitRecord] = []
     @Published var lastLocation: CLLocation?
     @Published var heading: Double = 0
+    @Published var hasLoadedVisits: Bool = false
 
     private let visitsKey = "visit_records"
 
@@ -337,6 +338,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 predictedArrivalVisits.insert(v.id)
             }
         }
+        hasLoadedVisits = true
     }
 
     func clearVisits() {
@@ -360,19 +362,23 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     var barometerFinalAltitude: Double?
     var barometerPressureKPa: Double?
     var predictedFromLotLearned: Bool?
-    
+    // LLM 照片識別結果（持久化）
+    var llmSpotNumber: String?
+    var llmAreaCode: String?
+    var llmFloorText: String?
+
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
-    
+
     var displayFloor: String? {
         if let manualFloorIndex {
-            return ParkingFloorStore.formatFloor(manualFloorIndex)
+            return llmFloorText ?? ParkingFloorStore.formatFloor(manualFloorIndex)
         }
         if let predictedFloorIndex {
-            return ParkingFloorStore.formatFloor(predictedFloorIndex)
+            return llmFloorText ?? ParkingFloorStore.formatFloor(predictedFloorIndex)
         }
-        return "未知(\(ParkingFloorStore.formatFloor(0)))"
+        return llmFloorText
     }
 }
 
@@ -480,6 +486,15 @@ struct ParkingLotRecord: Identifiable, Codable, Hashable {
     }
 }
 
+/// 當前泊車會話快照（從 lots 計算，不額外儲存）
+struct ParkingSessionSnapshot {
+    var locationName: String?   // 已命名的停車場名 或 地址
+    var spotNumber: String?     // 車位號
+    var areaCode: String?       // 區域
+    var floorDisplay: String?   // 樓層顯示文字
+    var floorIndex: Int?        // 樓層指數
+}
+
 final class ParkingFloorStore: ObservableObject {
     static let defaultRadiusMeters: Double = 180
     static let defaultMetersPerFloor: Double = 3.0
@@ -487,6 +502,8 @@ final class ParkingFloorStore: ObservableObject {
     nonisolated(unsafe) static let shared = ParkingFloorStore()
 
     @Published private(set) var lots: [ParkingLotRecord] = []
+    /// 當前活躍的停車場 ID（最近一次 recordParkingPoint 命中的 lot）
+    @Published var activeLotID: UUID?
 
     private let storeKey = "parking_floor_store_v1"
     private let defaults: UserDefaults
@@ -496,6 +513,48 @@ final class ParkingFloorStore: ObservableObject {
 
     init() {
         defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
+    }
+
+    /// 當前泊車會話（從活躍 lot 的最新 point 計算）
+    var currentSession: ParkingSessionSnapshot? {
+        let lot: ParkingLotRecord?
+        if let activeID = activeLotID {
+            lot = lots.first(where: { $0.id == activeID })
+        } else {
+            lot = lots.first
+        }
+        guard let lot, let point = lot.points.first else { return nil }
+        let lotName = lot.name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let locationName = (lotName?.isEmpty == false) ? lotName : (point.address.isEmpty ? nil : point.address)
+        let floorDisplay = point.llmFloorText ?? point.displayFloor
+        let floorIndex = point.manualFloorIndex ?? point.predictedFloorIndex
+        return ParkingSessionSnapshot(
+            locationName: locationName,
+            spotNumber: point.llmSpotNumber,
+            areaCode: point.llmAreaCode,
+            floorDisplay: floorDisplay,
+            floorIndex: floorIndex
+        )
+    }
+
+    /// 更新活躍停車點的 LLM 照片識別結果
+    func updateLLMData(spotNumber: String?, areaCode: String?, floorText: String?, floorIndex: Int?) {
+        let lotIdx: Int
+        if let activeID = activeLotID, let idx = lots.firstIndex(where: { $0.id == activeID }) {
+            lotIdx = idx
+        } else {
+            lotIdx = 0
+        }
+        guard lots.indices.contains(lotIdx), !lots[lotIdx].points.isEmpty else { return }
+        lots[lotIdx].points[0].llmSpotNumber = spotNumber
+        lots[lotIdx].points[0].llmAreaCode = areaCode
+        lots[lotIdx].points[0].llmFloorText = floorText
+        if let floorIndex {
+            setManualFloor(pointID: lots[lotIdx].points[0].id, floorIndex: floorIndex)
+        } else {
+            lots[lotIdx].updatedAt = Date()
+            persist()
+        }
     }
 
     func prepare() {
@@ -634,6 +693,7 @@ final class ParkingFloorStore: ObservableObject {
             lot.points.insert(inserting, at: 0)
             lot.updatedAt = now
             lots[idx] = lot
+            activeLotID = lot.id
         } else {
             let lot = ParkingLotRecord(
                 id: UUID(),
@@ -650,6 +710,7 @@ final class ParkingFloorStore: ObservableObject {
                 floorLearningHistory: nil
             )
             lots.insert(lot, at: 0)
+            activeLotID = lot.id
         }
         
         persist()

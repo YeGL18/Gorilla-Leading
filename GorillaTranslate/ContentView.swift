@@ -441,6 +441,13 @@ struct ContentView: View {
                     departureTime = lastVisit.departureDate
                     showDepartedLabel = true
                     clearParkingContributions()
+                    // 系統自動偵測到離開 — 推送通知
+                    let content = UNMutableNotificationContent()
+                    content.title = "Gorilla 泊車記憶"
+                    content.body = "泊車已退出"
+                    content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
+                    let req = UNNotificationRequest(identifier: "parking-departed-\(UUID().uuidString)", content: content, trigger: nil)
+                    UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
                     DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
                         withAnimation(.easeInOut(duration: 0.3)) {
                             showDepartedLabel = false
@@ -477,6 +484,13 @@ struct ContentView: View {
                     departureElapsedTimer?.invalidate()
                     departureElapsedTimer = nil
                     startPersistentTimer()
+                    // 系統自動偵測到泊車 — 推送通知
+                    let content = UNMutableNotificationContent()
+                    content.title = "Gorilla 泊車記憶"
+                    content.body = "泊車已開啟"
+                    content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
+                    let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
+                    UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
                     parkingFloorStore.recordParkingPoint(from: lastVisit)
                     // Show parking info on new arrival
                     parkingInfoDisplayMode = true
@@ -485,14 +499,6 @@ struct ContentView: View {
             }
         }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
-            // 泊車狀態推送通知
-            let content = UNMutableNotificationContent()
-            content.title = "Gorilla 泊車記憶"
-            content.body = expanded ? "泊車記憶已開啟" : "泊車記憶已退出"
-            content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
-            let req = UNNotificationRequest(identifier: "parking-\(UUID().uuidString)", content: content, trigger: nil)
-            UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
-
             if expanded {
                 isCameraActive = true
                 cameraFadeOpacity = 0
@@ -1109,6 +1115,13 @@ struct ContentView: View {
 
             VStack(spacing: 12) {
                 Button {
+                    // 更新統一數據源
+                    llmFloorText = floorText
+                    llmFloorIndex = floorIndex
+                    parkingFloorStore.updateLLMData(
+                        spotNumber: llmSpotNumber, areaCode: llmAreaCode,
+                        floorText: floorText, floorIndex: floorIndex
+                    )
                     withAnimation(.easeIn(duration: 0.18)) {
                         showFloorConfirm = false
                         hasConfirmedFloorThisSession = true
@@ -1482,6 +1495,8 @@ struct ContentView: View {
             if isCapsuleExpanded {
                 updateVisitStatus()
             }
+            // visits 載入後：重啟計時器 + 同步實時活動（冷啟動時確保恢復）
+            refreshVisitAndTimersForForeground()
         }
         .onChange(of: showDepartedLabel) { _, _ in
             if isCapsuleExpanded {
@@ -1546,9 +1561,7 @@ struct ContentView: View {
         .onChange(of: drivingETASeconds) { _, _ in
             syncLiveActivity()
         }
-        .onChange(of: llmSpotNumber) { _, _ in syncLiveActivity() }
-        .onChange(of: llmAreaCode)  { _, _ in syncLiveActivity() }
-        .onChange(of: llmFloorText) { _, _ in syncLiveActivity() }
+        .onChange(of: parkingFloorStore.lots) { _, _ in syncLiveActivity() }
         .onAppear {
             if !isCapsuleExpanded && !isParkingMemoryExpanded {
                 startRandomInfoTimer()
@@ -2043,18 +2056,19 @@ struct ContentView: View {
                                     .padding(.trailing, 28)
                                     .id("parkingTitle")
                                 if parkingInfoDisplayMode {
+                                    let session = parkingFloorStore.currentSession
                                     VStack(alignment: .leading, spacing: 1) {
                                         HStack(spacing: 4) {
                                             Text("車位").frame(width: 28, alignment: .trailing)
-                                            Text(llmSpotNumber ?? "-")
+                                            Text(session?.spotNumber ?? "-")
                                         }
                                         HStack(spacing: 4) {
                                             Text("區域").frame(width: 28, alignment: .trailing)
-                                            Text(llmAreaCode ?? "-")
+                                            Text(session?.areaCode ?? "-")
                                         }
                                         HStack(spacing: 4) {
                                             Text("樓層").frame(width: 28, alignment: .trailing)
-                                            Text(llmFloorText ?? "-")
+                                            Text(session?.floorDisplay ?? "-")
                                         }
                                     }
                                     .font(.system(size: 11, weight: .medium))
@@ -2071,9 +2085,7 @@ struct ContentView: View {
                                 }
                             }
                             .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
-                            .animation(.easeInOut(duration: 0.3), value: llmSpotNumber)
-                            .animation(.easeInOut(duration: 0.3), value: llmAreaCode)
-                            .animation(.easeInOut(duration: 0.3), value: llmFloorText)
+                            .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
                             .onTapGesture {
                                 withAnimation(.easeInOut(duration: 0.5)) {
                                     parkingInfoDisplayMode.toggle()
@@ -2275,18 +2287,19 @@ struct ContentView: View {
                                 .padding(.trailing, 18)
                                 .id("parkingTitle")
                             if parkingInfoDisplayMode {
+                                let session = parkingFloorStore.currentSession
                                 VStack(alignment: .leading, spacing: 1) {
                                     HStack(spacing: 4) {
                                         Text("車位").frame(width: 32, alignment: .trailing)
-                                        Text(llmSpotNumber ?? "-")
+                                        Text(session?.spotNumber ?? "-")
                                     }
                                     HStack(spacing: 4) {
                                         Text("區域").frame(width: 32, alignment: .trailing)
-                                        Text(llmAreaCode ?? "-")
+                                        Text(session?.areaCode ?? "-")
                                     }
                                     HStack(spacing: 4) {
                                         Text("樓層").frame(width: 32, alignment: .trailing)
-                                        Text(llmFloorText ?? "-")
+                                        Text(session?.floorDisplay ?? "-")
                                     }
                                 }
                                 .font(.system(size: 13, weight: .medium))
@@ -2303,9 +2316,7 @@ struct ContentView: View {
                             }
                         }
                         .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
-                        .animation(.easeInOut(duration: 0.3), value: llmSpotNumber)
-                        .animation(.easeInOut(duration: 0.3), value: llmAreaCode)
-                        .animation(.easeInOut(duration: 0.3), value: llmFloorText)
+                        .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
                         .onTapGesture {
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 parkingInfoDisplayMode.toggle()
@@ -2541,6 +2552,9 @@ struct ContentView: View {
 
     private func refreshVisitAndTimersForForeground() {
         updateVisitStatus()
+
+        // visits 尚未載入時不重置狀態（防止冷啟動計時器被清空）
+        guard locationManager.hasLoadedVisits else { return }
 
         guard let lastVisit = locationManager.visits.first else {
             hasDeparted = false
@@ -3129,6 +3143,15 @@ struct ContentView: View {
                 llmFloorText = floorStr
                 if let index = Self.parseFloorIndex(floorStr) {
                     llmFloorIndex = index
+                    // 與氣壓計預測比較，觸發確認彈窗
+                    if let current = parkingFloorStore.allPoints.first,
+                       let barometerFloor = current.predictedFloorIndex,
+                       index != barometerFloor,
+                       !hasConfirmedFloorThisSession {
+                        recognizedFloorToConfirm = index
+                        recognizedFloorText = floorStr
+                        showFloorConfirm = true
+                    }
                 }
             }
         }
@@ -3286,6 +3309,11 @@ struct ContentView: View {
         llmFloorIndex = floorIdx
         llmRawResult = parkingPhotoContributions.isEmpty ? nil : "multi-photo"
 
+        // 同步到 ParkingFloorStore（統一數據源）
+        parkingFloorStore.updateLLMData(
+            spotNumber: spot, areaCode: area, floorText: floor, floorIndex: floorIdx
+        )
+
         if hasLLMResult {
             startParkingInfoSwitchTimer()
         }
@@ -3322,6 +3350,8 @@ struct ContentView: View {
         let d = Self.appGroupDefaults ?? .standard
         d.removeObject(forKey: "parkingPhotoContributions")
         d.synchronize()
+        // 清除 ParkingFloorStore 中的 LLM 數據
+        parkingFloorStore.updateLLMData(spotNumber: nil, areaCode: nil, floorText: nil, floorIndex: nil)
     }
 
     private func refreshETA() {
@@ -3490,6 +3520,8 @@ struct ContentView: View {
     private func syncLiveActivity(forceRefresh: Bool = false) {
         // 專注模式（極致）：靈動島凍結喺最後狀態，退出時會 forceRefresh 補返
         guard !focusCutsDetection else { return }
+        // visits 尚未載入時不結束活動（冷啟動保護）
+        guard locationManager.hasLoadedVisits else { return }
         guard !locationManager.visits.isEmpty else {
             GorillaActivityManager.shared.end()
             return
@@ -3527,17 +3559,19 @@ struct ContentView: View {
                 content.etaMinutes = max(1, Int(secs / 60))
             }
         case .parking:
+            let session = parkingFloorStore.currentSession
             let entry = d.string(forKey: "parkingEntryLocation")
-            content.location = (entry?.isEmpty == false) ? entry : nil
-            content.area = llmAreaCode
-            content.floor = llmFloorText
-            content.spot = llmSpotNumber
+            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
+            content.area = session?.areaCode
+            content.floor = session?.floorDisplay
+            content.spot = session?.spotNumber
         case .stationary:
+            let session = parkingFloorStore.currentSession
             let entry = d.string(forKey: "parkingEntryLocation")
-            content.location = (entry?.isEmpty == false) ? entry : nil
-            content.area = llmAreaCode
-            content.floor = llmFloorText
-            content.spot = llmSpotNumber
+            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
+            content.area = session?.areaCode
+            content.floor = session?.floorDisplay
+            content.spot = session?.spotNumber
             // Design row: 目的地 + distance | road | eta
             content.destinationName = destinationManager.selectedDestination?.name
             content.distanceText = drivingDistanceText
@@ -4003,6 +4037,7 @@ struct ContentView: View {
                 } animation: { _ in
                     .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
                 }
+                .animation(.easeInOut(duration: 0.5), value: gpsColor)
 
             ZStack {
                 Text("VADY").hidden()
@@ -4010,9 +4045,9 @@ struct ContentView: View {
                 Text(gpsLabel)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.secondary)
+                    .animation(.easeInOut(duration: 0.5), value: gpsLabel)
             }
         }
-        .animation(.easeInOut(duration: 0.5), value: locationManager.gpsQuality)
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
         .overlay(alignment: .leading) {
