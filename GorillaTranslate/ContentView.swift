@@ -3784,7 +3784,6 @@ struct ContentView: View {
             cameraDissolveOverlay
         }
         .frame(width: isLandscape ? 304 : 338, height: isLandscape ? 211 : 235, alignment: .center)
-        .contentShape(Rectangle())
         .mask(
             Group {
                 if showingExpandedPhotos {
