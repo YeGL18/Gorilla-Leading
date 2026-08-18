@@ -3701,23 +3701,19 @@ struct ContentView: View {
             .animation(.easeInOut(duration: 0.3), value: selectedPhotoIndex)
             .animation(.easeInOut(duration: 0.3), value: showingExpandedPhotos)
             .contentShape(Rectangle())
+            .allowsHitTesting(showingExpandedPhotos)
             .onTapGesture {
+                guard showingExpandedPhotos else { return }
                 withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
-                    if showingExpandedPhotos {
-                        if let idx = selectedPhotoIndex {
-                            resetTilt(index: idx)
-                            selectedPhotoIndex = nil
-                        } else {
-                            showingExpandedPhotos = false
-                            selectedPhotoIndex = nil
-                        }
-                        tiltAngleX = [:]
-                        tiltAngleY = [:]
-                    } else if !photoStorage.photos.isEmpty {
-                        // Camera active + compact mode → expand photo stack
-                        showingExpandedPhotos = true
+                    if let idx = selectedPhotoIndex {
+                        resetTilt(index: idx)
+                        selectedPhotoIndex = nil
+                    } else {
+                        showingExpandedPhotos = false
                         selectedPhotoIndex = nil
                     }
+                    tiltAngleX = [:]
+                    tiltAngleY = [:]
                 }
             }
     }
