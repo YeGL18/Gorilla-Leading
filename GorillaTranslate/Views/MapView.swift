@@ -612,7 +612,7 @@ struct MapView: UIViewRepresentable {
                 longitude: location.coordinate.longitude
             )
             smoothToDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-            smoothToHeading = parent.followHeading ? parent.locationManager.heading : mapView.camera.heading
+            smoothToHeading = parent.followHeading ? parent.locationManager.heading : 0
             smoothProgress = 0
             
             let startTime = Date()
@@ -702,13 +702,11 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-                if parent.followHeading {
-                    let targetHeading = parent.locationManager.heading
-                    let currentHeading = camera.heading
-                    let headingDiff = targetHeading - currentHeading
-                    let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
-                    camera.heading = currentHeading + normalizedDiff * ease
-                }
+                let targetHeadingSmooth: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : 0
+                let currentHeadingSmooth = camera.heading
+                let headingDiffSmooth = targetHeadingSmooth - currentHeadingSmooth
+                let normalizedDiffSmooth = atan2(sin(headingDiffSmooth * .pi / 180), cos(headingDiffSmooth * .pi / 180)) * 180 / .pi
+                camera.heading = currentHeadingSmooth + normalizedDiffSmooth * ease
                 mapView.setCamera(camera, animated: false)
                 mapView.allowCameraChange = false
 
@@ -759,13 +757,11 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
                 camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-                if parent.followHeading {
-                    let targetHeading = parent.locationManager.heading
-                    let currentHeading = camera.heading
-                    let headingDiff = targetHeading - currentHeading
-                    let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
-                    camera.heading = currentHeading + normalizedDiff * 0.15
-                }
+                let targetHeadingSoft: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : 0
+                let currentHeadingSoft = camera.heading
+                let headingDiffSoft = targetHeadingSoft - currentHeadingSoft
+                let normalizedDiffSoft = atan2(sin(headingDiffSoft * .pi / 180), cos(headingDiffSoft * .pi / 180)) * 180 / .pi
+                camera.heading = currentHeadingSoft + normalizedDiffSoft * 0.15
                 mapView.setCamera(camera, animated: false)
                 mapView.allowCameraChange = false
             }
@@ -981,7 +977,7 @@ struct MapView: UIViewRepresentable {
             let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             let startCenter = mapView.centerCoordinate
             let startHeading = mapView.camera.heading
-            let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? parent.locationManager.heading : startHeading)
+            let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? parent.locationManager.heading : 0)
             // 首次从高空飞下来（加载瓦片），后续用当前高度
             let startDistance: CLLocationDistance = hasShownHighAltitude
                 ? mapView.camera.centerCoordinateDistance
@@ -1040,7 +1036,7 @@ struct MapView: UIViewRepresentable {
             let startCenter = mapView.camera.centerCoordinate
             let startDistance = mapView.camera.centerCoordinateDistance
             let startHeading = mapView.camera.heading
-            let targetHeading: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : startHeading
+            let targetHeading: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : 0
             mapView.allowCameraChange = true
             let startTime = Date()
             routeReturnTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in

@@ -231,6 +231,8 @@ struct ContentView: View {
     @State private var parkingPhotoContributions: [UUID: [String: String]] = [:]
     @State private var currentRecognizingPhotoID: UUID? = nil
     @State private var parkingOrbBoost: Double = 1.0
+    @State private var orbBoostTimer: Timer? = nil
+    @State private var isOrbRecognizingBoost: Bool = false
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
@@ -351,7 +353,8 @@ struct ContentView: View {
                 animationClock.start()
                 guard !hasPlayedEntrance else { return }
                 hasPlayedEntrance = true
-                // triggerEntranceEffect() 不調用 — 光球不需要加速入場
+                // triggerEntranceEffect() 調用 — 光球加速入場效果
+                triggerEntranceEffect()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation(.easeOut(duration: 1.2)) {
                         capsuleAppeared = true
@@ -2011,10 +2014,14 @@ struct ContentView: View {
                                 let t = animationClock.elapsed * 0.3 * parkingOrbBoost
 
                                 ZStack {
-                                    let isBoosted = parkingOrbBoost > 1.01
+                                    let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
+                                    // Crossfade factor：三色→六色漸變
+                                    let boostFactor = min(max((parkingOrbBoost - 1.0) / 1.0, 0), 1)
+                                    let threeColorOp = isOrbRecognizingBoost ? 0.5 : (isBoosted ? 0.5 * (1 - boostFactor) : 0.5)
+                                    let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
                                     // Normal colors
                                     Circle()
-                                        .fill(Color(hex: "46ADB8").opacity(isBoosted ? 0 : 0.5))
+                                        .fill(Color(hex: "46ADB8").opacity(threeColorOp))
                                         .blur(radius: 16)
                                         .frame(width: 100, height: 100)
                                         .offset(
@@ -2022,7 +2029,7 @@ struct ContentView: View {
                                             y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 50
                                         )
                                     Circle()
-                                        .fill(Color(hex: "0098FF").opacity(isBoosted ? 0 : 0.5))
+                                        .fill(Color(hex: "0098FF").opacity(threeColorOp))
                                         .blur(radius: 16)
                                         .frame(width: 110, height: 110)
                                         .offset(
@@ -2030,7 +2037,7 @@ struct ContentView: View {
                                             y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 55
                                         )
                                     Circle()
-                                        .fill(Color(hex: "BCBAE1").opacity(isBoosted ? 0 : 0.5))
+                                        .fill(Color(hex: "BCBAE1").opacity(threeColorOp))
                                         .blur(radius: 16)
                                         .frame(width: 90, height: 90)
                                         .offset(
@@ -2038,7 +2045,7 @@ struct ContentView: View {
                                             y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 45
                                         )
                                     // Boost colors (6 orbs) — Lissajous curves
-                                    boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 100)
+                                    boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 100, sixColorOpacity: sixColorOp)
                                 }
                             }
                             .frame(width: 161, height: 70)
@@ -2242,10 +2249,14 @@ struct ContentView: View {
                             let t = animationClock.elapsed * 0.3 * parkingOrbBoost
 
                             ZStack {
-                                let isBoosted = parkingOrbBoost > 1.01
+                                let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
+                                // Crossfade factor：三色→六色漸變
+                                let boostFactor = min(max((parkingOrbBoost - 1.0) / 1.0, 0), 1)
+                                let threeColorOp = isOrbRecognizingBoost ? 0.5 : (isBoosted ? 0.5 * (1 - boostFactor) : 0.5)
+                                let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
                                 // Normal colors
                                 Circle()
-                                    .fill(Color(hex: "46ADB8").opacity(isBoosted ? 0 : 0.5))
+                                    .fill(Color(hex: "46ADB8").opacity(threeColorOp))
                                     .blur(radius: 16)
                                     .frame(width: 120, height: 120)
                                     .offset(
@@ -2253,7 +2264,7 @@ struct ContentView: View {
                                         y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 60
                                     )
                                 Circle()
-                                    .fill(Color(hex: "0098FF").opacity(isBoosted ? 0 : 0.5))
+                                    .fill(Color(hex: "0098FF").opacity(threeColorOp))
                                     .blur(radius: 16)
                                     .frame(width: 130, height: 130)
                                     .offset(
@@ -2261,7 +2272,7 @@ struct ContentView: View {
                                         y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 65
                                     )
                                 Circle()
-                                    .fill(Color(hex: "BCBAE1").opacity(isBoosted ? 0 : 0.5))
+                                    .fill(Color(hex: "BCBAE1").opacity(threeColorOp))
                                     .blur(radius: 16)
                                     .frame(width: 110, height: 110)
                                     .offset(
@@ -2269,7 +2280,7 @@ struct ContentView: View {
                                         y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 55
                                     )
                                 // Boost colors (6 orbs) — Lissajous curves
-                                boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 120)
+                                boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 120, sixColorOpacity: sixColorOp)
                             }
                         }
                         .frame(width: 161, height: 87)
@@ -3057,6 +3068,8 @@ struct ContentView: View {
     private func startLLMPollingAfterAction() {
         isRecognizing = true
         showLLMActionPrompt = false
+        sfxPlayer.playVLMLoading()
+        startOrbRecognitionBoost()
         startLLMPollingClipboard()
     }
 
@@ -3078,6 +3091,9 @@ struct ContentView: View {
                 self.llmPollTimer = nil
 
                 DispatchQueue.main.async {
+                    self.sfxPlayer.stopVLMLoadingGracefully()
+                    self.sfxPlayer.playVLMDone()
+                    self.stopOrbRecognitionBoost()
                     self.llmRawResult = text
                     self.isRecognizing = false
                     self.parseParkingLLMResponse(text)
@@ -3088,6 +3104,8 @@ struct ContentView: View {
 
                 DispatchQueue.main.async {
                     if self.isRecognizing {
+                        self.sfxPlayer.stopVLMLoadingImmediately()
+                        self.stopOrbRecognitionBoost()
                         self.llmError = "等待超時（2分鐘）。請確認快捷指令「\(self.llmShortcutName)」已正確設定。"
                         self.isRecognizing = false
                     }
@@ -3200,16 +3218,16 @@ struct ContentView: View {
         }
     }
 
-    private func boostOrbs(w: CGFloat, h: CGFloat, t: Double, isBoosted: Bool, orbSize: CGFloat) -> some View {
+    private func boostOrbs(w: CGFloat, h: CGFloat, t: Double, isBoosted: Bool, orbSize: CGFloat, sixColorOpacity: Double = 0) -> some View {
         let ax: CGFloat = w * 0.3
         let ay: CGFloat = h * 0.3
         let baseX: CGFloat = w * 0.5 - orbSize / 2
         let baseY: CGFloat = h * 0.5 - orbSize / 2
-        let op: CGFloat = isBoosted ? 0.5 : 0
+        let op: CGFloat = sixColorOpacity > 0 ? CGFloat(sixColorOpacity) : (isBoosted ? 0.5 : 0)
         return ZStack {
             boostOrb(hex: "F79B1C", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.7, sxMul: 1.3, cy: 0.5, cyMul: 1.1, phase: 0.0, ax: ax, ay: ay)
             boostOrb(hex: "DB7FFB", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.6, sxMul: 1.5, cy: 0.8, cyMul: 1.2, phase: 1.0, ax: ax, ay: ay)
-            boostOrb(hex: "FFFFFF", op: isBoosted ? 0.4 : 0, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.5, sxMul: 1.7, cy: 0.7, cyMul: 1.0, phase: 2.0, ax: ax, ay: ay)
+            boostOrb(hex: "FFFFFF", op: sixColorOpacity > 0 ? CGFloat(sixColorOpacity * 0.8) : (isBoosted ? 0.4 : 0), orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.5, sxMul: 1.7, cy: 0.7, cyMul: 1.0, phase: 2.0, ax: ax, ay: ay)
             boostOrb(hex: "03AAF6", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.8, sxMul: 1.1, cy: 0.6, cyMul: 1.4, phase: 3.0, ax: ax, ay: ay)
             boostOrb(hex: "ED75FA", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.65, sxMul: 1.4, cy: 0.55, cyMul: 1.6, phase: 4.0, ax: ax, ay: ay)
             boostOrb(hex: "F62B6A", op: op, orbSize: orbSize, baseX: baseX, baseY: baseY, t: t, sx: 0.75, sxMul: 1.2, cy: 0.65, cyMul: 1.5, phase: 5.0, ax: ax, ay: ay)
@@ -3237,12 +3255,41 @@ struct ContentView: View {
                 self.parkingOrbBoost = 2.6
             }
         }
-        // Phase 3: hold at 2.6, then ramp down 2.6 → 1.0
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.3) {
-            withAnimation(.easeOut(duration: 1.7)) {
+        // Phase 3: hold at 2.6, then ramp down 2.6 → 1.0（延長六色動畫時長）
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.8) {
+            withAnimation(.easeOut(duration: 3.0)) {
                 self.parkingOrbBoost = 1.0
             }
         }
+    }
+
+    // MARK: - Orb Recognition Boost (識別中加速)
+
+    private func startOrbRecognitionBoost() {
+        orbBoostTimer?.invalidate()
+        isOrbRecognizingBoost = true
+        // 確保 speedMultiplier 重置，避免同 entrance effect 疊加
+        animationClock.speedMultiplier = 1.0
+        let startTime = Date()
+        let rampDuration: Double = 3.0
+        orbBoostTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
+            MainActor.assumeIsolated {
+                let t = Date().timeIntervalSince(startTime)
+                let u = min(t / rampDuration, 1.0)
+                // Smooth ease-in-out：慢啟動 → 平穩加速 → 慢到頂
+                let smooth = u < 0.5 ? 2 * u * u : 1 - pow(-2 * u + 2, 2) / 2
+                parkingOrbBoost = 1.0 + 0.5 * smooth
+                if u >= 1.0 { timer.invalidate() }
+            }
+        }
+    }
+
+    private func stopOrbRecognitionBoost() {
+        orbBoostTimer?.invalidate()
+        orbBoostTimer = nil
+        // 標記脫離識別中 boost 階段（允許六色顯示）
+        isOrbRecognizingBoost = false
+        // 唔即時減速 — 維持 1.5x 直到 triggerOrbSpeedBoost() 接管
     }
 
     private static func parseFloorIndex(_ text: String) -> Int? {
@@ -3892,7 +3939,7 @@ struct ContentView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay(
                         RoundedRectangle(cornerRadius: 12)
-                            .stroke(Color.white.opacity(1.0), lineWidth: 2.0 / selectedScale)
+                            .stroke(Color.white.opacity(0.6), lineWidth: 2.0 / selectedScale)
                     )
                     // Same TILT transform as CameraPhotoItem — seamless handoff
                     .shadow(color: .black.opacity(0.4), radius: delTiltShadow, y: delTiltShadow * 0.5)
@@ -4710,7 +4757,7 @@ struct CameraPhotoItem: View {
             }()
 
             let borderW: CGFloat = isSelected ? 2.0 / selectedScale : (isExpanded ? 1.5 : 1.0)
-            let borderOpacity: Double = isSelected ? 1.0 : (isExpanded ? 0.6 : 0.8)
+            let borderOpacity: Double = 0.6
             let cr: CGFloat = isSelected ? 12 : (isExpanded ? 5 * 3.8 : 5)
             // Z-index logic: use index-based ordering (index = stack order)
             let zIdx: Double = {
