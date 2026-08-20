@@ -231,6 +231,7 @@ struct ContentView: View {
     @State private var parkingPhotoContributions: [UUID: [String: String]] = [:]
     @State private var currentRecognizingPhotoID: UUID? = nil
     @State private var parkingOrbBoost: Double = 1.0
+    @State private var orbBoostElapsedOffset: Double = 0
     @State private var orbBoostTimer: Timer? = nil
     @State private var isOrbRecognizingBoost: Bool = false
     @State private var drivingETASeconds: TimeInterval?
@@ -2011,7 +2012,8 @@ struct ContentView: View {
                             GeometryReader { geo in
                                 let w = geo.size.width
                                 let h = geo.size.height
-                                let t = animationClock.elapsed * 0.3 * parkingOrbBoost
+                                let orbElapsed = isOrbRecognizingBoost ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
+                                let t = orbElapsed * 0.3 * parkingOrbBoost
 
                                 ZStack {
                                     let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
@@ -2246,7 +2248,8 @@ struct ContentView: View {
                         GeometryReader { geo in
                             let w = geo.size.width
                             let h = geo.size.height
-                            let t = animationClock.elapsed * 0.3 * parkingOrbBoost
+                            let orbElapsed = isOrbRecognizingBoost ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
+                                let t = orbElapsed * 0.3 * parkingOrbBoost
 
                             ZStack {
                                 let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
@@ -3189,7 +3192,7 @@ struct ContentView: View {
         // Merge all contributions and display
         mergeAndDisplayParkingInfo()
         saveParkingContributions()
-        triggerOrbSpeedBoost()
+        // triggerOrbSpeedBoost 已由 stopOrbRecognitionBoost() 處理
     }
 
     private func startParkingInfoSwitchTimer() {
@@ -3270,6 +3273,8 @@ struct ContentView: View {
         isOrbRecognizingBoost = true
         // 確保 speedMultiplier 重置，避免同 entrance effect 疊加
         animationClock.speedMultiplier = 1.0
+        // 記錄當前 elapsed 作為基準，識別期間用相對時間
+        orbBoostElapsedOffset = animationClock.elapsed
         let startTime = Date()
         let rampDuration: Double = 3.0
         orbBoostTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
@@ -3278,7 +3283,7 @@ struct ContentView: View {
                 let u = min(t / rampDuration, 1.0)
                 // Smooth ease-in-out：慢啟動 → 平穩加速 → 慢到頂
                 let smooth = u < 0.5 ? 2 * u * u : 1 - pow(-2 * u + 2, 2) / 2
-                parkingOrbBoost = 1.0 + 0.5 * smooth
+                parkingOrbBoost = 1.0 + 4.0 * smooth  // 1.0 → 5.0
                 if u >= 1.0 { timer.invalidate() }
             }
         }
@@ -3287,9 +3292,13 @@ struct ContentView: View {
     private func stopOrbRecognitionBoost() {
         orbBoostTimer?.invalidate()
         orbBoostTimer = nil
-        // 標記脫離識別中 boost 階段（允許六色顯示）
+        // 重置 offset，之後用完整 elapsed
+        orbBoostElapsedOffset = 0
+        // 先 reset 到 1.0，再觸發六色漸顯
+        parkingOrbBoost = 1.0
         isOrbRecognizingBoost = false
-        // 唔即時減速 — 維持 1.5x 直到 triggerOrbSpeedBoost() 接管
+        // 觸發六色 ramp up（1.0→2.6），帶動漸變 crossfade
+        triggerOrbSpeedBoost()
     }
 
     private static func parseFloorIndex(_ text: String) -> Int? {
