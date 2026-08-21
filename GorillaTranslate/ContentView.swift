@@ -2838,6 +2838,7 @@ struct ContentView: View {
 
     private func parkingPointCapsule(point: ParkingPointRecord) -> some View {
         let currentFloor = point.manualFloorIndex ?? point.predictedFloorIndex ?? 0
+        let hasFloor = point.manualFloorIndex != nil || point.predictedFloorIndex != nil
         return ZStack {
             Color.black.opacity(0.001)
                 .ignoresSafeArea()
@@ -2846,7 +2847,7 @@ struct ContentView: View {
                         selectedParkingPointID = nil
                     }
                 }
-            
+
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
                     Text(point.address.isEmpty ? String(localized: "停車點") : point.address)
@@ -2860,6 +2861,16 @@ struct ContentView: View {
                         .monospacedDigit()
                         .contentTransition(.numericText())
                         .animation(.easeInOut(duration: 0.18), value: currentFloor)
+
+                    if !hasFloor {
+                        HStack(spacing: 4) {
+                            ProgressView()
+                                .scaleEffect(0.6)
+                            Text("氣壓計採集中…")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 }
                 
                 HStack(spacing: 14) {

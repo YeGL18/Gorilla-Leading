@@ -598,10 +598,20 @@ final class ParkingFloorStore: ObservableObject {
     }
     
     func recordParkingPoint(from visit: LocationManager.VisitRecord) {
+        // 確保氣壓計正在運行
+        barometer.startIfAuthorized()
+
         let coordinate = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
-        let window = barometer.altitudeWindow(around: visit.arrivalDate,
+
+        // 先嘗試找到達時間附近的樣本
+        var window = barometer.altitudeWindow(around: visit.arrivalDate,
                                               before: 4 * 60,
                                               after: 1 * 60)
+        // 如果沒有，改用最近 2 分鐘的樣本（app 剛恢復時常用）
+        if window == nil || (window?.samples ?? 0) < 3 {
+            window = barometer.recentWindow(seconds: 2 * 60)
+        }
+
         let predicted = predictFloor(
             near: coordinate,
             createdAt: visit.arrivalDate,
@@ -625,6 +635,41 @@ final class ParkingFloorStore: ObservableObject {
             pressure: window?.finalPressure,
             predictedFromLotLearned: predicted.fromLotLearned
         )
+
+        // 如果氣壓計樣本不夠導致樓層未知，60 秒後重試
+        if predicted.floorIndex == nil {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in
+                guard let self else { return }
+                self.retryFloorPrediction(coordinate: coordinate)
+            }
+        }
+    }
+
+    private func retryFloorPrediction(coordinate: CLLocationCoordinate2D) {
+        // 重試時直接用最近 2 分鐘的樣本
+        guard let window = barometer.recentWindow(seconds: 2 * 60),
+              window.samples >= 3 else { return }
+        let predicted = predictFloor(
+            near: coordinate,
+            createdAt: Date(),
+            altitudeDelta: window.deltaMeters,
+            sampleCount: window.samples,
+            referenceAlt: window.referenceAlt,
+            finalAlt: window.finalAlt,
+            pressure: window.finalPressure
+        )
+        guard let floorIndex = predicted.floorIndex else { return }
+        // 找到最近的停車點並更新樓層
+        let lotIdx = findLotIndex(near: coordinate, radiusMeters: Self.defaultRadiusMeters)
+        guard let lotIdx, let point = lots[lotIdx].points.first else { return }
+        if point.predictedFloorIndex == nil && point.manualFloorIndex == nil {
+            lots[lotIdx].points[0].predictedFloorIndex = floorIndex
+            lots[lotIdx].points[0].confidence = predicted.confidence
+            lots[lotIdx].points[0].barometerAltitudeDeltaMeters = window.deltaMeters
+            lots[lotIdx].points[0].barometerSampleCount = window.samples
+            lots[lotIdx].updatedAt = Date()
+            persist()
+        }
     }
     
     func recordParkingPoint(
@@ -1048,6 +1093,25 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         let candidates = samples.filter {
             $0.timestamp >= start && $0.timestamp <= end
         }
+        guard candidates.count >= 3 else { return nil }
+        let firstHalf = candidates.prefix(max(1, candidates.count / 2))
+        let last = candidates.last!
+        let ref = firstHalf.reduce(0.0) { $0 + $1.relativeAltitude } / Double(firstHalf.count)
+        let delta = max(0.0, last.relativeAltitude - ref)
+        return WindowResult(
+            samples: candidates.count,
+            deltaMeters: delta,
+            referenceAlt: ref,
+            finalAlt: last.relativeAltitude,
+            finalPressure: last.pressure
+        )
+    }
+
+    /// 取最近 N 秒的樣本，不管到達時間
+    func recentWindow(seconds: TimeInterval) -> WindowResult? {
+        guard !samples.isEmpty else { return nil }
+        let cutoff = Date().addingTimeInterval(-seconds)
+        let candidates = samples.filter { $0.timestamp >= cutoff }
         guard candidates.count >= 3 else { return nil }
         let firstHalf = candidates.prefix(max(1, candidates.count / 2))
         let last = candidates.last!
