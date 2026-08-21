@@ -52,6 +52,7 @@ struct MapView: UIViewRepresentable {
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
     var continuousFollow: Bool = false
+    var hkDetailMode: Bool = false
     var northOverrideTrackingToken: Int
     var parkingPoints: [ParkingPointRecord]
     var parkingPointTitlePrefixesByID: [UUID: String]
@@ -67,6 +68,8 @@ struct MapView: UIViewRepresentable {
     /// Called when the user taps an empty (annotation-free) area of the map.
     /// Used to collapse the expanded capsule without blocking map pan/zoom.
     var onMapBlankTap: (() -> Void)? = nil
+    /// Called when the user selects/deselects an HK annotation.
+    var onSelectHKLocation: ((String, CLLocationCoordinate2D)?) -> Void = { _ in }
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.colorScheme) private var colorScheme
 
@@ -106,6 +109,10 @@ struct MapView: UIViewRepresentable {
         let pan = UIPanGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
         let pinch = UIPinchGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
         let rotate = UIRotationGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.userTouched(_:)))
+        tap.delegate = context.coordinator
+        pan.delegate = context.coordinator
+        pinch.delegate = context.coordinator
+        rotate.delegate = context.coordinator
         mapView.addGestureRecognizer(tap)
         mapView.addGestureRecognizer(pan)
         mapView.addGestureRecognizer(pinch)
@@ -316,14 +323,24 @@ struct MapView: UIViewRepresentable {
         context.coordinator.applyParkingSelection(selectedParkingPointID: selectedParkingPointID)
 
         // 持續跟隨模式：啟動/停止 heading 追蹤 timer
-        if continuousFollow {
+        if continuousFollow && !hkDetailMode {
             context.coordinator.startContinuousHeading()
         } else {
             context.coordinator.stopContinuousHeading()
         }
+
+        // 香港地圖細覽模式：飛到香港、停用自動追蹤
+        if hkDetailMode != context.coordinator.lastHkDetailMode {
+            context.coordinator.lastHkDetailMode = hkDetailMode
+            if hkDetailMode {
+                context.coordinator.enterHkDetailMode(mapView: mapView)
+            } else {
+                context.coordinator.exitHkDetailMode()
+            }
+        }
     }
 
-    class Coordinator: NSObject, MKMapViewDelegate {
+    class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         var parent: MapView
         weak var mapView: NonAdjustingMapView?
         weak var container: UIView?
@@ -339,6 +356,8 @@ struct MapView: UIViewRepresentable {
         weak var compassButton: MKCompassButton?
         var compassTopConstraint: NSLayoutConstraint?
         var centerOffsetX: CGFloat = 0
+        var lastHkDetailMode = false
+        private var hkAnnotations: [MKPointAnnotation] = []
 
         // 运动检测相关
         private var speedObserver: AnyCancellable?
@@ -383,6 +402,10 @@ struct MapView: UIViewRepresentable {
         private weak var draggingParkingAnnotation: ParkingPointAnnotation?
         private var dragTargetCoordinate: CLLocationCoordinate2D?
         private var parkingDragTimer: Timer?
+        private var isHKDragging = false
+        private weak var draggingHKAnnotation: MKPointAnnotation?
+        private var hkDragTitle: String?
+        private var hkDragTimer: Timer?
 
         init(_ parent: MapView) {
             self.parent = parent
@@ -530,6 +553,85 @@ struct MapView: UIViewRepresentable {
         func stopContinuousHeading() {
             continuousHeadingTimer?.invalidate()
             continuousHeadingTimer = nil
+        }
+
+        // MARK: - 香港地圖細覽模式
+
+        func enterHkDetailMode(mapView: MKMapView) {
+            // 停止所有追蹤
+            autoZoomTimer?.invalidate()
+            autoZoomTimer = nil
+            flyTimer?.invalidate()
+            flyTimer = nil
+            smoothPanTimer?.invalidate()
+            smoothPanTimer = nil
+            stopContinuousHeading()
+            isFlying = false
+            isDriving = false
+            pendingAutoZoom = false
+            isUserInteracting = false
+
+            // 飛到香港
+            let hkCenter = CLLocationCoordinate2D(latitude: 22.3200, longitude: 114.1700)
+            if let nm = mapView as? NonAdjustingMapView { nm.allowCameraChange = true }
+            let camera = MKMapCamera()
+            camera.centerCoordinate = hkCenter
+            camera.centerCoordinateDistance = 80000
+            camera.heading = 0
+            camera.pitch = 0
+            mapView.setCamera(camera, animated: true)
+            if let nm = mapView as? NonAdjustingMapView { nm.allowCameraChange = false }
+
+            // 加入香港地點標注
+            addHkAnnotations(mapView: mapView)
+        }
+
+        func exitHkDetailMode() {
+            guard let mapView else { return }
+            removeHkAnnotations(mapView: mapView)
+            pendingAutoZoom = true
+        }
+
+        private static let hkOverridesKey = "HKLocationOverrides"
+
+        private static func loadHKOverrides() -> [String: CLLocationCoordinate2D] {
+            guard let data = UserDefaults.standard.dictionary(forKey: hkOverridesKey) as? [String: [String: Double]] else { return [:] }
+            var result: [String: CLLocationCoordinate2D] = [:]
+            for (name, dict) in data {
+                if let lat = dict["lat"], let lon = dict["lon"] {
+                    result[name] = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                }
+            }
+            return result
+        }
+
+        private static func saveHKOverride(name: String, coordinate: CLLocationCoordinate2D) {
+            var data = UserDefaults.standard.dictionary(forKey: hkOverridesKey) as? [String: [String: Double]] ?? [:]
+            data[name] = ["lat": coordinate.latitude, "lon": coordinate.longitude]
+            UserDefaults.standard.set(data, forKey: hkOverridesKey)
+        }
+
+        private func addHkAnnotations(mapView: MKMapView) {
+            removeHkAnnotations(mapView: mapView)
+            let locations = HKTaxiExamLocations.all
+            let overrides = Self.loadHKOverrides()
+            for loc in locations {
+                let anno = MKPointAnnotation()
+                if let saved = overrides[loc.name] {
+                    anno.coordinate = saved.wgs84ToGCJ02
+                } else {
+                    anno.coordinate = loc.coordinate.wgs84ToGCJ02
+                }
+                anno.title = loc.name
+                anno.subtitle = loc.category.rawValue
+                mapView.addAnnotation(anno)
+                hkAnnotations.append(anno)
+            }
+        }
+
+        private func removeHkAnnotations(mapView: MKMapView) {
+            mapView.removeAnnotations(hkAnnotations)
+            hkAnnotations.removeAll()
         }
 
         private func setupLocationObserver() {
@@ -815,6 +917,10 @@ struct MapView: UIViewRepresentable {
             }
         }
 
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+            return true
+        }
+
         @objc func userTouched(_ gesture: UIGestureRecognizer) {
             // 正在触摸中：停止所有追蹤
             if gesture.state == .began || gesture.state == .changed {
@@ -895,57 +1001,123 @@ struct MapView: UIViewRepresentable {
                 }
                 return best?.anno
             }
+
+            func nearestHKAnnotation(at point: CGPoint) -> MKPointAnnotation? {
+                let candidates = mapView.annotations.compactMap { a -> MKPointAnnotation? in a as? MKPointAnnotation }.filter { a in hkAnnotations.contains(where: { hk in hk === a }) }
+                var best: (anno: MKPointAnnotation, dist: CGFloat)?
+                for a in candidates {
+                    guard let view = mapView.view(for: a) else { continue }
+                    let d = hypot(view.center.x - point.x, view.center.y - point.y)
+                    if d <= 44 {
+                        if let cur = best {
+                            if d < cur.dist { best = (a, d) }
+                        } else {
+                            best = (a, d)
+                        }
+                    }
+                }
+                return best?.anno
+            }
             
             switch gesture.state {
             case .began:
-                guard let anno = nearestParkingAnnotation(at: pt) else { return }
-                beginUserInteractionIfNeeded()
-                parent.onSelectParkingPoint(nil)
-                isParkingPointDragging = true
-                draggingParkingPointID = anno.pointID
-                draggingParkingAnnotation = anno
-                dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
-                mapView.isScrollEnabled = false
-                mapView.isRotateEnabled = false
-                mapView.isZoomEnabled = false
-                mapView.isPitchEnabled = false
-                
-                parkingDragTimer?.invalidate()
-                parkingDragTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-                    guard let self else { return }
-                    guard self.isParkingPointDragging, let anno = self.draggingParkingAnnotation, let target = self.dragTargetCoordinate else { return }
-                    let cur = anno.coordinate
-                    let a = 0.18
-                    let lat = cur.latitude + (target.latitude - cur.latitude) * a
-                    let lon = cur.longitude + (target.longitude - cur.longitude) * a
-                    anno.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                if let anno = nearestParkingAnnotation(at: pt) {
+                    beginUserInteractionIfNeeded()
+                    parent.onSelectParkingPoint(nil)
+                    isParkingPointDragging = true
+                    draggingParkingPointID = anno.pointID
+                    draggingParkingAnnotation = anno
+                    dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
+                    mapView.isScrollEnabled = false
+                    mapView.isRotateEnabled = false
+                    mapView.isZoomEnabled = false
+                    mapView.isPitchEnabled = false
+
+                    parkingDragTimer?.invalidate()
+                    parkingDragTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+                        guard let self else { return }
+                        guard self.isParkingPointDragging, let anno = self.draggingParkingAnnotation, let target = self.dragTargetCoordinate else { return }
+                        let cur = anno.coordinate
+                        let a = 0.18
+                        let lat = cur.latitude + (target.latitude - cur.latitude) * a
+                        let lon = cur.longitude + (target.longitude - cur.longitude) * a
+                        anno.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    }
+                    RunLoop.current.add(parkingDragTimer!, forMode: .common)
+                } else if let anno = nearestHKAnnotation(at: pt) {
+                    beginUserInteractionIfNeeded()
+                    parent.onSelectHKLocation(nil)
+                    isHKDragging = true
+                    draggingHKAnnotation = anno
+                    hkDragTitle = anno.title
+                    dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
+                    mapView.isScrollEnabled = false
+                    mapView.isRotateEnabled = false
+                    mapView.isZoomEnabled = false
+                    mapView.isPitchEnabled = false
+
+                    hkDragTimer?.invalidate()
+                    hkDragTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+                        guard let self else { return }
+                        guard self.isHKDragging, let anno = self.draggingHKAnnotation, let target = self.dragTargetCoordinate else { return }
+                        let cur = anno.coordinate
+                        let a = 0.18
+                        let lat = cur.latitude + (target.latitude - cur.latitude) * a
+                        let lon = cur.longitude + (target.longitude - cur.longitude) * a
+                        anno.coordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
+                    }
+                    RunLoop.current.add(hkDragTimer!, forMode: .common)
+                } else {
+                    return
                 }
-                RunLoop.current.add(parkingDragTimer!, forMode: .common)
                 
             case .changed:
-                guard isParkingPointDragging else { return }
-                dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
-                
-            case .ended, .cancelled, .failed:
-                guard isParkingPointDragging else { return }
-                isParkingPointDragging = false
-                hasInitialized = true
-                isUserInteracting = false
-                pendingAutoZoom = true
-                mapView.isScrollEnabled = true
-                mapView.isRotateEnabled = true
-                mapView.isZoomEnabled = true
-                mapView.isPitchEnabled = true
-                
-                parkingDragTimer?.invalidate()
-                parkingDragTimer = nil
-                
-                if let id = draggingParkingPointID, let anno = draggingParkingAnnotation {
-                    parent.onMoveParkingPoint(id, anno.coordinate)
+                if isParkingPointDragging || isHKDragging {
+                    dragTargetCoordinate = mapView.convert(pt, toCoordinateFrom: mapView)
                 }
-                draggingParkingPointID = nil
-                draggingParkingAnnotation = nil
-                dragTargetCoordinate = nil
+
+            case .ended, .cancelled, .failed:
+                if isParkingPointDragging {
+                    isParkingPointDragging = false
+                    hasInitialized = true
+                    isUserInteracting = false
+                    pendingAutoZoom = true
+                    mapView.isScrollEnabled = true
+                    mapView.isRotateEnabled = true
+                    mapView.isZoomEnabled = true
+                    mapView.isPitchEnabled = true
+
+                    parkingDragTimer?.invalidate()
+                    parkingDragTimer = nil
+
+                    if let id = draggingParkingPointID, let anno = draggingParkingAnnotation {
+                        parent.onMoveParkingPoint(id, anno.coordinate)
+                    }
+                    draggingParkingPointID = nil
+                    draggingParkingAnnotation = nil
+                    dragTargetCoordinate = nil
+                } else if isHKDragging {
+                    isHKDragging = false
+                    hasInitialized = true
+                    isUserInteracting = false
+                    pendingAutoZoom = true
+                    mapView.isScrollEnabled = true
+                    mapView.isRotateEnabled = true
+                    mapView.isZoomEnabled = true
+                    mapView.isPitchEnabled = true
+
+                    hkDragTimer?.invalidate()
+                    hkDragTimer = nil
+
+                    if let anno = draggingHKAnnotation, let title = hkDragTitle {
+                        Self.saveHKOverride(name: title, coordinate: anno.coordinate.gcj02ToWGS84)
+                    }
+                    draggingHKAnnotation = nil
+                    hkDragTitle = nil
+                    dragTargetCoordinate = nil
+                } else {
+                    return
+                }
                 
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
                     guard let self else { return }
@@ -1223,6 +1395,10 @@ struct MapView: UIViewRepresentable {
             if isApplyingParkingSelection { return }
             if let anno = view.annotation as? ParkingPointAnnotation {
                 parent.onSelectParkingPoint(anno.pointID)
+            } else if let pointAnno = view.annotation as? MKPointAnnotation,
+                      hkAnnotations.contains(where: { $0 === pointAnno }),
+                      let title = pointAnno.title {
+                parent.onSelectHKLocation((title, pointAnno.coordinate))
             }
         }
 
@@ -1230,13 +1406,23 @@ struct MapView: UIViewRepresentable {
             if isApplyingParkingSelection { return }
             if view.annotation is ParkingPointAnnotation {
                 parent.onSelectParkingPoint(nil)
+            } else if let pointAnno = view.annotation as? MKPointAnnotation,
+                      hkAnnotations.contains(where: { $0 === pointAnno }) {
+                parent.onSelectHKLocation(nil)
             }
         }
 
         func mapView(_ mapView: MKMapView, annotationView view: MKAnnotationView, didChange newState: MKAnnotationView.DragState, fromOldState oldState: MKAnnotationView.DragState) {
-            guard let anno = view.annotation as? ParkingPointAnnotation else { return }
-            if newState == .ending || newState == .canceling {
-                parent.onMoveParkingPoint(anno.pointID, anno.coordinate)
+            if let anno = view.annotation as? ParkingPointAnnotation {
+                if newState == .ending || newState == .canceling {
+                    parent.onMoveParkingPoint(anno.pointID, anno.coordinate)
+                    view.dragState = .none
+                }
+            } else if let pointAnno = view.annotation as? MKPointAnnotation,
+                      hkAnnotations.contains(where: { $0 === pointAnno }),
+                      let title = pointAnno.title,
+                      newState == .ending {
+                Self.saveHKOverride(name: title, coordinate: pointAnno.coordinate.gcj02ToWGS84)
                 view.dragState = .none
             }
         }
@@ -1256,6 +1442,52 @@ struct MapView: UIViewRepresentable {
                 view.subtitleVisibility = .visible
                 view.isDraggable = false
                 view.centerOffset = CGPoint(x: 0, y: -10)
+                return view
+            }
+            // 香港地圖細覽模式：自定義標注
+            if let pointAnno = annotation as? MKPointAnnotation, hkAnnotations.contains(where: { $0 === pointAnno }) {
+                let reuseID = "HKAnnotationView"
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MKMarkerAnnotationView) ?? MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
+                view.annotation = annotation
+                view.canShowCallout = true
+                view.titleVisibility = .visible
+                view.subtitleVisibility = .adaptive
+                let category = pointAnno.subtitle ?? ""
+                switch category {
+                case "醫院":
+                    view.markerTintColor = UIColor.systemRed
+                    view.glyphText = "🏥"
+                case "政府機構":
+                    view.markerTintColor = UIColor.systemBlue
+                    view.glyphText = "🏛"
+                case "酒店":
+                    view.markerTintColor = UIColor.systemPurple
+                    view.glyphText = "🏨"
+                case "地標":
+                    view.markerTintColor = UIColor.systemYellow
+                    view.glyphText = "⭐"
+                case "交通設施":
+                    view.markerTintColor = UIColor.systemTeal
+                    view.glyphText = "🚇"
+                case "教育":
+                    view.markerTintColor = UIColor.systemGreen
+                    view.glyphText = "🎓"
+                case "宗教":
+                    view.markerTintColor = UIColor.systemIndigo
+                    view.glyphText = "🛕"
+                case "公園":
+                    view.markerTintColor = UIColor.systemGreen
+                    view.glyphText = "🌳"
+                case "道路":
+                    view.markerTintColor = UIColor.systemGray
+                    view.glyphText = "🛣"
+                case "購物":
+                    view.markerTintColor = UIColor.systemPink
+                    view.glyphText = "🛍"
+                default:
+                    view.markerTintColor = UIColor.systemOrange
+                    view.glyphText = "📍"
+                }
                 return view
             }
             return nil
@@ -1419,6 +1651,7 @@ struct VignetteMapView: View {
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
     var continuousFollow: Bool = false
+    var hkDetailMode: Bool = false
     var parkingPoints: [ParkingPointRecord]
     var parkingPointTitlePrefixesByID: [UUID: String]
     var selectedParkingPointID: UUID?
@@ -1431,6 +1664,7 @@ struct VignetteMapView: View {
     var mapStyleIndex: Int = 0
     var centerOffsetX: CGFloat = 0
     var onMapBlankTap: (() -> Void)? = nil
+    var onSelectHKLocation: ((String, CLLocationCoordinate2D)?) -> Void = { _ in }
     @EnvironmentObject private var locationManager: LocationManager
     @State private var flyTrigger = 0
     @State private var isLandscape = false
@@ -1438,7 +1672,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX, onMapBlankTap: onMapBlankTap)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

@@ -207,6 +207,9 @@ struct ContentView: View {
     }
 
     @State private var mapHeadingMode: MapHeadingMode = .follow
+    @State private var hkDetailMode = false        // 香港地圖細覽模式
+    @State private var gpsTapCount = 0             // GPS 膠囊點擊計數
+    @State private var gpsTapResetTimer: Timer?    // 重置計數的 timer
     @State private var stationaryTrackingTrigger = 0
     @State private var northOverrideTrackingToken = 0
     @State private var showSpeedInfo = false
@@ -248,6 +251,7 @@ struct ContentView: View {
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
     @State private var selectedParkingPointID: UUID?
+    @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
     /// 專注模式（nil = 關閉）—— 時速頁左下角按鈕控制
     @State private var focusMode: FocusModeLevel? = nil
     @State private var focusFrameRate: FocusFrameRate = .fps60
@@ -600,12 +604,12 @@ struct ContentView: View {
                 }
             ZStack {
             if showMap {
-                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                     withAnimation(.easeOut(duration: 0.28)) {
                         selectedParkingPointID = id
                     }
                 }, onMoveParkingPoint: { id, coordinate in
-                    parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate)
+                    parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
                 }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, onMapBlankTap: {
                     // 點擊地圖空白處收縮膠囊 — 由 MKMapView 自己嘅 tap
                     // gesture 處理，所以展開時依然可以正常拖動/縮放地圖
@@ -617,6 +621,10 @@ struct ContentView: View {
                         selectedPhotoIndex = nil
                         showDeleteButton = false
                         capsuleOnRight = false
+                    }
+                }, onSelectHKLocation: { loc in
+                    withAnimation(.easeOut(duration: 0.28)) {
+                        selectedHKLocation = loc
                     }
                 })
                     .ignoresSafeArea()
@@ -702,77 +710,79 @@ struct ContentView: View {
                     let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isCapsuleExpanded ? -140 : 0)) : 0
                     let landscapeButtonOffset: CGFloat = (isLandscape && showMap) ? 20 : 0
                     HStack {
-                        VStack(spacing: 10) {
-                            if showMap {
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.2)) {
-                                        switch mapHeadingMode {
-                                        case .north: mapHeadingMode = .follow
-                                        case .follow: mapHeadingMode = .continuousFollow
-                                        case .continuousFollow: mapHeadingMode = .north
+                        if !hkDetailMode {
+                            VStack(spacing: 10) {
+                                if showMap {
+                                    Button {
+                                        withAnimation(.easeInOut(duration: 0.2)) {
+                                            switch mapHeadingMode {
+                                            case .north: mapHeadingMode = .follow
+                                            case .follow: mapHeadingMode = .continuousFollow
+                                            case .continuousFollow: mapHeadingMode = .north
+                                            }
+                                        }
+                                    } label: {
+                                        Image(systemName: mapHeadingMode.iconName)
+                                            .font(.system(size: 20, weight: .medium))
+                                            .foregroundStyle(mapHeadingMode.isActive ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
+                                            .frame(width: 44, height: 44)
+                                    }
+                                    .buttonStyle(.glass)
+                                    .transition(.blurReplace())
+                                }
+
+                                Menu {
+                                    Button {
+                                        showingAddDestination = true
+                                    } label: {
+                                        Label(String(localized: "新增目的地"), systemImage: "plus")
+                                    }
+
+                                    if !destinationManager.destinations.isEmpty {
+                                        Divider()
+                                        ForEach(destinationManager.destinations) { destination in
+                                            Button {
+                                                destinationManager.selectDestination(destination)
+                                                if isCapsuleExpanded {
+                                                    refreshETA()
+                                                }
+                                                if showingRoute {
+                                                    recalculateRoute()
+                                                }
+                                            } label: {
+                                                HStack {
+                                                    Circle()
+                                                        .fill(destination.color)
+                                                        .frame(width: 8, height: 8)
+                                                    Text(destination.name)
+                                                }
+                                            }
                                         }
                                     }
                                 } label: {
-                                    Image(systemName: mapHeadingMode.iconName)
+                                    Image(systemName: "magnifyingglass")
                                         .font(.system(size: 20, weight: .medium))
-                                        .foregroundStyle(mapHeadingMode.isActive ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
+                                        .foregroundStyle(adaptiveTextColor())
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.glass)
-                                .transition(.blurReplace())
-                            }
 
-                            Menu {
-                                Button {
-                                    showingAddDestination = true
-                                } label: {
-                                    Label(String(localized: "新增目的地"), systemImage: "plus")
-                                }
-
-                                if !destinationManager.destinations.isEmpty {
-                                    Divider()
-                                    ForEach(destinationManager.destinations) { destination in
-                                        Button {
-                                            destinationManager.selectDestination(destination)
-                                            if isCapsuleExpanded {
-                                                refreshETA()
-                                            }
-                                            if showingRoute {
-                                                recalculateRoute()
-                                            }
-                                        } label: {
-                                            HStack {
-                                                Circle()
-                                                    .fill(destination.color)
-                                                    .frame(width: 8, height: 8)
-                                                Text(destination.name)
-                                            }
-                                        }
+                                Button(action: {
+                                    withAnimation(.easeInOut(duration: 0.3)) {
+                                        showMap.toggle()
                                     }
+                                }) {
+                                    Image(systemName: showMap ? "map.fill" : "map")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(adaptiveTextColor())
+                                        .frame(width: 44, height: 44)
                                 }
-                            } label: {
-                                Image(systemName: "magnifyingglass")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(adaptiveTextColor())
-                                    .frame(width: 44, height: 44)
+                                .buttonStyle(.glass)
                             }
-                            .buttonStyle(.glass)
-
-                            Button(action: {
-                                withAnimation(.easeInOut(duration: 0.3)) {
-                                    showMap.toggle()
-                                }
-                            }) {
-                                Image(systemName: showMap ? "map.fill" : "map")
-                                    .font(.system(size: 20, weight: .medium))
-                                    .foregroundStyle(adaptiveTextColor())
-                                    .frame(width: 44, height: 44)
-                            }
-                            .buttonStyle(.glass)
+                            .padding(.leading, 16)
+                            .padding(.bottom, 72)
+                            .offset(y: buttonOffset + landscapeButtonOffset)
                         }
-                        .padding(.leading, 16)
-                        .padding(.bottom, 72)
-                        .offset(y: buttonOffset + landscapeButtonOffset)
 
                         Spacer()
                     }
@@ -781,6 +791,23 @@ struct ContentView: View {
 
             if showMap, let selected = selectedParkingPoint {
                 parkingPointCapsule(point: selected)
+                    .transition(
+                        .asymmetric(
+                            insertion: .modifier(
+                                active: BlurSlideModifier(blur: 28, y: 10, scale: 0.985),
+                                identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
+                            ),
+                            removal: .modifier(
+                                active: BlurSlideModifier(blur: 28, y: 0, scale: 0.985),
+                                identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
+                            )
+                        )
+                    )
+                    .zIndex(20)
+            }
+
+            if showMap, let hkLoc = selectedHKLocation {
+                hkLocationCapsule(title: hkLoc.title, coordinate: hkLoc.coordinate)
                     .transition(
                         .asymmetric(
                             insertion: .modifier(
@@ -2936,6 +2963,103 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - 香港地點彈窗
+
+    private func hkLocationCapsule(title: String, coordinate: CLLocationCoordinate2D) -> some View {
+        ZStack {
+            Color.black.opacity(0.001)
+                .ignoresSafeArea()
+                .onTapGesture {
+                    withAnimation(.easeIn(duration: 0.18)) {
+                        selectedHKLocation = nil
+                    }
+                }
+
+            VStack(spacing: 12) {
+                VStack(spacing: 6) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                }
+
+                HStack(spacing: 14) {
+                    Button {
+                        startNavigationToHKLocation(coordinate)
+                        withAnimation(.easeIn(duration: 0.18)) {
+                            selectedHKLocation = nil
+                        }
+                    } label: {
+                        Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 56, height: 44)
+                            .contentShape(Rectangle())
+                            .glassEffect(.regular, in: .capsule)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .contentShape(Rectangle())
+            .padding(.horizontal, 18)
+            .padding(.vertical, 16)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+            .padding(.horizontal, 28)
+            .offset(y: 56)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        }
+    }
+
+    private func startNavigationToHKLocation(_ coordinate: CLLocationCoordinate2D) {
+        guard let currentLocation = locationManager.lastLocation else { return }
+        let routeToken = UUID()
+        routePriorityToken = routeToken
+        routePriorityAnchor = currentLocation.coordinate
+        let overlayToken = UUID()
+        routeOverlayToken = overlayToken
+        routeOverlayAnimationToken = overlayToken
+        if !showMap {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showMap = true
+            }
+        }
+
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: coordinate.wgs84ToGCJ02))
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = false
+        let directions = MKDirections(request: request)
+        directions.calculate { response, error in
+            guard let route = response?.routes.first, error == nil else {
+                DispatchQueue.main.async {
+                    routePriorityToken = nil
+                    routePriorityAnchor = nil
+                    routeOverlayToken = nil
+                    routeOverlayAnimationToken = nil
+                }
+                return
+            }
+            DispatchQueue.main.async {
+                withAnimation {
+                    showingRoute = true
+                    routePolyline = route.polyline
+                    routeAnimationPolyline = simplifiedRoutePolyline(route.polyline, maxPoints: 220)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+                    guard showingRoute, routePriorityToken == routeToken else { return }
+                    routePriorityToken = nil
+                    routePriorityAnchor = nil
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.1) {
+                    guard showingRoute, routeOverlayToken == overlayToken else { return }
+                    routeOverlayAnimationToken = nil
+                    routeAnimationPolyline = nil
+                }
+            }
+        }
+    }
+
     private func showAdjustText() {
         adjustHideWorkItem?.cancel()
         withAnimation(.easeIn(duration: 0.15)) {
@@ -4098,6 +4222,20 @@ struct ContentView: View {
             // 動畫結束後重置，準備下一次觸發
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.9) {
                 gpsGlowPhase = 0
+            }
+        }
+        .onTapGesture {
+            gpsTapCount += 1
+            gpsTapResetTimer?.invalidate()
+            if gpsTapCount >= 5 {
+                gpsTapCount = 0
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    hkDetailMode.toggle()
+                }
+            } else {
+                gpsTapResetTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
+                    gpsTapCount = 0
+                }
             }
         }
     }

@@ -49,6 +49,7 @@
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
 		P10005 /* MetaballEffect.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10004 /* MetaballEffect.metal */; };
 		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
+		C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A001HK0001 /* HKTaxiExamLocations.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -114,6 +115,7 @@
 		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
 		P10004 /* MetaballEffect.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = MetaballEffect.metal; sourceTree = "<group>"; };
 		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
+		C2A001HK0001 /* HKTaxiExamLocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HKTaxiExamLocations.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -197,6 +199,7 @@
 				A20022 /* LanguageManager.swift */,
 				A20019 /* AnimationClock.swift */,
 				B20001 /* LocationManager.swift */,
+				C2A001HK0001 /* HKTaxiExamLocations.swift */,
 				D20001 /* Destination.swift */,
 				E20001 /* ParkingPhoto.swift */,
 				F20001 /* ParkingRecognitionService.swift */,
@@ -425,6 +428,7 @@
 				A10016 /* SettingsView.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
+				C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,
 				B10002 /* SpeedView.swift in Sources */,
 				C10001 /* MapView.swift in Sources */,
