@@ -51,6 +51,7 @@ struct MapView: UIViewRepresentable {
     var routeOverlay: MKPolyline?
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
+    var continuousFollow: Bool = false
     var northOverrideTrackingToken: Int
     var parkingPoints: [ParkingPointRecord]
     var parkingPointTitlePrefixesByID: [UUID: String]
@@ -313,6 +314,13 @@ struct MapView: UIViewRepresentable {
         
         context.coordinator.syncParkingAnnotations(parkingPoints: parkingPoints, titlePrefixesByID: parkingPointTitlePrefixesByID)
         context.coordinator.applyParkingSelection(selectedParkingPointID: selectedParkingPointID)
+
+        // 持續跟隨模式：啟動/停止 heading 追蹤 timer
+        if continuousFollow {
+            context.coordinator.startContinuousHeading()
+        } else {
+            context.coordinator.stopContinuousHeading()
+        }
     }
 
     class Coordinator: NSObject, MKMapViewDelegate {
@@ -391,6 +399,7 @@ struct MapView: UIViewRepresentable {
             routeDrawTimer?.invalidate()
             routeFadeTimer?.invalidate()
             parkingDragTimer?.invalidate()
+            continuousHeadingTimer?.invalidate()
         }
 
         func prepareRouteDrawAnimation(shouldAnimate: Bool) {
@@ -485,6 +494,44 @@ struct MapView: UIViewRepresentable {
             }
         }
         
+        /// 將 LocationManager 的 heading 修正為地圖座標系的 heading（橫屏時 ±90°）
+        private var correctedHeading: CLLocationDirection {
+            var h = parent.locationManager.heading
+            if let windowScene = mapView?.window?.windowScene {
+                switch windowScene.interfaceOrientation {
+                case .landscapeLeft:  h -= 90
+                case .landscapeRight: h += 90
+                default: break
+                }
+            }
+            return h
+        }
+
+        func startContinuousHeading() {
+            guard continuousHeadingTimer == nil else { return }
+            let frameInterval = 1.0 / 60.0
+            continuousHeadingTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { [weak self] _ in
+                guard let self, let mapView = self.mapView, !self.isUserInteracting else { return }
+                // 持續跟隨：即使 isFlying 也繼續更新 heading，飛行動畫只管位置/縮放
+                let targetHeading = self.correctedHeading
+                let currentHeading = mapView.camera.heading
+                let headingDiff = targetHeading - currentHeading
+                let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
+                guard abs(normalizedDiff) > 0.3 else { return }
+                mapView.allowCameraChange = true
+                let camera = mapView.camera
+                camera.heading = currentHeading + normalizedDiff * 0.12
+                mapView.setCamera(camera, animated: false)
+                mapView.allowCameraChange = false
+            }
+            RunLoop.main.add(continuousHeadingTimer!, forMode: .common)
+        }
+
+        func stopContinuousHeading() {
+            continuousHeadingTimer?.invalidate()
+            continuousHeadingTimer = nil
+        }
+
         private func setupLocationObserver() {
             speedObserver = parent.locationManager.$speed
                 .dropFirst()
@@ -558,6 +605,7 @@ struct MapView: UIViewRepresentable {
         }
 
         var smoothPanTimer: Timer?
+        private var continuousHeadingTimer: Timer?
         private var smoothFromCenter = CLLocationCoordinate2D()
         private var smoothToCenter = CLLocationCoordinate2D()
         private var smoothFromDistance: CLLocationDistance = 800
@@ -612,7 +660,7 @@ struct MapView: UIViewRepresentable {
                 longitude: location.coordinate.longitude
             )
             smoothToDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-            smoothToHeading = parent.followHeading ? parent.locationManager.heading : 0
+            smoothToHeading = parent.followHeading ? correctedHeading : 0
             smoothProgress = 0
             
             let startTime = Date()
@@ -702,7 +750,7 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-                let targetHeadingSmooth: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : 0
+                let targetHeadingSmooth: CLLocationDirection = parent.followHeading ? correctedHeading : 0
                 let currentHeadingSmooth = camera.heading
                 let headingDiffSmooth = targetHeadingSmooth - currentHeadingSmooth
                 let normalizedDiffSmooth = atan2(sin(headingDiffSmooth * .pi / 180), cos(headingDiffSmooth * .pi / 180)) * 180 / .pi
@@ -719,7 +767,7 @@ struct MapView: UIViewRepresentable {
             } else if parent.followHeading {
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
-                let targetHeading = parent.locationManager.heading
+                let targetHeading = correctedHeading
                 let currentHeading = camera.heading
                 let headingDiff = targetHeading - currentHeading
                 let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
@@ -757,7 +805,7 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
                 camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-                let targetHeadingSoft: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : 0
+                let targetHeadingSoft: CLLocationDirection = parent.followHeading ? correctedHeading : 0
                 let currentHeadingSoft = camera.heading
                 let headingDiffSoft = targetHeadingSoft - currentHeadingSoft
                 let normalizedDiffSoft = atan2(sin(headingDiffSoft * .pi / 180), cos(headingDiffSoft * .pi / 180)) * 180 / .pi
@@ -780,6 +828,8 @@ struct MapView: UIViewRepresentable {
                     realTimeUpdateTimer = nil
                     smoothPanTimer?.invalidate()
                     smoothPanTimer = nil
+                    continuousHeadingTimer?.invalidate()
+                    continuousHeadingTimer = nil
                     mapView?.allowCameraChange = false
                     pendingAutoZoom = false
                 }
@@ -970,6 +1020,7 @@ struct MapView: UIViewRepresentable {
             autoZoomTimer?.invalidate()
             autoZoomTimer = nil
             isFlying = true
+            let continuousFollow = parent.continuousFollow
             let targetCenter = CLLocationCoordinate2D(
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
@@ -977,7 +1028,7 @@ struct MapView: UIViewRepresentable {
             let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             let startCenter = mapView.centerCoordinate
             let startHeading = mapView.camera.heading
-            let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? parent.locationManager.heading : 0)
+            let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? correctedHeading : 0)
             // 首次从高空飞下来（加载瓦片），后续用当前高度
             let startDistance: CLLocationDistance = hasShownHighAltitude
                 ? mapView.camera.centerCoordinateDistance
@@ -999,14 +1050,16 @@ struct MapView: UIViewRepresentable {
                 let lat = startCenter.latitude + (targetCenter.latitude - startCenter.latitude) * posEase
                 let lon = startCenter.longitude + (targetCenter.longitude - startCenter.longitude) * posEase
                 let dist = startDistance + (targetDistance - startDistance) * distEase
-                let headingDiff = targetHeading - startHeading
-                let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
-                let currentHeading = startHeading + normalizedDiff * posEase
 
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
-                camera.heading = currentHeading
+                // 持續跟隨模式：heading 由 continuousHeadingTimer 控制，飛行動畫不管
+                if !continuousFollow {
+                    let headingDiff = targetHeading - startHeading
+                    let normalizedDiff = atan2(sin(headingDiff * .pi / 180), cos(headingDiff * .pi / 180)) * 180 / .pi
+                    camera.heading = startHeading + normalizedDiff * posEase
+                }
                 mapView.camera = camera
 
                 if t >= 1.0 {
@@ -1033,10 +1086,11 @@ struct MapView: UIViewRepresentable {
             routeReturnTimer?.invalidate()
             routeReturnTimer = nil
             isFlying = true
+            let continuousFollow = parent.continuousFollow
             let startCenter = mapView.camera.centerCoordinate
             let startDistance = mapView.camera.centerCoordinateDistance
             let startHeading = mapView.camera.heading
-            let targetHeading: CLLocationDirection = parent.followHeading ? parent.locationManager.heading : 0
+            let targetHeading: CLLocationDirection = parent.followHeading ? correctedHeading : 0
             mapView.allowCameraChange = true
             let startTime = Date()
             routeReturnTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in
@@ -1047,12 +1101,14 @@ struct MapView: UIViewRepresentable {
                 let lat = startCenter.latitude + (coordinate.latitude - startCenter.latitude) * ease
                 let lon = startCenter.longitude + (coordinate.longitude - startCenter.longitude) * ease
                 let dist = startDistance + (distance - startDistance) * ease
-                let hdg = startHeading + (targetHeading - startHeading) * ease
 
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
-                camera.heading = hdg
+                // 持續跟隨模式：heading 由 continuousHeadingTimer 控制
+                if !continuousFollow {
+                    camera.heading = startHeading + (targetHeading - startHeading) * ease
+                }
                 mapView.camera = camera
                 if t >= 1.0 {
                     timer.invalidate()
@@ -1362,6 +1418,7 @@ struct VignetteMapView: View {
     var routeOverlay: MKPolyline?
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
+    var continuousFollow: Bool = false
     var parkingPoints: [ParkingPointRecord]
     var parkingPointTitlePrefixesByID: [UUID: String]
     var selectedParkingPointID: UUID?
@@ -1381,7 +1438,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX, onMapBlankTap: onMapBlankTap)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX, onMapBlankTap: onMapBlankTap)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

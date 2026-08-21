@@ -184,7 +184,29 @@ struct ContentView: View {
     @State private var routeAnimationPolyline: MKPolyline?
     @State private var departureTime: Date?
     @State private var showDepartedLabel = false
-    @State private var followHeading = true
+    enum MapHeadingMode: Int {
+        case north = 0           // 朝北：地圖永遠 north-up
+        case follow = 1          // 跟隨：開車時跟隨朝向
+        case continuousFollow = 2 // 持續跟隨：任何時候都跟隨手機朝向
+
+        var iconName: String {
+            switch self {
+            case .north: return "location.north"
+            case .follow: return "location.north.fill"
+            case .continuousFollow: return "location.fill"
+            }
+        }
+
+        var isActive: Bool {
+            self != .north
+        }
+
+        var isContinuous: Bool {
+            self == .continuousFollow
+        }
+    }
+
+    @State private var mapHeadingMode: MapHeadingMode = .follow
     @State private var stationaryTrackingTrigger = 0
     @State private var northOverrideTrackingToken = 0
     @State private var showSpeedInfo = false
@@ -578,7 +600,7 @@ struct ContentView: View {
                 }
             ZStack {
             if showMap {
-                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: followHeading, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                     withAnimation(.easeOut(duration: 0.28)) {
                         selectedParkingPointID = id
                     }
@@ -684,12 +706,16 @@ struct ContentView: View {
                             if showMap {
                                 Button {
                                     withAnimation(.easeInOut(duration: 0.2)) {
-                                        followHeading.toggle()
+                                        switch mapHeadingMode {
+                                        case .north: mapHeadingMode = .follow
+                                        case .follow: mapHeadingMode = .continuousFollow
+                                        case .continuousFollow: mapHeadingMode = .north
+                                        }
                                     }
                                 } label: {
-                                    Image(systemName: followHeading ? "location.north.fill" : "location.north")
+                                    Image(systemName: mapHeadingMode.iconName)
                                         .font(.system(size: 20, weight: .medium))
-                                        .foregroundStyle(followHeading ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
+                                        .foregroundStyle(mapHeadingMode.isActive ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.glass)
@@ -3439,7 +3465,7 @@ struct ContentView: View {
         } else if name.contains("office") || name.contains("公司") {
             return String(localized: "離公司距離")
         }
-        return String(localized: "離目的地距離")
+        return "離\(dest.name)距離"
     }
 
     private func updateVisitStatus() {
@@ -4019,20 +4045,20 @@ struct ContentView: View {
     }
 
     // MARK: - GPS Status Badge
-    @State private var gpsGlowPhase: CGFloat = 0
+    @State private var gpsGlowPhase: CGFloat = 0  // 0 = 脈動起點（出現），1 = 擴散到最外圍
 
     private var gpsStatusBadge: some View {
         HStack(spacing: 6) {
             Circle()
                 .fill(gpsColor)
                 .frame(width: 8, height: 8)
+                .animation(.easeInOut(duration: 0.5), value: gpsColor)
                 .phaseAnimator([false, true]) { content, phase in
                     content
                         .scaleEffect(phase ? 0.9 : 0.8)
                 } animation: { _ in
                     .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
                 }
-                .animation(.easeInOut(duration: 0.5), value: gpsColor)
 
             ZStack {
                 Text("VADY").hidden()
@@ -4056,8 +4082,8 @@ struct ContentView: View {
                 Circle()
                     .fill(gpsColor.opacity(0.5))
                     .frame(width: 8, height: 8)
-                    .scaleEffect(gpsGlowPhase > 0 ? requiredScale : 1)
-                    .opacity(gpsGlowPhase > 0 ? 0 : 0.5)
+                    .scaleEffect(gpsGlowPhase * requiredScale)
+                    .opacity(gpsGlowPhase < 0.8 ? 0.5 : 0.5 * (1 - (gpsGlowPhase - 0.8) / 0.2))
                     .position(x: dotCenterX, y: geo.size.height / 2)
                     .allowsHitTesting(false)
             }
@@ -4065,8 +4091,7 @@ struct ContentView: View {
         .clipShape(.rect(cornerRadius: 22))
         .glassEffect(.regular, in: .rect(cornerRadius: 22))
         .onChange(of: locationManager.gpsQuality) { _, _ in
-            // 每次 GPS 狀態變化都觸發一次光暈脈動
-            gpsGlowPhase = 0
+            // GPS 狀態變化觸發光暈脈動：出現 → 擴散 → 淡出
             withAnimation(.easeOut(duration: 1.8)) {
                 gpsGlowPhase = 1
             }
@@ -4074,9 +4099,6 @@ struct ContentView: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 1.9) {
                 gpsGlowPhase = 0
             }
-        }
-        .onAppear {
-            // 不觸發入場光暈，只保留日常狀態變化時的光暈
         }
     }
 
