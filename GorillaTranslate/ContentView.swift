@@ -3625,6 +3625,11 @@ struct ContentView: View {
                     RoundedRectangle(cornerRadius: camCR)
                         .stroke(Color.white.opacity(0.8), lineWidth: 4)
                 )
+                .overlay(
+                    RoundedRectangle(cornerRadius: camCR - 2)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                        .padding(2)
+                )
 
             // Black fade overlay — 相機未啟動時顯示，攔截觸控開啟相機
             RoundedRectangle(cornerRadius: camCR)
@@ -3633,6 +3638,11 @@ struct ContentView: View {
                 .overlay(
                     RoundedRectangle(cornerRadius: camCR)
                         .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: camCR - 2)
+                        .stroke(Color.white.opacity(0.25), lineWidth: 1)
+                        .padding(2)
                 )
                 .overlay(
                     VStack(spacing: 10) {
