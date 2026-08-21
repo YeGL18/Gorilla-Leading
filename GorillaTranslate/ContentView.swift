@@ -221,7 +221,6 @@ struct ContentView: View {
     @State private var currentRecognizingPhotoID: UUID? = nil
     @State private var parkingOrbBoost: Double = 1.0
     @State private var orbBoostElapsedOffset: Double = 0
-    @State private var orbBoostTimer: Timer? = nil
     @State private var isOrbRecognizingBoost: Bool = false
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
@@ -351,7 +350,9 @@ struct ContentView: View {
         .preferredColorScheme(resolvedColorScheme)
         .onAppear {
             animationClock.start()
-            timePhaseManager.start()
+            if orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
+                timePhaseManager.start()
+            }
             UIApplication.shared.isIdleTimerDisabled = true
             DispatchQueue.main.async {
                 locationManager.startLocationServicesIfNeeded()
@@ -1571,45 +1572,46 @@ struct ContentView: View {
         return opacity < 1.0 ? color.opacity(opacity) : color
     }
 
+    @ViewBuilder
     private var orbBackground: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            let t = animationClock.elapsed
-            let orbScale = sqrt(h / 44.0)
+        if effectiveOrbOpacity > 0 {
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+                let t = animationClock.elapsed
+                let orbScale = sqrt(h / 44.0)
 
-            ZStack {
-                if effectiveOrbOpacity > 0 {
+                ZStack {
                     Color.black.opacity(0.4)
-                }
 
-                Circle()
-                    .fill(Color(hex: "BEBC3F").opacity(0.3 * effectiveOrbOpacity))
-                    .blur(radius: 20)
-                    .frame(width: 200 * orbScale, height: 200 * orbScale)
-                    .offset(
-                        x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.35 - 100 * orbScale,
-                        y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 100 * orbScale
-                    )
-                Circle()
-                    .fill(Color(hex: "5CAEB7").opacity(0.3 * effectiveOrbOpacity))
-                    .blur(radius: 20)
-                    .frame(width: 220 * orbScale, height: 220 * orbScale)
-                    .offset(
-                        x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.3 - 110 * orbScale,
-                        y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 110 * orbScale
-                    )
-                Circle()
-                    .fill(Color(hex: "0098FF").opacity(0.3 * effectiveOrbOpacity))
-                    .blur(radius: 20)
-                    .frame(width: 180 * orbScale, height: 180 * orbScale)
-                    .offset(
-                        x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 90 * orbScale,
-                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 90 * orbScale
-                    )
+                    Circle()
+                        .fill(Color(hex: "BEBC3F").opacity(0.3 * effectiveOrbOpacity))
+                        .blur(radius: 20)
+                        .frame(width: 200 * orbScale, height: 200 * orbScale)
+                        .offset(
+                            x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.35 - 100 * orbScale,
+                            y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 100 * orbScale
+                        )
+                    Circle()
+                        .fill(Color(hex: "5CAEB7").opacity(0.3 * effectiveOrbOpacity))
+                        .blur(radius: 20)
+                        .frame(width: 220 * orbScale, height: 220 * orbScale)
+                        .offset(
+                            x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.3 - 110 * orbScale,
+                            y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 110 * orbScale
+                        )
+                    Circle()
+                        .fill(Color(hex: "0098FF").opacity(0.3 * effectiveOrbOpacity))
+                        .blur(radius: 20)
+                        .frame(width: 180 * orbScale, height: 180 * orbScale)
+                        .offset(
+                            x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 90 * orbScale,
+                            y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 90 * orbScale
+                        )
+                }
             }
+            .clipShape(.rect(cornerRadius: 34))
         }
-        .clipShape(.rect(cornerRadius: 34))
     }
 
     private var expandedContent: some View {
@@ -3232,33 +3234,23 @@ struct ContentView: View {
     // MARK: - Orb Recognition Boost (識別中加速)
 
     private func startOrbRecognitionBoost() {
-        orbBoostTimer?.invalidate()
         isOrbRecognizingBoost = true
         // 確保 speedMultiplier 重置，避免同 entrance effect 疊加
         animationClock.speedMultiplier = 1.0
         // 記錄當前 elapsed 作為基準，識別期間用相對時間
         orbBoostElapsedOffset = animationClock.elapsed
-        let startTime = Date()
-        let rampDuration: Double = 3.0
-        orbBoostTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                let t = Date().timeIntervalSince(startTime)
-                let u = min(t / rampDuration, 1.0)
-                // Smooth ease-in-out：慢啟動 → 平穩加速 → 慢到頂
-                let smooth = u < 0.5 ? 2 * u * u : 1 - pow(-2 * u + 2, 2) / 2
-                parkingOrbBoost = 1.0 + 4.0 * smooth  // 1.0 → 5.0
-                if u >= 1.0 { timer.invalidate() }
-            }
+        withAnimation(.easeInOut(duration: 3.0)) {
+            parkingOrbBoost = 5.0
         }
     }
 
     private func stopOrbRecognitionBoost() {
-        orbBoostTimer?.invalidate()
-        orbBoostTimer = nil
         // 重置 offset，之後用完整 elapsed
         orbBoostElapsedOffset = 0
-        // 先 reset 到 1.0，再觸發六色漸顯
-        parkingOrbBoost = 1.0
+        // 立即重置（取消正在跑的 easeInOut 動畫）
+        withTransaction(Transaction(animation: .none)) {
+            parkingOrbBoost = 1.0
+        }
         isOrbRecognizingBoost = false
         // 觸發六色 ramp up（1.0→2.6），帶動漸變 crossfade
         triggerOrbSpeedBoost()
@@ -3639,6 +3631,10 @@ struct ContentView: View {
                 .fill(Color.black)
                 .frame(width: camW, height: camH)
                 .overlay(
+                    RoundedRectangle(cornerRadius: camCR)
+                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                )
+                .overlay(
                     VStack(spacing: 10) {
                         ZStack {
                             // 底層：整個 symbol（含四角框框）
@@ -3956,40 +3952,43 @@ struct ContentView: View {
     }
 
     private var cameraButton: some View {
-        Button(action: { capturePhoto() }) {
+        let cameraVisible = cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos
+        return Button(action: { capturePhoto() }) {
             ZStack {
                 RoundedRectangle(cornerRadius: 24)
                     .frame(width: 66, height: 166)
                     .glassEffect(.regular, in: .rect(cornerRadius: 24))
                     .tint(.clear)
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    let h = geo.size.height
-                    let t = animationClock.elapsed * 0.3
-                    ZStack {
-                        Circle()
-                            .fill(Color(hex: "3497FF").opacity(0.85))
-                            .blur(radius: 18)
-                            .frame(width: 112, height: 112)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
-                        Circle()
-                            .fill(Color(hex: "FFC46D").opacity(0.85))
-                            .frame(width: 124, height: 124)
-                            .blur(radius: 18)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
-                        Circle()
-                            .fill(Color(hex: "FF825C").opacity(0.85))
-                            .frame(width: 102, height: 102)
-                            .blur(radius: 18)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
+                if cameraVisible {
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let h = geo.size.height
+                        let t = animationClock.elapsed * 0.3
+                        ZStack {
+                            Circle()
+                                .fill(Color(hex: "3497FF").opacity(0.85))
+                                .blur(radius: 18)
+                                .frame(width: 112, height: 112)
+                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
+                            Circle()
+                                .fill(Color(hex: "FFC46D").opacity(0.85))
+                                .frame(width: 124, height: 124)
+                                .blur(radius: 18)
+                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
+                            Circle()
+                                .fill(Color(hex: "FF825C").opacity(0.85))
+                                .frame(width: 102, height: 102)
+                                .blur(radius: 18)
+                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
+                        }
                     }
+                    .frame(width: 57, height: 158)
+                    .clipShape(.rect(cornerRadius: 20))
+                    .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white.opacity(0.2), lineWidth: 1.6))
                 }
-                .frame(width: 57, height: 158)
-                .clipShape(.rect(cornerRadius: 20))
-                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white.opacity(0.2), lineWidth: 1.6))
                 Image(systemName: "camera.fill")
                     .font(.system(size: 27))
                     .foregroundStyle(.white)
@@ -4002,8 +4001,8 @@ struct ContentView: View {
         }, perform: {})
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
         .padding(.trailing, 10)
-        .blur(radius: !cameraButtonBlurIn || showingExpandedPhotos || photoStorage.photos.count >= PhotoStorage.maxPhotos ? 12 : 0)
-        .opacity(!cameraButtonBlurIn || showingExpandedPhotos || photoStorage.photos.count >= PhotoStorage.maxPhotos ? 0 : 1)
+        .blur(radius: cameraVisible ? 0 : 12)
+        .opacity(cameraVisible ? 1 : 0)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: cameraButtonBlurIn)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: showingExpandedPhotos)
         .animation(.spring(response: 0.45, dampingFraction: 0.85), value: photoStorage.photos.count)
@@ -4594,82 +4593,5 @@ extension AnyTransition {
         .modifier(active: BlurModifier(radius: 12), identity: BlurModifier(radius: 0))
             .combined(with: active)
             .combined(with: extra)
-    }
-}
-
-// MARK: - Camera Viewfinder Breathing Animation
-struct CameraViewfinderAnimation: View {
-    @State private var phase: Double = 0
-    let size: CGFloat = 36
-    let lineWidth: CGFloat = 3
-    let cornerLen: CGFloat = 10
-    let color: Color = .white.opacity(0.6)
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { timeline in
-            viewfinderCanvas
-        }
-        .onAppear {
-            withAnimation(.linear(duration: 3.0).repeatForever(autoreverses: false)) {
-                phase = 1
-            }
-        }
-    }
-
-    private var viewfinderCanvas: some View {
-        let t = phase
-        // 0→0.4 expand, 0.4→0.5 hold, 0.5→0.9 shrink, 0.9→1.0 hold
-        let expand: Double = {
-            if t < 0.4 { return easeInOut(t / 0.4) }
-            if t < 0.5 { return 1 }
-            if t < 0.9 { return 1 - easeInOut((t - 0.5) / 0.4) }
-            return 0
-        }()
-        let offset: CGFloat = 6 * CGFloat(expand)
-
-        return Canvas { context, canvasSize in
-            let s = canvasSize.width
-            let hw = lineWidth / 2
-            let len = cornerLen
-
-            // Top-left
-            var p = Path()
-            p.move(to: CGPoint(x: offset + hw, y: offset + len))
-            p.addLine(to: CGPoint(x: offset + hw, y: offset + hw))
-            p.addLine(to: CGPoint(x: offset + len, y: offset + hw))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-
-            // Top-right
-            p = Path()
-            p.move(to: CGPoint(x: s - offset - len, y: offset + hw))
-            p.addLine(to: CGPoint(x: s - offset - hw, y: offset + hw))
-            p.addLine(to: CGPoint(x: s - offset - hw, y: offset + len))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-
-            // Bottom-left
-            p = Path()
-            p.move(to: CGPoint(x: offset + hw, y: s - offset - len))
-            p.addLine(to: CGPoint(x: offset + hw, y: s - offset - hw))
-            p.addLine(to: CGPoint(x: offset + len, y: s - offset - hw))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-
-            // Bottom-right
-            p = Path()
-            p.move(to: CGPoint(x: s - offset - len, y: s - offset - hw))
-            p.addLine(to: CGPoint(x: s - offset - hw, y: s - offset - hw))
-            p.addLine(to: CGPoint(x: s - offset - hw, y: s - offset - len))
-            context.stroke(p, with: .color(color), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-
-            // Center circle
-            let circleR: CGFloat = 4
-            let center = CGPoint(x: s / 2, y: s / 2)
-            let circleRect = CGRect(x: center.x - circleR, y: center.y - circleR, width: circleR * 2, height: circleR * 2)
-            context.stroke(Path(ellipseIn: circleRect), with: .color(color), style: StrokeStyle(lineWidth: 1.5))
-        }
-        .frame(width: size, height: size)
-    }
-
-    private func easeInOut(_ t: Double) -> Double {
-        t < 0.5 ? 2 * t * t : 1 - pow(-2 * t + 2, 2) / 2
     }
 }

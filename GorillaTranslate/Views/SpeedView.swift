@@ -192,7 +192,9 @@ struct SpeedView: View {
             }
         }
         .onAppear {
-            timePhaseManager.start()
+            if orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb {
+                timePhaseManager.start()
+            }
             startActiveParallax()
             syncParallaxFrameRate()
         }
