@@ -10,7 +10,7 @@ struct SpeedSimulationView: View {
                 .fill(Color.black.opacity(0.8))
 
             VStack(spacing: 8) {
-                Text("SU7 Ultra 时速模拟")
+                Text(String(localized: "SU7 Ultra 时速模拟"))
                     .font(.headline)
                     .foregroundColor(.white)
 

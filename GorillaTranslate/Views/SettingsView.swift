@@ -27,6 +27,7 @@ struct SettingsView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
     
+    @State private var showLanguagePicker = false
     @State private var showingDestinationPicker = false
     @State private var showingAddDestination = false
     @State private var showingEditDestination = false
@@ -35,10 +36,58 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                // Language Section
+                Section {
+                    HStack {
+                        Text(String(localized: "語言"))
+                        Spacer()
+                        Text(LanguageManager.shared.currentAppLanguage.displayName)
+                            .foregroundStyle(.secondary)
+                        Image(systemName: "chevron.right")
+                            .foregroundStyle(.tertiary)
+                            .font(.caption)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { showLanguagePicker = true }
+                } header: {
+                    Label(String(localized: "語言"), systemImage: "globe")
+                }
+                .sheet(isPresented: $showLanguagePicker) {
+                    NavigationStack {
+                        List {
+                            ForEach(AppLanguage.allCases) { lang in
+                                Button {
+                                    LanguageManager.shared.currentLanguage = lang.rawValue
+                                    LanguageManager.shared.applyLanguage()
+                                    showLanguagePicker = false
+                                } label: {
+                                    HStack {
+                                        Text("\(lang.flag) \(lang.displayName)")
+                                            .foregroundStyle(.primary)
+                                        Spacer()
+                                        if LanguageManager.shared.currentLanguage == lang.rawValue {
+                                            Image(systemName: "checkmark")
+                                                .foregroundStyle(.blue)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .navigationTitle(String(localized: "語言"))
+                        .navigationBarTitleDisplayMode(.inline)
+                        .toolbar {
+                            ToolbarItem(placement: .cancellationAction) {
+                                Button(String(localized: "關閉")) { showLanguagePicker = false }
+                            }
+                        }
+                    }
+                    .presentationDetents([.medium])
+                }
+
                 // Destination Section
                 Section {
                     if destinationManager.destinations.isEmpty {
-                        Text("No saved destinations yet")
+                        Text(String(localized: "No saved destinations yet"))
                             .foregroundStyle(.secondary)
                     } else {
                         ForEach(destinationManager.destinations) { destination in
@@ -86,7 +135,7 @@ struct SettingsView: View {
                     }
                 } header: {
                     HStack {
-                        Label("Destinations", systemImage: "mappin.circle")
+                        Label(String(localized: "目的地"), systemImage: "mappin.circle")
                         Spacer()
                         Button {
                             showingAddDestination = true
@@ -98,91 +147,91 @@ struct SettingsView: View {
 
                 // Appearance Section
                 Section {
-                    Picker("Theme", selection: $appearanceMode) {
-                        Text("System").tag(0)
-                        Text("Dark").tag(1)
-                        Text("Light").tag(2)
+                    Picker(String(localized: "外觀"), selection: $appearanceMode) {
+                        Text(String(localized: "System")).tag(0)
+                        Text(String(localized: "Dark")).tag(1)
+                        Text(String(localized: "Light")).tag(2)
                     }
 
-                    Picker("Color Scheme", selection: $colorSchemeIndex) {
-                        Text("Default").tag(0)
+                    Picker(String(localized: "地圖樣式"), selection: $colorSchemeIndex) {
+                        Text(String(localized: "Default")).tag(0)
                         Text("27").tag(1)
                     }
                 } header: {
-                    Label("Appearance", systemImage: "paintpalette")
+                    Label(String(localized: "外觀"), systemImage: "paintpalette")
                 }
 
                 // Map Tracking Section
                 Section {
                     Toggle(isOn: $highFrequencyTracking) {
-                        Label("高頻率地圖追蹤", systemImage: "location.fill")
+                        Label(String(localized: "高頻率地圖追蹤"), systemImage: "location.fill")
                     }
-                    Text("開啟後地圖視角更新更流暢，但會增加耗電。關閉後更新頻率降低，延長電池壽命。")
+                    Text(String(localized: "開啟後地圖視角更新更流暢，但會增加耗電。關閉後更新頻率降低，延長電池壽命。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
 
-                    Picker("追蹤動畫", selection: $mapTrackingAnimation) {
-                        Text("標準").tag(0)
-                        Text("柔軟").tag(1)
+                    Picker(String(localized: "追蹤動畫"), selection: $mapTrackingAnimation) {
+                        Text(String(localized: "標準")).tag(0)
+                        Text(String(localized: "柔軟")).tag(1)
                     }
                 } header: {
-                    Label("Map Tracking", systemImage: "map")
+                    Label(String(localized: "地圖追蹤"), systemImage: "map")
                 }
 
                 Section {
-                    Picker("地圖風格", selection: $mapStyleIndex) {
-                        Text("默認").tag(0)
-                        Text("我的世界").tag(1)
+                    Picker(String(localized: "地圖風格"), selection: $mapStyleIndex) {
+                        Text(String(localized: "默認")).tag(0)
+                        Text(String(localized: "我的世界")).tag(1)
                     }
                     .pickerStyle(.segmented)
                 } header: {
-                    Label("Map Style", systemImage: "paintbrush")
+                    Label(String(localized: "地圖樣式"), systemImage: "paintbrush")
                 }
 
                 Section {
                     Toggle(isOn: $sfxAccelerationEnabled) {
-                        Label("加速音效", systemImage: "speaker.wave.2")
+                        Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
                     }
-                    Text("關閉後，時速頁嘅「加速」提示聲會停用。")
+                    Text(String(localized: "關閉後，時速頁嘅「加速」提示聲會停用。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
-                    Label("Sound", systemImage: "speaker")
+                    Label(String(localized: "音效"), systemImage: "speaker")
                 }
 
                 Section {
                     Toggle(isOn: $vlmRecognitionEnabled) {
-                        Label("VLM 車位識別", systemImage: "brain.head.profile")
+                        Label(String(localized: "VLM 車位識別"), systemImage: "brain.head.profile")
                     }
-                    Text("拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。")
+                    Text(String(localized: "拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
-                    Label("Parking Recognition", systemImage: "car")
+                    Label(String(localized: "泊車識別"), systemImage: "car")
                 }
 
                 // Orb Effects Section
                 Section {
                     Toggle(isOn: $orbMasterEnabled) {
-                        Label("光球效果總開關", systemImage: "sparkles")
+                        Label(String(localized: "光球效果總開關"), systemImage: "sparkles")
                     }
 
                     if orbMasterEnabled {
-                        Picker("背景效果", selection: $useTimeBasedOrb) {
-                            Text("光球").tag(false)
-                            Text("時程").tag(true)
+                        Picker(String(localized: "背景效果"), selection: $useTimeBasedOrb) {
+                            Text(String(localized: "光球")).tag(false)
+                            Text(String(localized: "時程")).tag(true)
                         }
-                        
-                        Toggle("緊湊膠囊", isOn: $orbCapsule)
-                        Toggle("擴展膠囊", isOn: $orbExpanded)
-                        Toggle("泊車記憶", isOn: $orbParkingMemory)
-                        Toggle("主頁背景", isOn: $orbBackgroundHome)
-                        Toggle("時速頁背景", isOn: $orbBackgroundSpeed)
-                        
+
+                        Toggle(String(localized: "緊湊膠囊"), isOn: $orbCapsule)
+                        Toggle(String(localized: "擴展膠囊"), isOn: $orbExpanded)
+                        Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
+                        Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
+                        Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
+
                         if useTimeBasedOrb {
                             VStack(spacing: 12) {
                                 HStack {
-                                    Text("預覽時間")
+                                    Text(String(localized: "預覽時間"))
                                     Spacer()
                                     if isAutoPlaying {
                                         Text("\(Int(timePreviewHour)):00")
@@ -259,20 +308,20 @@ struct SettingsView: View {
                         }
                     }
                 } header: {
-                    Label("光球效果", systemImage: "sparkles")
+                    Label(String(localized: "光球效果"), systemImage: "sparkles")
                 }
 
             }
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListHeaderHeight, 36)
             .listRowSpacing(0)
-            .navigationTitle("Settings")
+            .navigationTitle(String(localized: "Settings"))
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     NavigationLink {
                         ParkingFloorTestView()
                     } label: {
-                        Text("測試")
+                        Text(String(localized: "測試"))
                     }
                 }
             }
@@ -373,76 +422,76 @@ struct ParkingFloorTestView: View {
             NavigationLink {
                 ParkingFlowTestView()
             } label: {
-                Label("停車流程測試", systemImage: "parkingsign.circle.fill")
+                Label(String(localized: "停車流程測試"), systemImage: "parkingsign.circle.fill")
             }
-            
+
             NavigationLink {
                 TimeOrbAnimationTestView()
             } label: {
-                Label("時程光球動畫測試", systemImage: "sparkles")
+                Label(String(localized: "時程光球動畫測試"), systemImage: "sparkles")
             }
-            
+
             NavigationLink {
                 VisitRecordsTestView()
             } label: {
-                Label("到訪記錄測試", systemImage: "mappin.and.ellipse")
+                Label(String(localized: "到訪記錄測試"), systemImage: "mappin.and.ellipse")
             }
-            
+
             NavigationLink {
                 SpeedAnimationTestView()
             } label: {
-                Label("模擬動畫時速動畫測試", systemImage: "speedometer")
+                Label(String(localized: "模擬動畫時速動畫測試"), systemImage: "speedometer")
             }
-            
+
             NavigationLink {
                 AltimeterTestView()
             } label: {
-                Label("氣壓計曲線測試", systemImage: "barometer")
+                Label(String(localized: "氣壓計曲線測試"), systemImage: "barometer")
             }
-            
+
             NavigationLink {
                 AddressCapsuleBeamTestView()
             } label: {
-                Label("地址膠囊 BorderBeam 測試", systemImage: "dot.squareshape.split.2x2")
+                Label(String(localized: "地址膠囊 BorderBeam 測試"), systemImage: "dot.squareshape.split.2x2")
             }
 
             NavigationLink {
                 PlaceManagementView()
             } label: {
-                Label("地點管理", systemImage: "brain.head.profile")
+                Label(String(localized: "地點管理"), systemImage: "brain.head.profile")
             }
 
             NavigationLink {
                 ParkingMemoryPhotoTestView()
             } label: {
-                Label("泊車記憶拍照效果測試", systemImage: "camera.on.rectangle")
+                Label(String(localized: "泊車記憶拍照效果測試"), systemImage: "camera.on.rectangle")
             }
 
             NavigationLink {
                 ParkingMemorySwipeTestView()
             } label: {
-                Label("抽離牌組動畫測試", systemImage: "rectangle.split.3x1")
+                Label(String(localized: "抽離牌組動畫測試"), systemImage: "rectangle.split.3x1")
             }
 
             NavigationLink {
                 ParkingRecognitionTestView()
             } label: {
-                Label("泊車辨識測試 (OCR)", systemImage: "text.viewfinder")
+                Label(String(localized: "泊車辨識測試 (OCR)"), systemImage: "text.viewfinder")
             }
 
             NavigationLink {
                 ParkingLLMRecognitionTestView()
             } label: {
-                Label("泊車辨識測試 (LLM)", systemImage: "brain.head.profile")
+                Label(String(localized: "泊車辨識測試 (LLM)"), systemImage: "brain.head.profile")
             }
 
             NavigationLink {
                 LiveActivityPreviewTestView()
             } label: {
-                Label("即時活動樣式預覽", systemImage: "iphone.and.dynamicIsland")
+                Label(String(localized: "即時活動樣式預覽"), systemImage: "iphone.and.dynamicIsland")
             }
         }
-        .navigationTitle("測試")
+        .navigationTitle(String(localized: "測試"))
         .navigationBarTitleDisplayMode(.inline)
     }
 }

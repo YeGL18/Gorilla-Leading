@@ -1119,10 +1119,10 @@ struct MapView: UIViewRepresentable {
                     mapView.addAnnotation(anno)
                 }
                 anno.coordinate = gcj02
-                let floor = p.displayFloor ?? "未知"
-                let suffix = (floor == "未知") ? "未知" : (floor.contains("/") ? floor : "\(floor)/F")
+                let floor = p.displayFloor ?? String(localized: "未知")
+                let suffix = (floor == String(localized: "未知")) ? String(localized: "未知") : (floor.contains("/") ? floor : "\(floor)/F")
                 let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let baseTitle = prefix.isEmpty ? "停車點" : "\(prefix)停車點"
+                let baseTitle = prefix.isEmpty ? String(localized: "停車點") : "\(prefix)" + String(localized: "停車點")
                 anno.title = "\(baseTitle) \(suffix)"
                 anno.subtitle = p.address.isEmpty ? nil : p.address
                 next[p.id] = anno

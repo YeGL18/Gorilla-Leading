@@ -315,7 +315,7 @@ struct SpeedView: View {
                         }
                     }
                 } label: {
-                    Text(mode == .tilt ? "傾斜" : "G值")
+                    Text(mode == .tilt ? String(localized: "傾斜") : String(localized: "G值"))
                         .font(.system(size: 14, weight: isSelected ? .semibold : .regular))
                         .foregroundStyle(isSelected ? .primary : .secondary)
                         .padding(.horizontal, 16)
@@ -606,9 +606,9 @@ struct FocusModeSheet: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 12) {
-                Text("專注模式")
+                Text(String(localized: "專注模式"))
                     .font(.title2.bold())
-                Text("閂走時速顯示以外嘅功能，減少耗電同發熱")
+                Text(String(localized: "閂走時速顯示以外嘅功能，減少耗電同發熱"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
@@ -618,7 +618,7 @@ struct FocusModeSheet: View {
 
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("背景動畫幀率")
+                        Text(String(localized: "背景動畫幀率"))
                             .font(.subheadline.weight(.semibold))
                         Spacer()
                         Text("\(Int(fpsSliderValue)) fps")
@@ -628,7 +628,7 @@ struct FocusModeSheet: View {
                             .animation(.easeInOut(duration: 0.15), value: fpsSliderValue)
                     }
                     Slider(value: $fpsSliderValue, in: 60...120, step: 30) {
-                        Text("背景動畫幀率")
+                        Text(String(localized: "背景動畫幀率"))
                     } minimumValueLabel: {
                         Text("60")
                             .font(.caption)
@@ -639,7 +639,7 @@ struct FocusModeSheet: View {
                             .foregroundStyle(.secondary)
                     }
                     .tint(selectedLevel.color)
-                    Text("120 fps 只喺 ProMotion 機型有效，會稍微增加耗電")
+                    Text(String(localized: "120 fps 只喺 ProMotion 機型有效，會稍微增加耗電"))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
@@ -648,7 +648,7 @@ struct FocusModeSheet: View {
                 Button {
                     onEnter(selectedLevel, FocusFrameRate(rawValue: Int(fpsSliderValue)) ?? .fps60)
                 } label: {
-                    Text("進入專注模式")
+                    Text(String(localized: "進入專注模式"))
                         .font(.headline)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 6)

@@ -1,8 +1,6 @@
 import SwiftUI
 import UIKit
 import UserNotifications
-import FoundationModels
-import Speech
 import Accelerate
 import MapKit
 import AVFoundation
@@ -21,9 +19,9 @@ enum FocusModeLevel: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
-        case .balanced: return "平衡"
-        case .extreme:  return "極致"
-        case .light:    return "輕度"
+        case .balanced: return String(localized: "平衡")
+        case .extreme:  return String(localized: "極致")
+        case .light:    return String(localized: "輕度")
         }
     }
 
@@ -38,11 +36,11 @@ enum FocusModeLevel: String, CaseIterable, Identifiable {
     var summary: String {
         switch self {
         case .balanced:
-            return "保留泊車偵測同靈動島狀態；切走地圖渲染、資訊彈出、ETA／路線網絡請求"
+            return String(localized: "保留泊車偵測同靈動島狀態；切走地圖渲染、資訊彈出、ETA／路線網絡請求")
         case .extreme:
-            return "最慳電：額外暫停泊車／停留／開車狀態偵測同靈動島更新，退出專注模式後會自動補返"
+            return String(localized: "最慳電：額外暫停泊車／停留／開車狀態偵測同靈動島更新，退出專注模式後會自動補返")
         case .light:
-            return "只切走地圖渲染，靈動島同所有功能照常運作"
+            return String(localized: "只切走地圖渲染，靈動島同所有功能照常運作")
         }
     }
 
@@ -84,9 +82,6 @@ struct ContentView: View {
         }
     }
 
-    @StateObject private var viewModel = TranslationViewModel()
-    @StateObject private var historyManager = HistoryManager()
-    @StateObject private var speechRecognizer = SpeechRecognizer()
     @StateObject private var animationClock = AnimationClock()
     @StateObject private var timePhaseManager = TimePhaseManager()
     @StateObject private var photoStorage = PhotoStorage()
@@ -98,16 +93,10 @@ struct ContentView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
     
-    @State private var showingLanguagePicker = false
-    @State private var selectingSource = true
-    @State private var isRecording = false
     @State private var selectedTab: Int = 1
     @State private var hasPlayedEntrance = false
-    @State private var isVoiceRecording = false
     @State private var revealedCount = 0
     @State private var sparklePhase = false
-    @FocusState private var isInputFocused: Bool
-    @State private var isKeyboardVisible = false
     @State private var showMap = false
     @State private var mapRegion: MKCoordinateRegion?
     @State private var mapCamera: MKMapCamera?
@@ -224,7 +213,7 @@ struct ContentView: View {
     @State private var llmPollTimer: Timer? = nil
     @State private var showLLMActionPrompt = false
     @State private var showNoDestinationAlert = false
-    @State private var llmShortcutName: String = UserDefaults.standard.string(forKey: "llm_shortcut_name") ?? "泊車辨識"
+    @State private var llmShortcutName: String = UserDefaults.standard.string(forKey: "llm_shortcut_name") ?? String(localized: "泊車辨識")
     @State private var parkingInfoDisplayMode: Bool = true
     @State private var parkingInfoSwitchTimer: Timer? = nil
     @State private var showRecognitionLogicAlert = false
@@ -328,26 +317,15 @@ struct ContentView: View {
             SpeedView(showMap: showMap && !focusActive, animationClock: animationClock, mapCamera: $mapCamera, focusMode: $focusMode, focusFrameRate: $focusFrameRate, onEnterFocus: enterFocusMode, onExitFocus: exitFocusMode)
                 .environment(\.colorScheme, effectiveColorScheme)
                 .tabItem {
-                    Label("Speed", systemImage: "speedometer")
+                    Label(String(localized: "Speed"), systemImage: "speedometer")
                 }
                 .tag(0)
             
             NavigationStack {
                 homeContent
-                    .animation(.easeInOut(duration: 0.25), value: isKeyboardVisible)
-                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            isKeyboardVisible = true
-                        }
-                    }
-                    .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                        withAnimation(.easeInOut(duration: 0.25)) {
-                            isKeyboardVisible = false
-                        }
-                    }
             }
             .tabItem {
-                Label("Home", systemImage: "house.fill")
+                Label(String(localized: "Home"), systemImage: "house.fill")
             }
             .tag(1)
             .onAppear {
@@ -366,7 +344,7 @@ struct ContentView: View {
             SettingsView()
                 .environment(\.colorScheme, effectiveColorScheme)
                 .tabItem {
-                    Label("Settings", systemImage: "gearshape")
+                    Label(String(localized: "Settings"), systemImage: "gearshape")
                 }
                 .tag(2)
         }
@@ -378,13 +356,11 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 locationManager.startLocationServicesIfNeeded()
                 refreshVisitAndTimersForForeground()
-                viewModel.prepare()
                 sfxPlayer.prepare()
                 photoStorage.prepare()
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 200_000_000)
-                await historyManager.prepare()
             }
         }
         .onDisappear {
@@ -447,8 +423,8 @@ struct ContentView: View {
                     clearParkingContributions()
                     // 系統自動偵測到離開 — 推送通知
                     let content = UNMutableNotificationContent()
-                    content.title = "Gorilla 泊車記憶"
-                    content.body = "泊車已退出"
+                    content.title = String(localized: "Gorilla 泊車記憶")
+                    content.body = String(localized: "泊車已退出")
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-departed-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
@@ -490,8 +466,8 @@ struct ContentView: View {
                     startPersistentTimer()
                     // 系統自動偵測到泊車 — 推送通知
                     let content = UNMutableNotificationContent()
-                    content.title = "Gorilla 泊車記憶"
-                    content.body = "泊車已開啟"
+                    content.title = String(localized: "Gorilla 泊車記憶")
+                    content.body = String(localized: "泊車已開啟")
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
@@ -622,7 +598,7 @@ struct ContentView: View {
                 })
                     .ignoresSafeArea()
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: isVoiceRecording, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()
             }
 
@@ -649,7 +625,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     HStack(alignment: .center) {
                         // 液態玻璃標題
-                        let titleText = Text("🦍 Gorilla").font(.largeTitle.bold())
+                        let titleText = Text(String(localized: "🦍 Gorilla")).font(.largeTitle.bold())
                         ZStack {
                             // 玻璃材料
                             Color.white.opacity(0.01)
@@ -723,7 +699,7 @@ struct ContentView: View {
                                 Button {
                                     showingAddDestination = true
                                 } label: {
-                                    Label("新增目的地", systemImage: "plus")
+                                    Label(String(localized: "新增目的地"), systemImage: "plus")
                                 }
 
                                 if !destinationManager.destinations.isEmpty {
@@ -835,7 +811,7 @@ struct ContentView: View {
                         }
                     }
 
-                floorConfirmCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor) 樓")
+                floorConfirmCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor)" + String(localized: "樓"))
                     .frame(maxWidth: min(400, geo.size.width - 44))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     .transition(
@@ -887,21 +863,6 @@ struct ContentView: View {
                     firstMapFlyTrigger += 1
                 }
             }
-        }
-        .sheet(isPresented: $showingLanguagePicker) {
-            LanguagePickerView(
-                languages: Language.allCases,
-                selectedLanguage: selectingSource ? viewModel.sourceLanguage : viewModel.targetLanguage,
-                onSelect: { language in
-                    if selectingSource {
-                        viewModel.sourceLanguage = language
-                    } else {
-                        viewModel.targetLanguage = language
-                    }
-                    showingLanguagePicker = false
-                },
-                isPresented: $showingLanguagePicker
-            )
         }
         .sheet(isPresented: $showingAddDestination) {
             AddDestinationView()
@@ -956,10 +917,10 @@ struct ContentView: View {
         let tintColor = Color(hex: "0098FF") ?? .blue
         VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("路線預測")
+                Text(String(localized: "路線預測"))
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
-                Text("根據過往習慣判斷")
+                Text(String(localized: "根據過往習慣判斷"))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.62))
             }
@@ -975,8 +936,8 @@ struct ContentView: View {
                             .font(.title3.weight(.bold))
                             .foregroundStyle(.white)
                         Text(p.twoStepAhead != nil
-                             ? "之後再去：\(p.twoStepAhead!.displayName)"
-                             : "單站目的地")
+                             ? String(localized: "之後再去：") + "\(p.twoStepAhead!.displayName)"
+                             : String(localized: "單站目的地"))
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.68))
                     }
@@ -990,10 +951,10 @@ struct ContentView: View {
 
                 VStack(spacing: 10) {
                     HStack {
-                        Text("信心度")
+                        Text(String(localized: "信心度"))
                             .foregroundStyle(.white.opacity(0.72))
                         Spacer()
-                        Text("\(confidencePct)%  ·  樣本 \(p.totalSamples)")
+                        Text("\(confidencePct)%  ·  \(String(localized: "樣本")) \(p.totalSamples)")
                             .foregroundStyle(.white.opacity(0.88))
                     }
                     ProgressView(value: p.confidence)
@@ -1019,7 +980,7 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.circle.fill")
-                        Text("是，切換到「\(p.predicted.displayName)」")
+                        Text(String(localized: "是，切換到「") + "\(p.predicted.displayName)" + String(localized: "」"))
                             .font(.body.weight(.semibold))
                     }
                     .frame(maxWidth: .infinity)
@@ -1049,7 +1010,7 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "xmark.circle")
-                        Text("否，不是這裡")
+                        Text(String(localized: "否，不是這裡"))
                             .font(.body.weight(.semibold))
                     }
                     .frame(maxWidth: .infinity)
@@ -1086,10 +1047,10 @@ struct ContentView: View {
         let tintColor = Color(hex: "46ADB8") ?? .teal
         return VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
-                Text("樓層識別")
+                Text(String(localized: "樓層識別"))
                     .font(.title2.weight(.semibold))
                     .foregroundStyle(.white)
-                Text("照片中偵測到樓層資訊")
+                Text(String(localized: "照片中偵測到樓層資訊"))
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(0.62))
             }
@@ -1104,7 +1065,7 @@ struct ContentView: View {
                         Text(floorText)
                             .font(.title3.weight(.bold))
                             .foregroundStyle(.white)
-                        Text("樓層指數：\(floorIndex)")
+                        Text(String(localized: "樓層指數：") + "\(floorIndex)")
                             .font(.callout)
                             .foregroundStyle(.white.opacity(0.68))
                     }
@@ -1133,7 +1094,7 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "checkmark.circle.fill")
-                        Text("是，調整為「\(floorText)」")
+                        Text(String(localized: "是，調整為「") + "\(floorText)" + String(localized: "」"))
                             .font(.body.weight(.semibold))
                     }
                     .frame(maxWidth: .infinity)
@@ -1156,7 +1117,7 @@ struct ContentView: View {
                 } label: {
                     HStack(spacing: 10) {
                         Image(systemName: "xmark.circle")
-                        Text("否，維持現狀")
+                        Text(String(localized: "否，維持現狀"))
                             .font(.body.weight(.semibold))
                     }
                     .frame(maxWidth: .infinity)
@@ -1246,7 +1207,7 @@ struct ContentView: View {
             ProgressView()
                 .scaleEffect(0.7)
                 .tint(.white)
-            Text("識別中...")
+            Text(String(localized: "識別中..."))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(.white.opacity(0.8))
         }
@@ -1266,11 +1227,11 @@ struct ContentView: View {
                 .font(.system(size: 18).weight(.bold))
                 .foregroundStyle(Color.yellow)
             VStack(alignment: .leading, spacing: 2) {
-                Text("自動切換目的地：\(p.predicted.displayName)")
+                Text(String(localized: "自動切換目的地：") + "\(p.predicted.displayName)")
                     .font(.footnote.weight(.semibold))
                     .foregroundStyle(.white)
-                let extra = p.twoStepAhead != nil ? "  · 再下一步：\(p.twoStepAhead!.displayName)" : ""
-                Text("信心 \(confidencePct)% · 樣本 \(p.totalSamples)" + extra)
+                let extra = p.twoStepAhead != nil ? "  · " + String(localized: "之後再去：") + "\(p.twoStepAhead!.displayName)" : ""
+                Text(String(localized: "信心") + "\(confidencePct)%" + String(localized: " · 樣本 ") + "\(p.totalSamples)" + extra)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.7))
             }
@@ -1330,19 +1291,19 @@ struct ContentView: View {
             if isParkingMemoryExpanded {
                 parkingMemoryContent
                     .transition(.opacity)
-                    .alert("請啟動動作按鈕", isPresented: $showLLMActionPrompt) {
-                        Button("已準備好") { startLLMPollingAfterAction() }
-                        Button("取消", role: .cancel) { isRecognizing = false }
+                    .alert(String(localized: "請啟動動作按鈕"), isPresented: $showLLMActionPrompt) {
+                        Button(String(localized: "已準備好")) { startLLMPollingAfterAction() }
+                        Button(String(localized: "取消"), role: .cancel) { isRecognizing = false }
                     } message: {
-                        Text("圖片已複製到剪貼簿。\n請按動作按鈕執行「\(llmShortcutName)」快捷指令。")
+                        Text(String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「") + "\(llmShortcutName)" + String(localized: "」快捷指令。"))
                     }
-                    .alert("識別詳情", isPresented: $showRecognitionLogicAlert) {
-                        Button("清除車位") {
+                    .alert(String(localized: "識別詳情"), isPresented: $showRecognitionLogicAlert) {
+                        Button(String(localized: "清除車位")) {
                             withAnimation(.easeInOut(duration: 0.4)) {
                                 clearParkingContributions()
                             }
                         }
-                        Button("確定", role: .cancel) {}
+                        Button(String(localized: "確定"), role: .cancel) {}
                     } message: {
                         Text(buildRecognitionLogicText())
                     }
@@ -1711,7 +1672,7 @@ struct ContentView: View {
                             startPersistentTimer()
                         }
                     }) {
-                        Label("泊車記憶", systemImage: "car.fill")
+                        Label(String(localized: "泊車記憶"), systemImage: "car.fill")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -1795,7 +1756,7 @@ struct ContentView: View {
                             }
                         }
                     }) {
-                        Label("最優路線", systemImage: "map")
+                        Label(String(localized: "最優路線"), systemImage: "map")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -1811,10 +1772,10 @@ struct ContentView: View {
                             )
                     }
                     .opacity(showingRoute ? 1.0 : 0.7)
-                    .alert("請選擇目的地", isPresented: $showNoDestinationAlert) {
-                        Button("確定", role: .cancel) {}
+                    .alert(String(localized: "請選擇目的地"), isPresented: $showNoDestinationAlert) {
+                        Button(String(localized: "確定"), role: .cancel) {}
                     } message: {
-                        Text("請先選擇目的地，再計算最優路線")
+                        Text(String(localized: "請先選擇目的地，再計算最優路線"))
                     }
                 }
             }
@@ -1907,7 +1868,7 @@ struct ContentView: View {
                                 .font(.system(size: 28))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                         }
-                        Text("泊車記憶")
+                        Text(String(localized: "泊車記憶"))
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                         Spacer()
@@ -1919,7 +1880,7 @@ struct ContentView: View {
                                 .transition(.opacity)
                         }
                         HStack(spacing: 4) {
-                            Text("入場時間")
+                            Text(String(localized: "入場時間"))
                                 .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                             let cal = Calendar.current
@@ -2000,7 +1961,7 @@ struct ContentView: View {
                                     } else if parkingDeparted {
                                         AnimatedCheckmarkView()
                                     } else {
-                                        Text("離場")
+                                        Text(String(localized: "離場"))
                                             .font(.system(size: 22, weight: .bold))
                                             .foregroundStyle(.white)
                                     }
@@ -2058,7 +2019,7 @@ struct ContentView: View {
                                     .stroke(Color.white.opacity(0.8), lineWidth: 4)
                             )
                             VStack(spacing: 2) {
-                                Text(parkingInfoDisplayMode ? "車位資訊" : "入場計時")
+                                Text(parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時"))
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -2068,15 +2029,15 @@ struct ContentView: View {
                                     let session = parkingFloorStore.currentSession
                                     VStack(alignment: .leading, spacing: 1) {
                                         HStack(spacing: 4) {
-                                            Text("車位").frame(width: 28, alignment: .trailing)
+                                            Text(String(localized: "車位")).frame(width: 28, alignment: .trailing)
                                             Text(session?.spotNumber ?? "-")
                                         }
                                         HStack(spacing: 4) {
-                                            Text("區域").frame(width: 28, alignment: .trailing)
+                                            Text(String(localized: "區域")).frame(width: 28, alignment: .trailing)
                                             Text(session?.areaCode ?? "-")
                                         }
                                         HStack(spacing: 4) {
-                                            Text("樓層").frame(width: 28, alignment: .trailing)
+                                            Text(String(localized: "樓層")).frame(width: 28, alignment: .trailing)
                                             Text(session?.floorDisplay ?? "-")
                                         }
                                     }
@@ -2138,7 +2099,7 @@ struct ContentView: View {
                             .font(.system(size: 32))
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                     }
-                    Text("泊車記憶")
+                    Text(String(localized: "泊車記憶"))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(adaptiveTextColor())
                     Spacer()
@@ -2150,7 +2111,7 @@ struct ContentView: View {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 6) {
-                            Text("入場時間")
+                            Text(String(localized: "入場時間"))
                                 .font(.system(size: 16, weight: .bold))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                             if let text = timeAdjustText {
@@ -2236,7 +2197,7 @@ struct ContentView: View {
                             } else if parkingDeparted {
                                 AnimatedCheckmarkView()
                             } else {
-                                Text("離場")
+                                Text(String(localized: "離場"))
                                     .font(.system(size: 24, weight: .bold))
                                     .foregroundStyle(.white)
                             }
@@ -2294,7 +2255,7 @@ struct ContentView: View {
                                 .stroke(Color.white.opacity(0.8), lineWidth: 4)
                         )
                         VStack(spacing: 2) {
-                            Text(parkingInfoDisplayMode ? "車位資訊" : "入場計時")
+                            Text(parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時"))
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
@@ -2304,15 +2265,15 @@ struct ContentView: View {
                                 let session = parkingFloorStore.currentSession
                                 VStack(alignment: .leading, spacing: 1) {
                                     HStack(spacing: 4) {
-                                        Text("車位").frame(width: 32, alignment: .trailing)
+                                        Text(String(localized: "車位")).frame(width: 32, alignment: .trailing)
                                         Text(session?.spotNumber ?? "-")
                                     }
                                     HStack(spacing: 4) {
-                                        Text("區域").frame(width: 32, alignment: .trailing)
+                                        Text(String(localized: "區域")).frame(width: 32, alignment: .trailing)
                                         Text(session?.areaCode ?? "-")
                                     }
                                     HStack(spacing: 4) {
-                                        Text("樓層").frame(width: 32, alignment: .trailing)
+                                        Text(String(localized: "樓層")).frame(width: 32, alignment: .trailing)
                                         Text(session?.floorDisplay ?? "-")
                                     }
                                 }
@@ -2394,8 +2355,10 @@ struct ContentView: View {
     }
 
     private var compactStatusTitle: String {
-        if !hasDeparted { return "已泊車" }
-        if visitStatus == "已停留" { return "已停留" }
+        if !hasDeparted { return String(localized: "已泊車") }
+        if visitStatus == "已停留" { return String(localized: "已停留") }
+        if visitStatus == "已開車" { return String(localized: "已開車") }
+        if visitStatus == "已開車（未離場）" { return String(localized: "已開車（未離場）") }
         return visitStatus
     }
 
@@ -2831,12 +2794,12 @@ struct ContentView: View {
             
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
-                    Text(point.address.isEmpty ? "停車點" : point.address)
+                    Text(point.address.isEmpty ? String(localized: "停車點") : point.address)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
-                    
-                    Text("樓層 \(ParkingFloorStore.formatFloor(currentFloor))")
+
+                    Text(String(localized: "樓層") + " \(ParkingFloorStore.formatFloor(currentFloor))")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.secondary)
                         .monospacedDigit()
@@ -2948,7 +2911,7 @@ struct ContentView: View {
     private func showAdjustText() {
         adjustHideWorkItem?.cancel()
         withAnimation(.easeIn(duration: 0.15)) {
-            timeAdjustText = "已調整\(timeAdjustAccumulated)分鐘"
+            timeAdjustText = String(localized: "已調整") + "\(timeAdjustAccumulated)" + String(localized: "分鐘")
         }
         if timeAdjustAccumulated == 0 {
             let work = DispatchWorkItem { [self] in
@@ -3109,7 +3072,7 @@ struct ContentView: View {
                     if self.isRecognizing {
                         self.sfxPlayer.stopVLMLoadingImmediately()
                         self.stopOrbRecognitionBoost()
-                        self.llmError = "等待超時（2分鐘）。請確認快捷指令「\(self.llmShortcutName)」已正確設定。"
+                        self.llmError = String(localized: "等待超時（2分鐘）。請確認快捷指令名稱是否正確，或手動運行一次快捷指令後重試。")
                         self.isRecognizing = false
                     }
                 }
@@ -3330,15 +3293,15 @@ struct ContentView: View {
 
     private func buildRecognitionLogicText() -> String {
         if parkingPhotoContributions.isEmpty {
-            return "尚未進行識別"
+            return String(localized: "尚未進行識別")
         }
-        var lines: [String] = ["識別方式：Apple Intelligence (Cloud)", "快捷指令：\(llmShortcutName)", ""]
+        var lines: [String] = [String(localized: "識別方式：Apple Intelligence (Cloud)"), "快捷指令：\(llmShortcutName)", ""]
         for (photoID, contribution) in parkingPhotoContributions {
             let shortID = photoID.uuidString.prefix(8)
             var parts: [String] = []
-            if let s = contribution["spot"] { parts.append("車位:\(s)") }
-            if let a = contribution["area"] { parts.append("區域:\(a)") }
-            if let f = contribution["floor"] { parts.append("樓層:\(f)") }
+            if let s = contribution["spot"] { parts.append(String(localized: "車位") + ":\(s)") }
+            if let a = contribution["area"] { parts.append(String(localized: "區域") + ":\(a)") }
+            if let f = contribution["floor"] { parts.append(String(localized: "樓層") + ":\(f)") }
             lines.append("[\(shortID)] \(parts.joined(separator: " "))")
         }
         return lines.joined(separator: "\n")
@@ -3477,14 +3440,14 @@ struct ContentView: View {
     }
 
     private var distanceLabel: String {
-        guard let dest = destinationManager.selectedDestination else { return "離目的地距離" }
+        guard let dest = destinationManager.selectedDestination else { return String(localized: "離目的地距離") }
         let name = dest.name.lowercased()
         if name.contains("home") || name.contains("家") {
-            return "離家距離"
+            return String(localized: "離家距離")
         } else if name.contains("office") || name.contains("公司") {
-            return "離公司距離"
+            return String(localized: "離公司距離")
         }
-        return "離\(dest.name)距離"
+        return String(localized: "離目的地距離")
     }
 
     private func updateVisitStatus() {
@@ -3504,7 +3467,7 @@ struct ContentView: View {
         
         if hasDeparted {
             if showDepartedLabel {
-                desiredSecondary = "已離場"
+                desiredSecondary = String(localized: "已離場")
             }
             
             // 离场后：根据GPS判断是"已开车"还是"已停留"
@@ -3552,7 +3515,7 @@ struct ContentView: View {
             }
             
             if preDepartureDriving {
-                desiredSecondary = "已開車（未離場）"
+                desiredSecondary = String(localized: "已開車（未離場）")
             }
         } else {
             let elapsed = Date().timeIntervalSince(lastVisit.departureDate!)
@@ -3694,7 +3657,7 @@ struct ContentView: View {
                         // 統一呼吸動畫
                         .opacity(viewfinderBreathe ? 0.45 : 0.7)
                         .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: viewfinderBreathe)
-                        Text("輕觸以開啟相機")
+                        Text(String(localized: "輕觸以開啟相機"))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
                     }
@@ -4119,10 +4082,10 @@ struct ContentView: View {
 
     private var gpsLabel: String {
         switch locationManager.gpsQuality {
-        case .good: return "GPS Ready"
-        case .poor: return "GPS Weak"
-        case .bad: return "GPS Lost"
-        case .unknown: return "GPS Waiting"
+        case .good: return String(localized: "GPS Ready")
+        case .poor: return String(localized: "GPS Weak")
+        case .bad: return String(localized: "GPS Lost")
+        case .unknown: return String(localized: "GPS Waiting")
         }
     }
     
@@ -4144,148 +4107,6 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - Translate + Save
-    func translate() {
-        if isRecording {
-            speechRecognizer.stopRecording()
-            withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.6)) {
-                isRecording = false
-                isVoiceRecording = false
-            }
-            triggerVoiceStopEffect()
-            if !speechRecognizer.transcribedText.isEmpty {
-                viewModel.inputText = speechRecognizer.transcribedText
-            }
-        }
-        let input = viewModel.inputText
-        isInputFocused = false
-        viewModel.translate()
-        triggerTranslateStartEffect()
-        
-        Task {
-            for await _ in viewModel.$isTranslating.values {
-                if !viewModel.isTranslating {
-                    triggerTranslateStopEffect()
-                    guard !viewModel.outputText.isEmpty else { break }
-                    historyManager.add(
-                        inputText: input,
-                        outputText: viewModel.outputText,
-                        sourceLanguage: viewModel.sourceLanguage.displayName,
-                        targetLanguage: viewModel.targetLanguage.displayName
-                    )
-                    let generator = UIImpactFeedbackGenerator(style: .light)
-                    generator.prepare()
-                    generator.impactOccurred()
-                    break
-                }
-            }
-        }
-    }
-    
-    // MARK: - Speed Effects
-    @State private var translateSpeedTimer: Timer?
-    
-    private func triggerTranslateStartEffect() {
-        translateSpeedTimer?.invalidate()
-        voiceSpeedTimer?.invalidate()
-        let startTime = Date()
-        translateSpeedTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                let t = Date().timeIntervalSince(startTime)
-                if t < 1.4 {
-                    let u = t / 1.4
-                    animationClock.speedMultiplier = 1 + (4.0 - 1) * (1 - pow(1 - u, 2))
-                } else {
-                    animationClock.speedMultiplier = 4.0
-                    timer.invalidate()
-                }
-            }
-        }
-    }
-    
-    private func triggerTranslateStopEffect() {
-        translateSpeedTimer?.invalidate()
-        let startSpeed = animationClock.speedMultiplier
-        let startTime = Date()
-        translateSpeedTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                let t = Date().timeIntervalSince(startTime)
-                if t < 2.0 {
-                    let u = t / 2.0
-                    animationClock.speedMultiplier = startSpeed + (1.0 - startSpeed) * pow(u, 1.5)
-                } else {
-                    animationClock.speedMultiplier = 1.0
-                    timer.invalidate()
-                }
-            }
-        }
-    }
-    
-    @State private var voiceSpeedTimer: Timer?
-
-    private func triggerVoiceStartEffect() {
-        voiceSpeedTimer?.invalidate()
-        translateSpeedTimer?.invalidate()
-        let startTime = Date()
-        voiceSpeedTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                let t = Date().timeIntervalSince(startTime)
-                if t < 0.8 {
-                    let u = t / 0.8
-                    animationClock.speedMultiplier = 1 + (0.5 - 1) * pow(u, 1.5)
-                } else if self.isRecording {
-                    let level = self.speechRecognizer.audioLevel
-                    animationClock.speedMultiplier = 0.5 + level * 7.5
-                } else {
-                    timer.invalidate()
-                }
-            }
-        }
-    }
-
-    private func triggerVoiceStopEffect() {
-        voiceSpeedTimer?.invalidate()
-        let startSpeed = animationClock.speedMultiplier
-        let startTime = Date()
-        voiceSpeedTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
-            MainActor.assumeIsolated {
-                let t = Date().timeIntervalSince(startTime)
-                if t < 2.0 {
-                    let u = t / 2.0
-                    animationClock.speedMultiplier = startSpeed + (1.0 - startSpeed) * pow(u, 1.5)
-                } else {
-                    animationClock.speedMultiplier = 1.0
-                    timer.invalidate()
-                }
-            }
-        }
-    }
-    
-    // MARK: - Speech Recognition
-    func toggleRecording() {
-        if isRecording {
-            speechRecognizer.stopRecording()
-            withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.6)) {
-                isRecording = false
-                isVoiceRecording = false
-            }
-            triggerVoiceStopEffect()
-            if !speechRecognizer.transcribedText.isEmpty {
-                viewModel.inputText = speechRecognizer.transcribedText
-            }
-        } else {
-            isInputFocused = false
-            speechRecognizer.startRecording(locale: viewModel.sourceLanguage.speechLocale) { text in
-                viewModel.inputText = text
-            }
-            withAnimation(.timingCurve(0.4, 0, 0.2, 1, duration: 0.6)) {
-                isRecording = true
-                isVoiceRecording = true
-            }
-            triggerVoiceStartEffect()
-        }
-    }
-
     // MARK: - TILT center-lift trigger
     /// Triggers a center-lift animation on the selected photo.
     /// Phase 1: center rises sharply (like grabbing the middle of a towel).
@@ -4538,152 +4359,6 @@ class CameraPhotoDelegate: NSObject, AVCapturePhotoCaptureDelegate {
 extension Notification.Name {
     static let parkingPhotoCaptured = Notification.Name("parkingPhotoCaptured")
 }
-class SpeechRecognizer: ObservableObject {
-    @Published var transcribedText: String = ""
-    @Published var audioLevel: Double = 0.0
-    private var onPartialResult: ((String) -> Void)?
-    
-    private var speechRecognizer: SFSpeechRecognizer?
-    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
-    private var recognitionTask: SFSpeechRecognitionTask?
-    private let audioEngine = AVAudioEngine()
-    private var recognitionGeneration = 0
-    
-    func startRecording(locale: Locale = Locale(identifier: "en-US"), onUpdate: @escaping (String) -> Void) {
-        self.onPartialResult = onUpdate
-        
-        SFSpeechRecognizer.requestAuthorization { [weak self] status in
-            DispatchQueue.main.async {
-                switch status {
-                case .authorized:
-                    self?.startActualRecording(locale: locale)
-                default:
-                    print("Speech recognition not authorized")
-                }
-            }
-        }
-    }
-    
-    private func startActualRecording(locale: Locale) {
-        guard let recognizer = SFSpeechRecognizer(locale: locale),
-              recognizer.isAvailable else {
-            print("Speech recognizer not available")
-            return
-        }
-        
-        self.speechRecognizer = recognizer
-        
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.record, mode: .measurement, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Failed to set up audio session: \(error)")
-            return
-        }
-        
-        recognitionGeneration += 1
-        let gen = recognitionGeneration
-        
-        recognitionRequest = SFSpeechAudioBufferRecognitionRequest()
-        guard let recognitionRequest = recognitionRequest else { return }
-        
-        recognitionRequest.shouldReportPartialResults = true
-        
-        recognitionTask = recognizer.recognitionTask(with: recognitionRequest) { [weak self] result, error in
-            guard let self = self else { return }
-            guard gen == self.recognitionGeneration else { return }
-            
-            if let result = result {
-                let text = result.bestTranscription.formattedString
-                DispatchQueue.main.async {
-                    self.transcribedText = text
-                    self.onPartialResult?(text)
-                }
-            }
-            
-            if error != nil || (result?.isFinal ?? false) {
-                self.stopRecording()
-            }
-        }
-        
-        let inputNode = audioEngine.inputNode
-        let recordingFormat = inputNode.outputFormat(forBus: 0)
-        
-        inputNode.installTap(onBus: 0, bufferSize: 1024, format: recordingFormat) { [weak self] buffer, _ in
-            guard let self = self else { return }
-            self.recognitionRequest?.append(buffer)
-            
-            if let channelData = buffer.floatChannelData {
-                let frames = UInt(buffer.frameLength)
-                var rms: Float = 0
-                vDSP_rmsqv(channelData[0], 1, &rms, frames)
-                let amplified = Double(min(rms * 50, 1.0))
-                let smoothed = self.audioLevel * 0.6 + amplified * 0.4
-                DispatchQueue.main.async {
-                    self.audioLevel = smoothed
-                }
-            }
-        }
-        
-        audioEngine.prepare()
-        do {
-            try audioEngine.start()
-        } catch {
-            print("Failed to start audio engine: \(error)")
-        }
-    }
-    
-    func stopRecording() {
-        audioEngine.stop()
-        audioEngine.inputNode.removeTap(onBus: 0)
-        recognitionRequest?.endAudio()
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest = nil
-        onPartialResult = nil
-    }
-    
-    func restartRecording(locale: Locale) {
-        guard let recognizer = SFSpeechRecognizer(locale: locale),
-              recognizer.isAvailable else {
-            print("Speech recognizer not available for locale: \(locale)")
-            return
-        }
-        
-        recognitionGeneration += 1
-        
-        recognitionTask?.cancel()
-        recognitionTask = nil
-        recognitionRequest?.endAudio()
-        recognitionRequest = nil
-        
-        let newRequest = SFSpeechAudioBufferRecognitionRequest()
-        newRequest.shouldReportPartialResults = true
-        recognitionRequest = newRequest
-        
-        let gen = recognitionGeneration
-        recognitionTask = recognizer.recognitionTask(with: newRequest) { [weak self] result, error in
-            guard let self = self else { return }
-            guard gen == self.recognitionGeneration else { return }
-            
-            if let result = result {
-                let text = result.bestTranscription.formattedString
-                DispatchQueue.main.async {
-                    self.transcribedText = text
-                    self.onPartialResult?(text)
-                }
-            }
-            
-            if error != nil || (result?.isFinal ?? false) {
-                self.stopRecording()
-            }
-        }
-        
-        self.speechRecognizer = recognizer
-    }
-}
-
 // MARK: - Camera Photo Item
 struct CameraPhotoItem: View {
     let photo: ParkingPhoto

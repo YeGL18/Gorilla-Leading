@@ -30,7 +30,7 @@ struct LiveActivityPreviewTestView: View {
         ScrollView {
             VStack(spacing: 40) {
                 // ── Compact ──
-                sectionHeader("Compact", dim: "230 × 37 pt · 膠囊")
+                sectionHeader("Compact", dim: "230 × 37 pt · " + String(localized: "膠囊"))
                 VStack(spacing: 16) {
                     ForEach(states, id: \.self) { state in
                         column {
@@ -77,7 +77,7 @@ struct LiveActivityPreviewTestView: View {
             .padding(.vertical, 32)
         }
         .background(Color.black)
-        .navigationTitle("即時活動樣式")
+        .navigationTitle(String(localized: "即時活動樣式"))
         .navigationBarTitleDisplayMode(.inline)
     }
 

@@ -38,6 +38,9 @@ struct GorillaTranslateApp: App {
                         guard !bootstrapped else { return }
                         bootstrapped = true
 
+                        // 套用語言設定
+                        LanguageManager.shared.applyLanguage()
+
                         // 通知權限 + 前台 delegate
                         let center = UNUserNotificationCenter.current()
                         center.delegate = appDelegate

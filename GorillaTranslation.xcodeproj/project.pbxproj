@@ -15,18 +15,15 @@
 		712AB096BC3B75DE0BA4E278 /* RoseFourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */; };
 		A10001 /* GorillaTranslateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001 /* GorillaTranslateApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20002 /* ContentView.swift */; };
-		A10003 /* Language.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20003 /* Language.swift */; };
-		A10004 /* TranslationViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20004 /* TranslationViewModel.swift */; };
-		A10010 /* LanguagePickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20010 /* LanguagePickerView.swift */; };
 		A10011 /* ColorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20011 /* ColorExtension.swift */; };
 		A10012 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20012 /* Assets.xcassets */; };
 		A10013 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20013 /* Preview Assets.xcassets */; };
 		A10014 /* AnimatedBackground.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20014 /* AnimatedBackground.swift */; };
-		A10015 /* HistoryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20015 /* HistoryView.swift */; };
 		A10016 /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20016 /* SettingsView.swift */; };
-		A10017 /* TranslationRecord.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20018 /* TranslationRecord.swift */; };
 		A10018 /* AnimationClock.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20019 /* AnimationClock.swift */; };
 		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
+		A10021 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20021 /* AppLanguage.swift */; };
+		A10022 /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20022 /* LanguageManager.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
@@ -39,19 +36,19 @@
 		F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */; };
 		F3A0C003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */; };
 		F3A0C004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */; };
-		F3A0C009B2C3D4E5F6071829 /* gorilla_launch.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */; };
-		F3A0C00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */; };
-		F3A0C00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */; };
-		F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */; };
 		F3A0C005B2C3D4E5F6071829 /* BorderBeam.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */; };
 		F3A0C006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */; };
 		F3A0C007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */; };
 		F3A0C008B2C3D4E5F6071829 /* TripPredictor.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */; };
+		F3A0C009B2C3D4E5F6071829 /* gorilla_launch.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */; };
+		F3A0C00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */; };
+		F3A0C00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */; };
+		F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */; };
+		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
+		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
 		P10005 /* MetaballEffect.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10004 /* MetaballEffect.metal */; };
 		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
-		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
-		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -80,19 +77,16 @@
 		7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeedSimulationView.swift; sourceTree = "<group>"; };
 		A20001 /* GorillaTranslateApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaTranslateApp.swift; sourceTree = "<group>"; };
 		A20002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		A20003 /* Language.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Language.swift; sourceTree = "<group>"; };
-		A20004 /* TranslationViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationViewModel.swift; sourceTree = "<group>"; };
-		A20010 /* LanguagePickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguagePickerView.swift; sourceTree = "<group>"; };
 		A20011 /* ColorExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ColorExtension.swift; sourceTree = "<group>"; };
 		A20012 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A20013 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
 		A20014 /* AnimatedBackground.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimatedBackground.swift; sourceTree = "<group>"; };
-		A20015 /* HistoryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HistoryView.swift; sourceTree = "<group>"; };
 		A20016 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		A20017 /* GorillaTranslate.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = GorillaTranslate.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		A20018 /* TranslationRecord.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TranslationRecord.swift; sourceTree = "<group>"; };
 		A20019 /* AnimationClock.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnimationClock.swift; sourceTree = "<group>"; };
 		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
+		A20021 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
+		A20022 /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
@@ -105,19 +99,21 @@
 		F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_enter_stationary.mp3; sourceTree = "<group>"; };
 		F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_enter_driving.mp3; sourceTree = "<group>"; };
 		F3A0A004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_acceleration_overlay.mp3; sourceTree = "<group>"; };
-		F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_launch.mp3; sourceTree = "<group>"; };
-		F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_parking_status_notifi.mp3; sourceTree = "<group>"; };
-		F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_loading.mp3; sourceTree = "<group>"; };
-		F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_done.mp3; sourceTree = "<group>"; };
 		F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeam.swift; sourceTree = "<group>"; };
 		F3A0A006B2C3D4E5F6071829 /* BorderBeamCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BorderBeamCapsuleDemo.swift; sourceTree = "<group>"; };
 		F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiquidGlassCapsuleDemo.swift; sourceTree = "<group>"; };
 		F3A0A008B2C3D4E5F6071829 /* TripPredictor.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TripPredictor.swift; sourceTree = "<group>"; };
+		F3A0A009B2C3D4E5F6071829 /* gorilla_launch.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_launch.mp3; sourceTree = "<group>"; };
+		F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_parking_status_notifi.mp3; sourceTree = "<group>"; };
+		F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_loading.mp3; sourceTree = "<group>"; };
+		F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_done.mp3; sourceTree = "<group>"; };
+		L10001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L10002 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
+		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
 		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
 		P10004 /* MetaballEffect.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = MetaballEffect.metal; sourceTree = "<group>"; };
 		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
-		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
-		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -185,7 +181,6 @@
 				A20002 /* ContentView.swift */,
 				A40003 /* Models */,
 				A40004 /* Views */,
-				A40006 /* ViewModels */,
 				A40007 /* Extensions */,
 				F3A0B001B2C3D4E5F6071829 /* Resources */,
 				P10003 /* Shaders */,
@@ -198,8 +193,8 @@
 		A40003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
-				A20003 /* Language.swift */,
-				A20018 /* TranslationRecord.swift */,
+				A20021 /* AppLanguage.swift */,
+				A20022 /* LanguageManager.swift */,
 				A20019 /* AnimationClock.swift */,
 				B20001 /* LocationManager.swift */,
 				D20001 /* Destination.swift */,
@@ -217,9 +212,7 @@
 		A40004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
-				A20010 /* LanguagePickerView.swift */,
 				A20014 /* AnimatedBackground.swift */,
-				A20015 /* HistoryView.swift */,
 				A20016 /* SettingsView.swift */,
 				7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */,
 				A20020 /* DotMatrixView.swift */,
@@ -244,14 +237,6 @@
 			name = Products;
 			sourceTree = "<group>";
 		};
-		A40006 /* ViewModels */ = {
-			isa = PBXGroup;
-			children = (
-				A20004 /* TranslationViewModel.swift */,
-			);
-			path = ViewModels;
-			sourceTree = "<group>";
-		};
 		A40007 /* Extensions */ = {
 			isa = PBXGroup;
 			children = (
@@ -273,6 +258,7 @@
 			isa = PBXGroup;
 			children = (
 				F3A0B002B2C3D4E5F6071829 /* Audio */,
+				L30001 /* Localizable.strings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -378,6 +364,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hant",
 			);
 			mainGroup = A40001;
 			productRefGroup = A40005 /* Products */;
@@ -411,6 +398,7 @@
 				F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */,
 				F3A0C003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 in Resources */,
 				F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */,
+				L10003 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -430,14 +418,11 @@
 			files = (
 				A10001 /* GorillaTranslateApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
-				A10003 /* Language.swift in Sources */,
-				A10004 /* TranslationViewModel.swift in Sources */,
-				A10010 /* LanguagePickerView.swift in Sources */,
+				A10021 /* AppLanguage.swift in Sources */,
+				A10022 /* LanguageManager.swift in Sources */,
 				A10011 /* ColorExtension.swift in Sources */,
 				A10014 /* AnimatedBackground.swift in Sources */,
-				A10015 /* HistoryView.swift in Sources */,
 				A10016 /* SettingsView.swift in Sources */,
-				A10017 /* TranslationRecord.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,
@@ -465,6 +450,18 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXVariantGroup section */
+		L30001 /* Localizable.strings */ = {
+			isa = PBXVariantGroup;
+			children = (
+				L10001 /* en */,
+				L10002 /* zh-Hant */,
+			);
+			name = Localizable.strings;
+			sourceTree = "<group>";
+		};
+/* End PBXVariantGroup section */
 
 /* Begin XCBuildConfiguration section */
 		05B1C5F1301837BC00589328 /* Debug */ = {

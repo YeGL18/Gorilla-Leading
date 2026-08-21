@@ -1,0 +1,453 @@
+/* ============================================ */
+/* Tab Bar                                      */
+/* ============================================ */
+"Speed" = "Speed";
+"Home" = "Home";
+"Settings" = "Settings";
+
+/* ============================================ */
+/* FocusModeLevel                               */
+/* ============================================ */
+"平衡" = "Balanced";
+"極致" = "Extreme";
+"輕度" = "Light";
+"保留泊車偵測同靈動島狀態；切走地圖渲染、資訊彈出、ETA／路線網絡請求" = "Keep parking detection & Dynamic Island; disable map rendering, info popups, ETA/route requests";
+"最慳電：額外暫停泊車／停留／開車狀態偵測同靈動島更新，退出專注模式後會自動補返" = "Max power saving: pause parking/stationary/driving detection & Dynamic Island updates; auto-resumes on exit";
+"只切走地圖渲染，靈動島同所有功能照常運作" = "Only disable map rendering; Dynamic Island and all features work normally";
+
+/* ============================================ */
+/* ContentView - General                        */
+/* ============================================ */
+"🦍 Gorilla" = "🦍 Gorilla";
+"新增目的地" = "Add Destination";
+"泊車辨識" = "Parking Recognition";
+"已停留" = "Stationary";
+"已開車" = "Driving";
+"已泊車" = "Parked";
+"已離場" = "Departed";
+"已開車（未離場）" = "Driving (Not Departed)";
+"識別中..." = "Recognizing...";
+
+/* ============================================ */
+/* ContentView - Notifications                  */
+/* ============================================ */
+"Gorilla 泊車記憶" = "Gorilla Parking Memory";
+"泊車已退出" = "Parking Exited";
+"泊車已開啟" = "Parking Started";
+
+/* ============================================ */
+/* ContentView - Trip Prediction                */
+/* ============================================ */
+"路線預測" = "Route Prediction";
+"根據過往習慣判斷" = "Based on past habits";
+"信心度" = "Confidence";
+"之後再去：" = "Then go to: ";
+"單站目的地" = "Single destination";
+"是，切換到「" = "Yes, switch to \"";
+"」" = "\"";
+"否，不是這裡" = "No, not here";
+"樣本" = "samples";
+"自動切換目的地：" = "Auto-switch destination: ";
+"信心" = "Confidence ";
+" · 樣本 " = " · samples ";
+
+/* ============================================ */
+/* ContentView - Floor Recognition              */
+/* ============================================ */
+"樓層識別" = "Floor Detection";
+"照片中偵測到樓層資訊" = "Floor info detected in photo";
+"樓層指數：" = "Floor index: ";
+"是，調整為「" = "Yes, adjust to \"";
+"否，維持現狀" = "No, keep current";
+
+/* ============================================ */
+/* ContentView - Alerts                         */
+/* ============================================ */
+"請啟動動作按鈕" = "Please Activate Action Button";
+"已準備好" = "Ready";
+"取消" = "Cancel";
+"識別詳情" = "Recognition Details";
+"清除車位" = "Clear Spot";
+"確定" = "OK";
+"請選擇目的地" = "Please Select Destination";
+"請先選擇目的地，再計算最優路線" = "Please select a destination first to calculate the optimal route";
+
+/* ============================================ */
+/* ContentView - Parking Memory                 */
+/* ============================================ */
+"泊車記憶" = "Parking Memory";
+"入場時間" = "Entry Time";
+"離場" = "Leave";
+"車位資訊" = "Spot Info";
+"入場計時" = "Entry Timer";
+"車位" = "Spot";
+"區域" = "Area";
+"樓層" = "Floor";
+"最優路線" = "Optimal Route";
+"輕觸以開啟相機" = "Tap to open camera";
+
+/* ============================================ */
+/* ContentView - Recognition Logic              */
+/* ============================================ */
+"尚未進行識別" = "Not yet recognized";
+"識別方式：Apple Intelligence (Cloud)" = "Method: Apple Intelligence (Cloud)";
+"識別方式：VLM (Cloud)" = "Method: VLM (Cloud)";
+"識別方式：OCR (On-Device)" = "Method: OCR (On-Device)";
+"識別方式：VLM (On-Device)" = "Method: VLM (On-Device)";
+"等待超時（2分鐘）。請確認快捷指令名稱是否正確，或手動運行一次快捷指令後重試。" = "Timeout (2 minutes). Please check the shortcut name or run the shortcut manually and retry.";
+
+/* ============================================ */
+/* ContentView - Time Adjust                    */
+/* ============================================ */
+"已調整" = "Adjusted ";
+"分鐘" = " minutes";
+
+/* ============================================ */
+/* ContentView - Parking Point                  */
+/* ============================================ */
+"停車點" = "Parking Point";
+"樓層" = "Floor";
+
+/* ============================================ */
+/* ContentView - GPS Status                     */
+/* ============================================ */
+"GPS Ready" = "GPS Ready";
+"GPS Weak" = "GPS Weak";
+"GPS Lost" = "GPS Lost";
+"GPS Waiting" = "GPS Waiting";
+
+/* ============================================ */
+/* ContentView - Distance Labels                */
+/* ============================================ */
+"離目的地距離" = "Distance to destination";
+"離家距離" = "Distance to home";
+"離公司距離" = "Distance to office";
+
+/* ============================================ */
+/* SettingsView - Section Headers               */
+/* ============================================ */
+"語言" = "Language";
+"關閉" = "Close";
+"目的地" = "Destinations";
+"外觀" = "Appearance";
+"地圖追蹤" = "Map Tracking";
+"地圖樣式" = "Map Style";
+"音效" = "Sound";
+"泊車識別" = "Parking Recognition";
+"光球效果" = "Orb Effects";
+
+/* ============================================ */
+/* SettingsView - Destination                   */
+/* ============================================ */
+"No saved destinations yet" = "No saved destinations yet";
+
+/* ============================================ */
+/* SettingsView - Appearance                    */
+/* ============================================ */
+"System" = "System";
+"Dark" = "Dark";
+"Light" = "Light";
+"Default" = "Default";
+
+/* ============================================ */
+/* SettingsView - Map Tracking                  */
+/* ============================================ */
+"高頻率地圖追蹤" = "High Frequency Map Tracking";
+"開啟後地圖視角更新更流暢，但會增加耗電。關閉後更新頻率降低，延長電池壽命。" = "When enabled, map view updates are smoother but increases battery usage. When disabled, update frequency is reduced to extend battery life.";
+"追蹤動畫" = "Tracking Animation";
+"標準" = "Standard";
+"柔軟" = "Smooth";
+
+/* ============================================ */
+/* SettingsView - Map Style                     */
+/* ============================================ */
+"地圖風格" = "Map Style";
+"默認" = "Default";
+"我的世界" = "Minecraft";
+
+/* ============================================ */
+/* SettingsView - Sound                         */
+/* ============================================ */
+"加速音效" = "Acceleration Sound";
+"關閉後，時速頁嘅「加速」提示聲會停用。" = "When disabled, the acceleration sound on the speed page will be turned off.";
+
+/* ============================================ */
+/* SettingsView - Parking Recognition           */
+/* ============================================ */
+"VLM 車位識別" = "VLM Spot Recognition";
+"拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。" = "Automatically use VLM to recognize parking spot number, floor, and area code after taking a photo. When disabled, taking a photo will not trigger recognition.";
+
+/* ============================================ */
+/* SettingsView - Orb Effects                   */
+/* ============================================ */
+"光球效果總開關" = "Master Orb Toggle";
+"背景效果" = "Background Effect";
+"光球" = "Orb";
+"時程" = "Timeline";
+"緊湊膠囊" = "Compact Capsule";
+"擴展膠囊" = "Expanded Capsule";
+"主頁背景" = "Home Background";
+"時速頁背景" = "Speed Page Background";
+"預覽時間" = "Preview Time";
+
+/* ============================================ */
+/* SettingsView - Test Menu                     */
+/* ============================================ */
+"測試" = "Test";
+"停車流程測試" = "Parking Flow Test";
+"時程光球動畫測試" = "Timeline Orb Animation Test";
+"到訪記錄測試" = "Visit Records Test";
+"模擬動畫時速動畫測試" = "Speed Animation Test";
+"氣壓計曲線測試" = "Altimeter Curve Test";
+"地址膠囊 BorderBeam 測試" = "Address Capsule BorderBeam Test";
+"地點管理" = "Place Management";
+"泊車記憶拍照效果測試" = "Parking Memory Photo Test";
+"抽離牌組動畫測試" = "Card Swipe Animation Test";
+"泊車辨識測試 (OCR)" = "Parking Recognition Test (OCR)";
+"泊車辨識測試 (LLM)" = "Parking Recognition Test (LLM)";
+"即時活動樣式預覽" = "Live Activity Style Preview";
+
+/* ============================================ */
+/* SettingsView - Parking Flow Test             */
+/* ============================================ */
+"停車場數" = "Parking Lots";
+"停車點數" = "Parking Points";
+"未有任何停車點記錄" = "No parking point records";
+"停車場 / 停車點" = "Parking Lot / Parking Point";
+"清除全部停車點數據" = "Clear All Parking Point Data";
+"停車場改名" = "Rename Parking Lot";
+"名稱" = "Name";
+"停車場" = "Parking Lot";
+"點" = " pts";
+"中心" = "Center";
+"半徑" = "Radius";
+"更新" = "Updated";
+"每層高度" = "Height per floor";
+"未知" = "Unknown";
+"Unknown" = "Unknown";
+"信心" = "Confidence ";
+"清除" = "Clear";
+
+/* ============================================ */
+/* SettingsView - Parking Lot Detail            */
+/* ============================================ */
+"建立" = "Created";
+"高度偏移" = "Height Offset";
+"學習信心度" = "Learning Confidence";
+"學習記錄數" = "Learning Records";
+"氣壓計支援" = "Altimeter Support";
+"已緩存樣本" = "Cached Samples";
+"改名停車場" = "Rename Parking Lot";
+"停車場資訊" = "Parking Lot Info";
+"未有樓層學習記錄：當你手動幫停車點改樓層時，系統就會用氣壓高度差去學習每層高度。" = "No floor learning records: when you manually change a parking point's floor, the system uses barometric height differences to learn each floor's height.";
+"高度差" = "Height Diff";
+"樓層學習記錄" = "Floor Learning Records";
+"所有停車點（含氣壓與預判）" = "All Parking Points (with barometric & predicted)";
+"停車場詳情" = "Parking Lot Details";
+"手動" = "Manual";
+"預判(已學習)" = "Predicted (Learned)";
+"預判(預設)" = "Predicted (Default)";
+"手動樓層" = "Manual Floor";
+"預判樓層" = "Predicted Floor";
+"氣壓高度差" = "Barometric Height Diff";
+"氣壓樣本" = "Barometric Samples";
+"參考高度" = "Reference Height";
+"最終高度" = "Final Height";
+"氣壓值" = "Barometric Value";
+
+/* ============================================ */
+/* SettingsView - Address Capsule Test          */
+/* ============================================ */
+"已開車" = "Driving";
+"已泊車" = "Parked";
+"狀態調色" = "Status Color";
+"速度" = "Speed";
+"已泊車秒數:" = "Parked seconds:";
+"已開車秒數:" = "Driving seconds:";
+"已停留秒數:" = "Stationary seconds:";
+"ETA 秒數:" = "ETA seconds:";
+"地址文字" = "Address Text";
+"參數" = "Parameters";
+"Rotate（光束繞圈）同 Pulse（強度呼吸）分開展示。" = "Rotate (beam orbit) and Pulse (intensity breathing) shown separately.";
+"Rotate Only（光束繞圈）" = "Rotate Only (beam orbit)";
+"pulse 關" = "pulse off";
+"Pulse Only（強度呼吸）" = "Pulse Only (intensity breathing)";
+"rotate 關" = "rotate off";
+"Liquid Glass + Rotate" = "Liquid Glass + Rotate";
+"主頁 compact 44h·270w" = "Home compact 44h·270w";
+"同上（速度模式 370w）" = "Same (speed mode 370w)";
+"show speed + eta" = "show speed + eta";
+"Liquid Glass + Pulse" = "Liquid Glass + Pulse";
+"地址膠囊 BorderBeam" = "Address Capsule BorderBeam";
+
+/* ============================================ */
+/* SettingsView - Altimeter Test                */
+/* ============================================ */
+"主 APP 氣壓計" = "Main App Altimeter";
+"採樣點數" = "Sample Points";
+"支援狀態" = "Support Status";
+"可用" = "Available";
+"裝置不支援" = "Device Not Supported";
+"權限" = "Permission";
+"主 APP 氣壓計狀態" = "Main App Altimeter Status";
+"相對高度" = "Relative Height";
+"氣壓" = "Barometric Pressure";
+"估計樓層變化" = "Estimated Floor Change";
+"層" = " floors";
+"尚未有採樣數據" = "No sample data yet";
+"最新讀數" = "Latest Reading";
+"高度曲線" = "Height Curve";
+"每層高度按 3m 估算；曲線縱軸為採樣開始起計嘅相對高度（米）。" = "Floor height estimated at 3m; curve Y-axis is relative height (m) since sampling started.";
+"累積 2 點以上先會顯示曲線" = "Curve shows after 2+ data points";
+"清除數據" = "Clear Data";
+"氣壓計曲線測試" = "Altimeter Curve Test";
+
+/* ============================================ */
+/* SettingsView - Visit Records Test            */
+/* ============================================ */
+"未有到訪記錄" = "No visit records";
+"→" = "→";
+"Now" = "Now";
+"到訪記錄" = "Visit Records";
+"清除所有到訪記錄" = "Clear All Visit Records";
+"到訪記錄測試" = "Visit Records Test";
+
+/* ============================================ */
+/* SettingsView - Time Orb Animation Test       */
+/* ============================================ */
+"時程光球動畫測試" = "Timeline Orb Animation Test";
+
+/* ============================================ */
+/* SettingsView - Speed Animation Test          */
+/* ============================================ */
+"測試音效" = "Test Sound";
+"加速" = "Accelerate";
+"重置到 0" = "Reset to 0";
+"模擬動畫時速動畫測試" = "Speed Animation Test";
+
+/* ============================================ */
+/* SettingsView - Add Destination               */
+/* ============================================ */
+"搜尋地點..." = "Search places...";
+"下一步" = "Next";
+"Press Next to continue" = "Press Next to continue";
+"Long press on the map to select a location" = "Long press on the map to select a location";
+"Name" = "Name";
+"Destination name" = "Destination name";
+"Color" = "Color";
+"選擇顏色" = "Choose Color";
+"編輯目的地" = "Edit Destination";
+"Cancel" = "Cancel";
+"Save" = "Save";
+
+/* ============================================ */
+/* SettingsView - Place Management              */
+/* ============================================ */
+"未命名" = "Unnamed";
+"未命名停車場" = "Unnamed Parking Lot";
+"停車場" = "Parking Lot";
+"暫無地址叢集。" = "No address clusters.";
+"地址叢集" = "Address Clusters";
+"總覽" = "Overview";
+"已學習地點" = "Learned Places";
+"Pattern 規則數" = "Pattern Rules";
+"最近到訪 place" = "Recent Visited Place";
+"最近一次預測" = "Latest Prediction";
+"Pattern 規則（從 place 出發 → 下一站分布）" = "Pattern Rules (from place → next stop distribution)";
+"暫無 pattern，需要至少 2 次真實到訪 + 離開先會有第一條。" = "No patterns yet. Need at least 2 real visits + departures to generate the first rule.";
+"Lot:" = "Lot:";
+"次" = " times";
+"score" = "score";
+"用戶否認過 " = "User denied ";
+" 次（該候選嘅 penalty 已生效）" = " times (penalty applied to this candidate)";
+"最近到訪歷史（2-gram / 3-gram 用）" = "Recent Visit History (for 2-gram / 3-gram)";
+"尚未有到訪記錄。" = "No visit records yet.";
+"手動 Reset 數據" = "Manual Reset Data";
+"Reset 所有學習數據" = "Reset All Learning Data";
+"地點管理" = "Place Management";
+"地點改名" = "Rename Place";
+"完成" = "Done";
+"日" = "Sun";
+"一" = "Mon";
+"二" = "Tue";
+"三" = "Wed";
+"四" = "Thu";
+"五" = "Fri";
+"六" = "Sat";
+"（首次出發）" = "(first departure)";
+"3-gram: " = "3-gram: ";
+"2-gram: " = "2-gram: ";
+"星期" = "Weekday ";
+
+/* ============================================ */
+/* SettingsView - Parking Memory Photo Test     */
+/* ============================================ */
+"Photo " = "Photo ";
+"泊車記憶拍照效果測試" = "Parking Memory Photo Test";
+"照片瀏覽動畫 — 3D TILT" = "Photo Browse Animation — 3D TILT";
+"點擊照片瀏覽時，3D 透視扭曲效果，中間先放大，四邊跟上" = "3D perspective distortion when browsing photos; center enlarges first, edges follow";
+"刪除效果 — Smoky Dissolve" = "Delete Effect — Smoky Dissolve";
+"照片溶解伴隨高斯模糊，化為煙霧散去" = "Photo dissolves with Gaussian blur, fading like smoke";
+"重置照片" = "Reset Photos";
+
+/* ============================================ */
+/* SettingsView - Parking Memory Swipe Test     */
+/* ============================================ */
+"抽離牌組動畫測試" = "Card Swipe Animation Test";
+"抽離牌組動畫" = "Card Swipe Animation";
+"左右滑動切換照片，圖片抽離、層級處理、ease-in/out 動畫" = "Swipe left/right to switch photos; card extraction, layering, ease-in/out animation";
+"手勢跟手度" = "Gesture Responsiveness";
+"滑動起始應立即跟手，不應有跳躍感" = "Swipe should follow finger immediately without jumping";
+"張照片" = " photos";
+
+/* ============================================ */
+/* SettingsView - Parking Recognition Test      */
+/* ============================================ */
+"泊車辨識測試" = "Parking Recognition Test";
+"OCR 文字識別" = "OCR Text Recognition";
+"拍照後自動識別車位號、樓層、區域代碼" = "Auto-recognize parking spot number, floor, and area code after photo";
+"樓層確認彈窗" = "Floor Confirmation Popup";
+"識別出樓層時彈出確認視窗" = "Show confirmation popup when floor is detected";
+"已識別" = "Recognized";
+"詳情" = "Details";
+"清除照片" = "Clear Photo";
+"重新識別" = "Re-recognize";
+"樓" = "F";
+
+/* ============================================ */
+/* SpeedView                                    */
+/* ============================================ */
+"傾斜" = "Tilt";
+"G值" = "G-Force";
+"專注模式" = "Focus Mode";
+"閂走時速顯示以外嘅功能，減少耗電同發熱" = "Disable features except speed display to reduce battery usage and heat";
+"背景動畫幀率" = "Background Animation FPS";
+"fps" = "fps";
+"120 fps 只喺 ProMotion 機型有效，會稍微增加耗電" = "120 fps only works on ProMotion devices, may slightly increase battery usage";
+"進入專注模式" = "Enter Focus Mode";
+
+/* ============================================ */
+/* MapView                                      */
+/* ============================================ */
+"/F" = "/F";
+
+/* ============================================ */
+/* DotMatrixView                                */
+/* ============================================ */
+"目标时速" = "Target Speed";
+
+/* ============================================ */
+/* SpeedSimulationView                          */
+/* ============================================ */
+"SU7 Ultra 时速模拟" = "SU7 Ultra Speed Simulation";
+
+/* ============================================ */
+/* LiveActivityPreviewTestView                  */
+/* ============================================ */
+"Compact" = "Compact";
+"膠囊" = "capsule";
+"Minimal" = "Minimal";
+"Expanded" = "Expanded";
+"Lock Screen" = "Lock Screen";
+"即時活動樣式" = "Live Activity Style";
+"目的地: 家" = "Destination: Home";

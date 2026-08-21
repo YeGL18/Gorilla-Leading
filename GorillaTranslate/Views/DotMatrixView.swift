@@ -25,7 +25,7 @@ struct DotMatrixView: View {
             }
 
             HStack {
-                Text("目标时速")
+                Text(String(localized: "目标时速"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
