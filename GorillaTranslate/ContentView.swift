@@ -246,6 +246,7 @@ struct ContentView: View {
     @State private var llmRawResult: String? = nil
     @State private var llmError: String? = nil
     @State private var llmPollTimer: Timer? = nil
+    @State private var llmSoundStopTimer: Timer? = nil
     @State private var showLLMActionPrompt = false
     @State private var showNoDestinationAlert = false
     @State private var llmShortcutName: String = UserDefaults.standard.string(forKey: "llm_shortcut_name") ?? String(localized: "泊車辨識")
@@ -1381,7 +1382,12 @@ struct ContentView: View {
                     .transition(.opacity)
                     .alert(String(localized: "請啟動動作按鈕"), isPresented: $showLLMActionPrompt) {
                         Button(String(localized: "已準備好")) { startLLMPollingAfterAction() }
-                        Button(String(localized: "取消"), role: .cancel) { isRecognizing = false }
+                        Button(String(localized: "取消"), role: .cancel) {
+                            llmSoundStopTimer?.invalidate()
+                            llmSoundStopTimer = nil
+                            sfxPlayer.stopVLMLoadingImmediately()
+                            isRecognizing = false
+                        }
                     } message: {
                         Text(String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「") + "\(llmShortcutName)" + String(localized: "」快捷指令。"))
                     }
@@ -3234,6 +3240,12 @@ struct ContentView: View {
         sfxPlayer.playVLMLoading()
         startOrbRecognitionBoost()
         startLLMPollingClipboard()
+
+        // 1 分鐘後自動停止 loading 音效（播完當前循環）
+        llmSoundStopTimer?.invalidate()
+        llmSoundStopTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak sfxPlayer] _ in
+            sfxPlayer?.stopVLMLoadingGracefully()
+        }
     }
 
     private func startLLMPollingClipboard() {
@@ -3254,6 +3266,8 @@ struct ContentView: View {
                 self.llmPollTimer = nil
 
                 DispatchQueue.main.async {
+                    self.llmSoundStopTimer?.invalidate()
+                    self.llmSoundStopTimer = nil
                     self.sfxPlayer.stopVLMLoadingGracefully()
                     self.sfxPlayer.playVLMDone()
                     self.stopOrbRecognitionBoost()
@@ -3266,6 +3280,8 @@ struct ContentView: View {
                 self.llmPollTimer = nil
 
                 DispatchQueue.main.async {
+                    self.llmSoundStopTimer?.invalidate()
+                    self.llmSoundStopTimer = nil
                     if self.isRecognizing {
                         self.sfxPlayer.stopVLMLoadingImmediately()
                         self.stopOrbRecognitionBoost()
