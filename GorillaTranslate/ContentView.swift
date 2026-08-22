@@ -197,6 +197,14 @@ struct ContentView: View {
             }
         }
 
+        var label: String {
+            switch self {
+            case .north: return String(localized: "朝北")
+            case .follow: return String(localized: "跟隨")
+            case .continuousFollow: return String(localized: "持續跟隨")
+            }
+        }
+
         var isActive: Bool {
             self != .north
         }
@@ -207,6 +215,8 @@ struct ContentView: View {
     }
 
     @State private var mapHeadingMode: MapHeadingMode = .follow
+    @State private var headingToastText: String?
+    @State private var headingToastTimer: Timer?
     @State private var hkDetailMode = false        // 香港地圖細覽模式
     @State private var gpsTapCount = 0             // GPS 膠囊點擊計數
     @State private var gpsTapResetTimer: Timer?    // 重置計數的 timer
@@ -721,6 +731,15 @@ struct ContentView: View {
                                             case .continuousFollow: mapHeadingMode = .north
                                             }
                                         }
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                            headingToastText = mapHeadingMode.label
+                                        }
+                                        headingToastTimer?.invalidate()
+                                        headingToastTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
+                                            withAnimation(.easeOut(duration: 0.35)) {
+                                                headingToastText = nil
+                                            }
+                                        }
                                     } label: {
                                         Image(systemName: mapHeadingMode.iconName)
                                             .font(.system(size: 20, weight: .medium))
@@ -729,6 +748,21 @@ struct ContentView: View {
                                     }
                                     .buttonStyle(.glass)
                                     .transition(.blurReplace())
+                                    .overlay(alignment: .trailing) {
+                                        if let toast = headingToastText {
+                                            Text(toast)
+                                                .font(.system(size: 13, weight: .semibold))
+                                                .foregroundStyle(.primary)
+                                                .frame(width: 72, height: 28)
+                                                .glassEffect(.regular, in: .capsule)
+                                                .offset(x: 60)
+                                                .transition(.asymmetric(
+                                                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                                                    removal: .opacity
+                                                ))
+                                                .allowsHitTesting(false)
+                                        }
+                                    }
                                 }
 
                                 Menu {
