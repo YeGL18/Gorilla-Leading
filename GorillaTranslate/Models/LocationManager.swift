@@ -106,6 +106,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 self.speed = location.speed * 3.6
                 // 同步車速給氣壓計，用於標記樣本
                 ParkingFloorStore.shared.barometer.currentSpeedKmh = self.speed
+                ParkingFloorStore.shared.barometer.lastSpeedUpdateTime = Date()
+                ParkingFloorStore.shared.barometer.lastSpeedUpdateTime = Date()
             }
             let newQuality = self.quality(from: location.horizontalAccuracy)
             self.recentQualities.append(newQuality)
@@ -652,8 +654,11 @@ final class ParkingFloorStore: ObservableObject {
     }
 
     private func retryFloorPrediction(coordinate: CLLocationCoordinate2D) {
-        // 重試時優先用低速/靜止樣本
-        var window = barometer.stationaryRecentWindow(seconds: 2 * 60)
+        // 重試時用現在時間前後 8 分鐘的樣本窗口
+        var window = barometer.altitudeWindow(around: Date(), before: 8 * 60, after: 1 * 60)
+        if window == nil || (window?.sampleCount ?? 0) < 3 {
+            window = barometer.stationaryRecentWindow(seconds: 2 * 60)
+        }
         if window == nil || (window?.sampleCount ?? 0) < 3 {
             window = barometer.recentWindow(seconds: 2 * 60)
         }
@@ -915,10 +920,10 @@ final class ParkingFloorStore: ObservableObject {
         guard let delta = altitudeDelta, let samples = sampleCount else {
             return (nil, nil, fromLearned)
         }
-        let adjustedDelta = max(0.0, delta - offset)
+        let adjustedDelta = delta - offset  // 可負數（入地庫）
         let raw = (adjustedDelta / mpF).rounded(.toNearestOrAwayFromZero)
         var predicted = Int(raw)
-        if predicted < 0 { predicted = 0 }
+        if predicted < -10 { predicted = -10 }  // 最多地下 10 層
         if predicted > 30 { predicted = 30 }
         
         let sampleFactor: Double = samples >= 40 ? 1.0 : (Double(samples) / 40.0)
@@ -1028,6 +1033,8 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     private(set) var isUpdating = false
     /// 當前車速 (km/h)，由 LocationManager 更新；-1 = 未知
     @Published var currentSpeedKmh: Double = -1
+    /// 最後一次 GPS 更新速度的時間
+    var lastSpeedUpdateTime: Date = Date()
     
     var isAvailable: Bool { CMAltimeter.isRelativeAltitudeAvailable() }
     
@@ -1065,11 +1072,19 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         let altimeter = self.altimeter
         altimeter.startRelativeAltitudeUpdates(to: queue) { [weak self] data, _ in
             guard let self = self, let data = data else { return }
+            // 偵測 GPS 失效：超過 15 秒冇速度更新，將速度視為 0（靜止/地庫/隧道）
+            let effectiveSpeed: Double
+            let speedAge = Date().timeIntervalSince(self.lastSpeedUpdateTime)
+            if speedAge > 15 {
+                effectiveSpeed = 0
+            } else {
+                effectiveSpeed = self.currentSpeedKmh
+            }
             let sample = BarometerSample(
                 timestamp: Date(),
                 relativeAltitude: data.relativeAltitude.doubleValue,
                 pressure: data.pressure.doubleValue,
-                speedKmh: self.currentSpeedKmh
+                speedKmh: effectiveSpeed
             )
             DispatchQueue.main.async {
                 self.samples.append(sample)
@@ -1108,7 +1123,37 @@ final class BarometerSessionManager: NSObject, ObservableObject {
 
     /// 低速/靜止樣本的最大車速 (km/h)
     static let stationarySpeedThreshold: Double = 20.0
-    
+
+    /// 移動平均平滑海拔數據，去除氣壓計噪音
+    private func smoothAltitudes(_ alts: [Double], windowSize: Int = 5) -> [Double] {
+        guard alts.count > 1 else { return alts }
+        let half = windowSize / 2
+        return alts.enumerated().map { i, _ in
+            let lo = max(0, i - half)
+            let hi = min(alts.count, i + half + 1)
+            return alts[lo..<hi].reduce(0, +) / Double(hi - lo)
+        }
+    }
+
+    /// 通用計算：用平滑後嘅海拔數據，取前半段平均做基準，返回 delta（可負數）
+    private func computeWindowResult(candidates: [(offset: Int, element: BarometerSample)]) -> WindowResult? {
+        guard candidates.count >= 3 else { return nil }
+        let rawAlts = candidates.map { $0.element.relativeAltitude }
+        let smoothed = smoothAltitudes(rawAlts)
+        let firstHalf = smoothed.prefix(max(1, smoothed.count / 2))
+        let ref = firstHalf.reduce(0, +) / Double(firstHalf.count)
+        let final = smoothed.last!
+        let delta = final - ref  // 可負數（入地庫）
+        return WindowResult(
+            sampleCount: candidates.count,
+            deltaMeters: delta,
+            referenceAlt: ref,
+            finalAlt: final,
+            finalPressure: candidates.last!.element.pressure,
+            usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
+        )
+    }
+
     func altitudeWindow(around date: Date, before: TimeInterval, after: TimeInterval) -> WindowResult? {
         guard !samples.isEmpty else { return nil }
         let start = date.addingTimeInterval(-before)
@@ -1117,16 +1162,36 @@ final class BarometerSessionManager: NSObject, ObservableObject {
             $0.element.timestamp >= start && $0.element.timestamp <= end
         }
         guard candidates.count >= 3 else { return nil }
-        let firstHalf = candidates.prefix(max(1, candidates.count / 2))
-        let last = candidates.last!
-        let ref = firstHalf.reduce(0.0) { $0 + $1.element.relativeAltitude } / Double(firstHalf.count)
-        let delta = max(0.0, last.element.relativeAltitude - ref)
+
+        // 平滑海拔數據
+        let rawAlts = candidates.map { $0.element.relativeAltitude }
+        let smoothed = smoothAltitudes(rawAlts)
+
+        // 找路面基準線：最後一個高速樣本（仍在路面行駛時嘅海拔）
+        var roadBaselineAlt: Double? = nil
+        for (i, c) in candidates.enumerated() {
+            if c.element.speedKmh >= Self.stationarySpeedThreshold {
+                roadBaselineAlt = smoothed[i]
+            }
+        }
+
+        let ref: Double
+        if let baseline = roadBaselineAlt {
+            ref = baseline
+        } else {
+            // 冇高速樣本，用前半段平均
+            let firstHalf = smoothed.prefix(max(1, smoothed.count / 2))
+            ref = firstHalf.reduce(0, +) / Double(firstHalf.count)
+        }
+
+        let final = smoothed.last!
+        let delta = final - ref  // 可負數（入地庫 = 往下）
         return WindowResult(
             sampleCount: candidates.count,
             deltaMeters: delta,
             referenceAlt: ref,
-            finalAlt: last.element.relativeAltitude,
-            finalPressure: last.element.pressure,
+            finalAlt: final,
+            finalPressure: candidates.last!.element.pressure,
             usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
         )
     }
@@ -1136,42 +1201,17 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         guard !samples.isEmpty else { return nil }
         let cutoff = Date().addingTimeInterval(-seconds)
         let candidates = samples.enumerated().filter { $0.element.timestamp >= cutoff }
-        guard candidates.count >= 3 else { return nil }
-        let firstHalf = candidates.prefix(max(1, candidates.count / 2))
-        let last = candidates.last!
-        let ref = firstHalf.reduce(0.0) { $0 + $1.element.relativeAltitude } / Double(firstHalf.count)
-        let delta = max(0.0, last.element.relativeAltitude - ref)
-        return WindowResult(
-            sampleCount: candidates.count,
-            deltaMeters: delta,
-            referenceAlt: ref,
-            finalAlt: last.element.relativeAltitude,
-            finalPressure: last.element.pressure,
-            usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
-        )
+        return computeWindowResult(candidates: Array(candidates))
     }
 
     /// 只用低速/靜止樣本計算高度差（排除開車時的海拔變化）
     func stationaryRecentWindow(seconds: TimeInterval) -> WindowResult? {
         guard !samples.isEmpty else { return nil }
         let cutoff = Date().addingTimeInterval(-seconds)
-        // 只取低速樣本
         let candidates = samples.enumerated().filter {
             $0.element.timestamp >= cutoff && $0.element.speedKmh < Self.stationarySpeedThreshold
         }
-        guard candidates.count >= 3 else { return nil }
-        let firstHalf = candidates.prefix(max(1, candidates.count / 2))
-        let last = candidates.last!
-        let ref = firstHalf.reduce(0.0) { $0 + $1.element.relativeAltitude } / Double(firstHalf.count)
-        let delta = max(0.0, last.element.relativeAltitude - ref)
-        return WindowResult(
-            sampleCount: candidates.count,
-            deltaMeters: delta,
-            referenceAlt: ref,
-            finalAlt: last.element.relativeAltitude,
-            finalPressure: last.element.pressure,
-            usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
-        )
+        return computeWindowResult(candidates: Array(candidates))
     }
 
     /// 取「預測用到嘅」樣本 index 範圍，供曲線圖標色
