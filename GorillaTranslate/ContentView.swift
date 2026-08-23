@@ -258,6 +258,7 @@ struct ContentView: View {
     @State private var parkingOrbBoost: Double = 1.0
     @State private var orbBoostElapsedOffset: Double = 0
     @State private var isOrbRecognizingBoost: Bool = false
+    @State private var orbGradualStopTimer: Timer?
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
@@ -1386,6 +1387,7 @@ struct ContentView: View {
                             llmSoundStopTimer?.invalidate()
                             llmSoundStopTimer = nil
                             sfxPlayer.stopVLMLoadingImmediately()
+                            stopOrbRecognitionBoost(triggerSixColor: false)
                             isRecognizing = false
                         }
                     } message: {
@@ -2068,7 +2070,7 @@ struct ContentView: View {
                             GeometryReader { geo in
                                 let w = geo.size.width
                                 let h = geo.size.height
-                                let orbElapsed = isOrbRecognizingBoost ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
+                                let orbElapsed = orbBoostElapsedOffset > 0 ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
                                 let t = orbElapsed * 0.3 * parkingOrbBoost
 
                                 ZStack {
@@ -2304,7 +2306,7 @@ struct ContentView: View {
                         GeometryReader { geo in
                             let w = geo.size.width
                             let h = geo.size.height
-                            let orbElapsed = isOrbRecognizingBoost ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
+                            let orbElapsed = orbBoostElapsedOffset > 0 ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
                                 let t = orbElapsed * 0.3 * parkingOrbBoost
 
                             ZStack {
@@ -3241,10 +3243,13 @@ struct ContentView: View {
         startOrbRecognitionBoost()
         startLLMPollingClipboard()
 
-        // 1 分鐘後自動停止 loading 音效（播完當前循環）
+        // 1 分鐘後自動停止 loading 音效 + 光球漸進回歸正常速度（不觸發六色）
         llmSoundStopTimer?.invalidate()
         llmSoundStopTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: false) { [weak sfxPlayer] _ in
             sfxPlayer?.stopVLMLoadingGracefully()
+            DispatchQueue.main.async {
+                stopOrbRecognitionBoostGradually(triggerSixColor: false)
+            }
         }
     }
 
@@ -3284,7 +3289,7 @@ struct ContentView: View {
                     self.llmSoundStopTimer = nil
                     if self.isRecognizing {
                         self.sfxPlayer.stopVLMLoadingImmediately()
-                        self.stopOrbRecognitionBoost()
+                        self.stopOrbRecognitionBoostGradually(triggerSixColor: false)
                         self.llmError = String(localized: "等待超時（2分鐘）。請確認快捷指令名稱是否正確，或手動運行一次快捷指令後重試。")
                         self.isRecognizing = false
                     }
@@ -3445,6 +3450,9 @@ struct ContentView: View {
     // MARK: - Orb Recognition Boost (識別中加速)
 
     private func startOrbRecognitionBoost() {
+        // 取消正在進行的漸進停止
+        orbGradualStopTimer?.invalidate()
+        orbGradualStopTimer = nil
         isOrbRecognizingBoost = true
         // 確保 speedMultiplier 重置，避免同 entrance effect 疊加
         animationClock.speedMultiplier = 1.0
@@ -3455,16 +3463,54 @@ struct ContentView: View {
         }
     }
 
-    private func stopOrbRecognitionBoost() {
-        // 重置 offset，之後用完整 elapsed
-        orbBoostElapsedOffset = 0
+    /// 漸進停止：光球速度慢慢回歸正常（保持 isOrbRecognizingBoost=true 避免跳變）
+    private func stopOrbRecognitionBoostGradually(triggerSixColor: Bool, duration: TimeInterval = 3.0) {
+        // 保持 isOrbRecognizingBoost = true，orbElapsed 繼續用相對時間
+        // 只漸降 parkingOrbBoost：5.0 → 1.0
+        let startBoost = parkingOrbBoost
+        let startTime = Date()
+        orbGradualStopTimer?.invalidate()
+        orbGradualStopTimer = Timer(timeInterval: 1.0 / 30.0, repeats: true) { timer in
+            let elapsed = Date().timeIntervalSince(startTime)
+            let progress = min(elapsed / duration, 1.0)
+            // easeInOut 曲線
+            let eased = progress < 0.5
+                ? 2 * progress * progress
+                : 1 - pow(-2 * progress + 2, 2) / 2
+            let newBoost = startBoost + (1.0 - startBoost) * eased
+            DispatchQueue.main.async {
+                parkingOrbBoost = newBoost
+                if progress >= 1.0 {
+                    timer.invalidate()
+                    orbGradualStopTimer = nil
+                    parkingOrbBoost = 1.0
+                    // boost 已到 1.0，切 flag 回正常
+                    // offset 保留唔歸零，避免 orbElapsed 跳變
+                    isOrbRecognizingBoost = false
+                    // orbBoostElapsedOffset 唔歸零：trig 係週期性，永久 offset 只 shift phase 不跳位置
+                    if triggerSixColor {
+                        triggerOrbSpeedBoost()
+                    }
+                }
+            }
+        }
+        RunLoop.main.add(orbGradualStopTimer!, forMode: .common)
+    }
+
+    private func stopOrbRecognitionBoost(triggerSixColor: Bool = true) {
+        // 取消正在進行的漸進停止
+        orbGradualStopTimer?.invalidate()
+        orbGradualStopTimer = nil
+        // offset 保留唔歸零（trig 週期性，永久 offset 只 shift phase 不跳位置）
         // 立即重置（取消正在跑的 easeInOut 動畫）
         withTransaction(Transaction(animation: .none)) {
             parkingOrbBoost = 1.0
         }
         isOrbRecognizingBoost = false
-        // 觸發六色 ramp up（1.0→2.6），帶動漸變 crossfade
-        triggerOrbSpeedBoost()
+        // 只有識別成功時才觸發六色 ramp up
+        if triggerSixColor {
+            triggerOrbSpeedBoost()
+        }
     }
 
     private static func parseFloorIndex(_ text: String) -> Int? {

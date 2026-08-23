@@ -104,6 +104,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.lastLocation = location
             if location.speed >= 0 {
                 self.speed = location.speed * 3.6
+                // 同步車速給氣壓計，用於標記樣本
+                ParkingFloorStore.shared.barometer.currentSpeedKmh = self.speed
             }
             let newQuality = self.quality(from: location.horizontalAccuracy)
             self.recentQualities.append(newQuality)
@@ -603,11 +605,15 @@ final class ParkingFloorStore: ObservableObject {
 
         let coordinate = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
 
-        // 先嘗試找到達時間附近的樣本
+        // 優先用低速/靜止樣本計算（排除開車時的海拔變化）
         var window = barometer.altitudeWindow(around: visit.arrivalDate,
                                               before: 4 * 60,
                                               after: 1 * 60)
-        // 如果沒有，改用最近 2 分鐘的樣本（app 剛恢復時常用）
+        // 如果到達時間附近嘅樣本唔夠，改用最近 2 分鐘的靜止樣本
+        if window == nil || (window?.samples ?? 0) < 3 {
+            window = barometer.stationaryRecentWindow(seconds: 2 * 60)
+        }
+        // 最後 fallback 到全部樣本
         if window == nil || (window?.samples ?? 0) < 3 {
             window = barometer.recentWindow(seconds: 2 * 60)
         }
@@ -646,9 +652,12 @@ final class ParkingFloorStore: ObservableObject {
     }
 
     private func retryFloorPrediction(coordinate: CLLocationCoordinate2D) {
-        // 重試時直接用最近 2 分鐘的樣本
-        guard let window = barometer.recentWindow(seconds: 2 * 60),
-              window.samples >= 3 else { return }
+        // 重試時優先用低速/靜止樣本
+        var window = barometer.stationaryRecentWindow(seconds: 2 * 60)
+        if window == nil || (window?.sampleCount ?? 0) < 3 {
+            window = barometer.recentWindow(seconds: 2 * 60)
+        }
+        guard let window, window.sampleCount >= 3 else { return }
         let predicted = predictFloor(
             near: coordinate,
             createdAt: Date(),
@@ -1008,6 +1017,8 @@ struct BarometerSample: Hashable {
     let timestamp: Date
     let relativeAltitude: Double
     let pressure: Double
+    /// 採樣時的車速 (km/h)，-1 表示未知
+    let speedKmh: Double
 }
 
 final class BarometerSessionManager: NSObject, ObservableObject {
@@ -1015,6 +1026,8 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     private let queue = OperationQueue()
     @Published private(set) var samples: [BarometerSample] = []
     private(set) var isUpdating = false
+    /// 當前車速 (km/h)，由 LocationManager 更新；-1 = 未知
+    @Published var currentSpeedKmh: Double = -1
     
     var isAvailable: Bool { CMAltimeter.isRelativeAltitudeAvailable() }
     
@@ -1055,12 +1068,15 @@ final class BarometerSessionManager: NSObject, ObservableObject {
             let sample = BarometerSample(
                 timestamp: Date(),
                 relativeAltitude: data.relativeAltitude.doubleValue,
-                pressure: data.pressure.doubleValue
+                pressure: data.pressure.doubleValue,
+                speedKmh: self.currentSpeedKmh
             )
             DispatchQueue.main.async {
                 self.samples.append(sample)
-                if self.samples.count > 10000 {
-                    self.samples.removeFirst(self.samples.count - 10000)
+                // 保留最多 ~15 分鐘的樣本（氣壓計每秒約 1 個）
+                let maxSamples = 15 * 60
+                if self.samples.count > maxSamples {
+                    self.samples.removeFirst(self.samples.count - maxSamples)
                 }
             }
         }
@@ -1079,31 +1095,39 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     }
 
     struct WindowResult {
-        var samples: Int
+        var sampleCount: Int
         var deltaMeters: Double
         var referenceAlt: Double
         var finalAlt: Double
         var finalPressure: Double?
+        /// 預測用到的樣本 index 範圍（對應 self.samples 的 index），供曲線圖標色
+        var usedSampleRange: Range<Int>?
+        // 原有計算屬性（兼容舊調用）
+        var samples: Int { sampleCount }
     }
+
+    /// 低速/靜止樣本的最大車速 (km/h)
+    static let stationarySpeedThreshold: Double = 20.0
     
     func altitudeWindow(around date: Date, before: TimeInterval, after: TimeInterval) -> WindowResult? {
         guard !samples.isEmpty else { return nil }
         let start = date.addingTimeInterval(-before)
         let end = date.addingTimeInterval(after)
-        let candidates = samples.filter {
-            $0.timestamp >= start && $0.timestamp <= end
+        let candidates = samples.enumerated().filter {
+            $0.element.timestamp >= start && $0.element.timestamp <= end
         }
         guard candidates.count >= 3 else { return nil }
         let firstHalf = candidates.prefix(max(1, candidates.count / 2))
         let last = candidates.last!
-        let ref = firstHalf.reduce(0.0) { $0 + $1.relativeAltitude } / Double(firstHalf.count)
-        let delta = max(0.0, last.relativeAltitude - ref)
+        let ref = firstHalf.reduce(0.0) { $0 + $1.element.relativeAltitude } / Double(firstHalf.count)
+        let delta = max(0.0, last.element.relativeAltitude - ref)
         return WindowResult(
-            samples: candidates.count,
+            sampleCount: candidates.count,
             deltaMeters: delta,
             referenceAlt: ref,
-            finalAlt: last.relativeAltitude,
-            finalPressure: last.pressure
+            finalAlt: last.element.relativeAltitude,
+            finalPressure: last.element.pressure,
+            usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
         )
     }
 
@@ -1111,18 +1135,48 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     func recentWindow(seconds: TimeInterval) -> WindowResult? {
         guard !samples.isEmpty else { return nil }
         let cutoff = Date().addingTimeInterval(-seconds)
-        let candidates = samples.filter { $0.timestamp >= cutoff }
+        let candidates = samples.enumerated().filter { $0.element.timestamp >= cutoff }
         guard candidates.count >= 3 else { return nil }
         let firstHalf = candidates.prefix(max(1, candidates.count / 2))
         let last = candidates.last!
-        let ref = firstHalf.reduce(0.0) { $0 + $1.relativeAltitude } / Double(firstHalf.count)
-        let delta = max(0.0, last.relativeAltitude - ref)
+        let ref = firstHalf.reduce(0.0) { $0 + $1.element.relativeAltitude } / Double(firstHalf.count)
+        let delta = max(0.0, last.element.relativeAltitude - ref)
         return WindowResult(
-            samples: candidates.count,
+            sampleCount: candidates.count,
             deltaMeters: delta,
             referenceAlt: ref,
-            finalAlt: last.relativeAltitude,
-            finalPressure: last.pressure
+            finalAlt: last.element.relativeAltitude,
+            finalPressure: last.element.pressure,
+            usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
         )
+    }
+
+    /// 只用低速/靜止樣本計算高度差（排除開車時的海拔變化）
+    func stationaryRecentWindow(seconds: TimeInterval) -> WindowResult? {
+        guard !samples.isEmpty else { return nil }
+        let cutoff = Date().addingTimeInterval(-seconds)
+        // 只取低速樣本
+        let candidates = samples.enumerated().filter {
+            $0.element.timestamp >= cutoff && $0.element.speedKmh < Self.stationarySpeedThreshold
+        }
+        guard candidates.count >= 3 else { return nil }
+        let firstHalf = candidates.prefix(max(1, candidates.count / 2))
+        let last = candidates.last!
+        let ref = firstHalf.reduce(0.0) { $0 + $1.element.relativeAltitude } / Double(firstHalf.count)
+        let delta = max(0.0, last.element.relativeAltitude - ref)
+        return WindowResult(
+            sampleCount: candidates.count,
+            deltaMeters: delta,
+            referenceAlt: ref,
+            finalAlt: last.element.relativeAltitude,
+            finalPressure: last.element.pressure,
+            usedSampleRange: candidates.first!.offset..<(candidates.last!.offset + 1)
+        )
+    }
+
+    /// 取「預測用到嘅」樣本 index 範圍，供曲線圖標色
+    func lastUsedSampleRange(seconds: TimeInterval = 2 * 60) -> Range<Int>? {
+        return stationaryRecentWindow(seconds: seconds)?.usedSampleRange
+            ?? recentWindow(seconds: seconds)?.usedSampleRange
     }
 }

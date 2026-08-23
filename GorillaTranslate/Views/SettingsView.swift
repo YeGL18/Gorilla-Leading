@@ -416,83 +416,150 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - 測試頁分類排序
+
+private struct TestItemDef: Identifiable {
+    let id: String
+    let title: String
+    let icon: String
+    @ViewBuilder let destination: () -> AnyView
+}
+
+private let allTestItems: [TestItemDef] = [
+    TestItemDef(id: "parkingFlow", title: "停車流程測試", icon: "parkingsign.circle.fill") { AnyView(ParkingFlowTestView()) },
+    TestItemDef(id: "timeOrb", title: "時程光球動畫測試", icon: "sparkles") { AnyView(TimeOrbAnimationTestView()) },
+    TestItemDef(id: "visitRecords", title: "到訪記錄測試", icon: "mappin.and.ellipse") { AnyView(VisitRecordsTestView()) },
+    TestItemDef(id: "speedAnim", title: "模擬動畫時速動畫測試", icon: "speedometer") { AnyView(SpeedAnimationTestView()) },
+    TestItemDef(id: "altimeter", title: "氣壓計曲線測試", icon: "barometer") { AnyView(AltimeterTestView()) },
+    TestItemDef(id: "addressBeam", title: "地址膠囊 BorderBeam 測試", icon: "dot.squareshape.split.2x2") { AnyView(AddressCapsuleBeamTestView()) },
+    TestItemDef(id: "placeMgmt", title: "地點管理", icon: "brain.head.profile") { AnyView(PlaceManagementView()) },
+    TestItemDef(id: "photoTest", title: "泊車記憶拍照效果測試", icon: "camera.on.rectangle") { AnyView(ParkingMemoryPhotoTestView()) },
+    TestItemDef(id: "swipeTest", title: "抽離牌組動畫測試", icon: "rectangle.split.3x1") { AnyView(ParkingMemorySwipeTestView()) },
+    TestItemDef(id: "ocrTest", title: "泊車辨識測試 (OCR)", icon: "text.viewfinder") { AnyView(ParkingRecognitionTestView()) },
+    TestItemDef(id: "llmTest", title: "泊車辨識測試 (LLM)", icon: "brain.head.profile") { AnyView(ParkingLLMRecognitionTestView()) },
+    TestItemDef(id: "liveActivity", title: "即時活動樣式預覽", icon: "iphone.and.dynamicIsland") { AnyView(LiveActivityPreviewTestView()) },
+]
+
 struct ParkingFloorTestView: View {
+    @State private var orderedIDs: [String] = []
+    @State private var favoriteIDs: Set<String> = []
+    @Environment(\.editMode) private var editMode
+
+    private var orderedItems: [TestItemDef] {
+        let dict = Dictionary(uniqueKeysWithValues: allTestItems.map { ($0.id, $0) })
+        return orderedIDs.compactMap { dict[$0] }
+    }
+
+    private var favorites: [TestItemDef] { orderedItems.filter { favoriteIDs.contains($0.id) } }
+    private var others: [TestItemDef] { orderedItems.filter { !favoriteIDs.contains($0.id) } }
+
+    private func loadFromStorage() {
+        let defaults = UserDefaults.standard
+        if let data = defaults.data(forKey: "testItemOrder"),
+           let arr = try? JSONDecoder().decode([String].self, from: data), !arr.isEmpty {
+            orderedIDs = arr
+        } else {
+            orderedIDs = allTestItems.map(\.id)
+        }
+        if let data = defaults.data(forKey: "testItemFavorites"),
+           let arr = try? JSONDecoder().decode([String].self, from: data) {
+            favoriteIDs = Set(arr)
+        }
+    }
+
+    private func saveToStorage() {
+        let defaults = UserDefaults.standard
+        defaults.set(try? JSONEncoder().encode(orderedIDs), forKey: "testItemOrder")
+        defaults.set(try? JSONEncoder().encode(Array(favoriteIDs)), forKey: "testItemFavorites")
+    }
+
+    private func toggleFavorite(_ id: String) {
+        if favoriteIDs.contains(id) { favoriteIDs.remove(id) } else { favoriteIDs.insert(id) }
+        // 切換常用後重新排列：常用排前面，保持各自內部順序
+        let favIDs = orderedIDs.filter { favoriteIDs.contains($0) }
+        let otherIDs = orderedIDs.filter { !favoriteIDs.contains($0) }
+        orderedIDs = favIDs + otherIDs
+        saveToStorage()
+    }
+
+    /// 常用 section 的 move
+    private func moveFavorite(from source: IndexSet, to destination: Int) {
+        let favIDs = orderedIDs.filter { favoriteIDs.contains($0) }
+        let otherIDs = orderedIDs.filter { !favoriteIDs.contains($0) }
+        var newFavIDs = favIDs
+        newFavIDs.move(fromOffsets: source, toOffset: destination)
+        orderedIDs = newFavIDs + otherIDs
+        saveToStorage()
+    }
+
+    /// 其他 section 的 move
+    private func moveOther(from source: IndexSet, to destination: Int) {
+        let favIDs = orderedIDs.filter { favoriteIDs.contains($0) }
+        let otherIDs = orderedIDs.filter { !favoriteIDs.contains($0) }
+        var newOtherIDs = otherIDs
+        newOtherIDs.move(fromOffsets: source, toOffset: destination)
+        orderedIDs = favIDs + newOtherIDs
+        saveToStorage()
+    }
+
     var body: some View {
         List {
-            NavigationLink {
-                ParkingFlowTestView()
-            } label: {
-                Label(String(localized: "停車流程測試"), systemImage: "parkingsign.circle.fill")
+            // ⭐ 常用 header
+            if !favorites.isEmpty {
+                Label("⭐ 常用", systemImage: "star.fill")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
             }
 
-            NavigationLink {
-                TimeOrbAnimationTestView()
-            } label: {
-                Label(String(localized: "時程光球動畫測試"), systemImage: "sparkles")
+            // 常用項目
+            ForEach(favorites) { item in
+                rowView(item: item, isFavorite: true)
+            }
+            .onMove(perform: moveFavorite)
+
+            // 其他 header
+            if !others.isEmpty {
+                Text("其他")
+                    .font(.subheadline).fontWeight(.semibold)
+                    .foregroundStyle(.secondary)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 4, trailing: 16))
             }
 
-            NavigationLink {
-                VisitRecordsTestView()
-            } label: {
-                Label(String(localized: "到訪記錄測試"), systemImage: "mappin.and.ellipse")
+            // 其他項目
+            ForEach(others) { item in
+                rowView(item: item, isFavorite: false)
             }
-
-            NavigationLink {
-                SpeedAnimationTestView()
-            } label: {
-                Label(String(localized: "模擬動畫時速動畫測試"), systemImage: "speedometer")
-            }
-
-            NavigationLink {
-                AltimeterTestView()
-            } label: {
-                Label(String(localized: "氣壓計曲線測試"), systemImage: "barometer")
-            }
-
-            NavigationLink {
-                AddressCapsuleBeamTestView()
-            } label: {
-                Label(String(localized: "地址膠囊 BorderBeam 測試"), systemImage: "dot.squareshape.split.2x2")
-            }
-
-            NavigationLink {
-                PlaceManagementView()
-            } label: {
-                Label(String(localized: "地點管理"), systemImage: "brain.head.profile")
-            }
-
-            NavigationLink {
-                ParkingMemoryPhotoTestView()
-            } label: {
-                Label(String(localized: "泊車記憶拍照效果測試"), systemImage: "camera.on.rectangle")
-            }
-
-            NavigationLink {
-                ParkingMemorySwipeTestView()
-            } label: {
-                Label(String(localized: "抽離牌組動畫測試"), systemImage: "rectangle.split.3x1")
-            }
-
-            NavigationLink {
-                ParkingRecognitionTestView()
-            } label: {
-                Label(String(localized: "泊車辨識測試 (OCR)"), systemImage: "text.viewfinder")
-            }
-
-            NavigationLink {
-                ParkingLLMRecognitionTestView()
-            } label: {
-                Label(String(localized: "泊車辨識測試 (LLM)"), systemImage: "brain.head.profile")
-            }
-
-            NavigationLink {
-                LiveActivityPreviewTestView()
-            } label: {
-                Label(String(localized: "即時活動樣式預覽"), systemImage: "iphone.and.dynamicIsland")
-            }
+            .onMove(perform: moveOther)
         }
         .navigationTitle(String(localized: "測試"))
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            EditButton()
+        }
+        .onAppear {
+            loadFromStorage()
+        }
+    }
+
+    @ViewBuilder
+    private func rowView(item: TestItemDef, isFavorite: Bool) -> some View {
+        HStack {
+            if editMode?.wrappedValue == .active {
+                Button {
+                    toggleFavorite(item.id)
+                } label: {
+                    Image(systemName: isFavorite ? "star.fill" : "star")
+                        .foregroundStyle(isFavorite ? .yellow : .secondary)
+                }
+                .buttonStyle(.plain)
+            }
+            NavigationLink {
+                item.destination()
+            } label: {
+                Label(String(localized: String.LocalizationValue(item.title)), systemImage: item.icon)
+            }
+        }
     }
 }
 
@@ -1221,7 +1288,8 @@ struct AltimeterTestView: View {
 
                         AltitudeChartView2(samples: barometer.samples,
                                            altitudeMin: altitudeMin,
-                                           altitudeMax: altitudeMax)
+                                           altitudeMax: altitudeMax,
+                                           usedSampleRange: barometer.lastUsedSampleRange())
                             .frame(height: 180)
                             .padding(.vertical, 6)
 
@@ -1262,6 +1330,7 @@ private struct AltitudeChartView2: View {
     let samples: [BarometerSample]
     let altitudeMin: Double
     let altitudeMax: Double
+    var usedSampleRange: Range<Int>? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -1273,6 +1342,7 @@ private struct AltitudeChartView2: View {
             let span = max(0.01, altitudeMax - altitudeMin)
 
             ZStack(alignment: .topLeading) {
+                // 網格線
                 Path { p in
                     for i in 0..<5 {
                         let y = padH + (h - 2 * padH) * CGFloat(i) / 4.0
@@ -1283,6 +1353,9 @@ private struct AltitudeChartView2: View {
                 .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 0.5))
 
                 if n >= 2 {
+                    // 分段繪製：低速樣本（用於預測）用青色，高速/其他樣本用灰色
+                    let range = usedSampleRange
+                    // 灰色曲線（全部樣本，背景）
                     Path { p in
                         for (i, s) in samples.enumerated() {
                             let x = CGFloat(i) * xStep
@@ -1292,29 +1365,83 @@ private struct AltitudeChartView2: View {
                             if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
                         }
                     }
-                    .stroke(Color.orange, style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                    .stroke(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
 
-                    Path { p in
-                        for (i, s) in samples.enumerated() {
-                            let x = CGFloat(i) * xStep
-                            let t = (s.relativeAltitude - altitudeMin) / span
-                            let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
-                            let pt = CGPoint(x: x, y: y)
-                            if i == 0 {
-                                p.move(to: CGPoint(x: pt.x, y: h - padH))
-                                p.addLine(to: pt)
-                            } else {
-                                p.addLine(to: pt)
+                    // 青色曲線（僅用於預測嘅低速樣本段）
+                    if let range, range.lowerBound < n {
+                        Path { p in
+                            var started = false
+                            for i in range {
+                                guard i < samples.count else { break }
+                                let x = CGFloat(i) * xStep
+                                let t = (samples[i].relativeAltitude - altitudeMin) / span
+                                let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
+                                let pt = CGPoint(x: x, y: y)
+                                if !started { p.move(to: pt); started = true }
+                                else { p.addLine(to: pt) }
                             }
                         }
-                        if let lastX = samples.indices.last.map({ CGFloat($0) * xStep }) {
-                            p.addLine(to: CGPoint(x: lastX, y: h - padH))
-                            p.closeSubpath()
+                        .stroke(Color(hex: "46ADB8"), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                    }
+
+                    // 高速樣本用紅色虛線標記
+                    let highSpeedIndices = samples.enumerated().filter { $0.element.speedKmh >= BarometerSessionManager.stationarySpeedThreshold }
+                    if !highSpeedIndices.isEmpty {
+                        ForEach(Array(highSpeedIndices), id: \.offset) { item in
+                            let x = CGFloat(item.offset) * xStep
+                            let t = (item.element.relativeAltitude - altitudeMin) / span
+                            let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
+                            Circle()
+                                .fill(Color.red.opacity(0.5))
+                                .frame(width: 3, height: 3)
+                                .position(x: x, y: y)
                         }
                     }
-                    .fill(LinearGradient(colors: [Color.orange.opacity(0.35), Color.orange.opacity(0.03)],
-                                         startPoint: .top, endPoint: .bottom))
+
+                    // 漸變填充（用於預測段）
+                    if let range, range.lowerBound < n {
+                        Path { p in
+                            var started = false
+                            for i in range {
+                                guard i < samples.count else { break }
+                                let x = CGFloat(i) * xStep
+                                let t = (samples[i].relativeAltitude - altitudeMin) / span
+                                let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
+                                let pt = CGPoint(x: x, y: y)
+                                if !started {
+                                    p.move(to: CGPoint(x: pt.x, y: h - padH))
+                                    p.addLine(to: pt)
+                                    started = true
+                                } else {
+                                    p.addLine(to: pt)
+                                }
+                            }
+                            // 閉合到底部
+                            if let lastI = range.last, lastI < samples.count {
+                                let lastX = CGFloat(lastI) * xStep
+                                p.addLine(to: CGPoint(x: lastX, y: h - padH))
+                                let firstX = CGFloat(range.lowerBound) * xStep
+                                p.addLine(to: CGPoint(x: firstX, y: h - padH))
+                                p.closeSubpath()
+                            }
+                        }
+                        .fill(LinearGradient(colors: [Color(hex: "46ADB8").opacity(0.25), Color(hex: "46ADB8").opacity(0.03)],
+                                             startPoint: .top, endPoint: .bottom))
+                    }
                 }
+
+                // 圖例
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Circle().fill(Color(hex: "46ADB8")).frame(width: 6, height: 6)
+                        Text("預測用樣本").font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                    HStack(spacing: 4) {
+                        Circle().fill(Color.red.opacity(0.5)).frame(width: 6, height: 6)
+                        Text("高速（已排除）").font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.leading, 4).padding(.top, 2)
             }
         }
     }

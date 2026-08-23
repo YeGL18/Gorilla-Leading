@@ -226,11 +226,26 @@ final class SFXPlayer: ObservableObject {
         p.play()
     }
 
-    /// 停止 loading 音效：播完當前循環後停止（唔再播下一輪）
+    /// 停止 loading 音效：淡出 0.3 秒後停止
     func stopVLMLoadingGracefully() {
         vlmLoadingStopAfterCurrent = true
-        // numberOfLoops = 0 表示播完當前循環就停
-        vlmLoadingPlayer?.numberOfLoops = 0
+        guard let p = vlmLoadingPlayer, p.isPlaying else { return }
+        let startVolume = p.volume
+        let fadeDuration = 0.3
+        let fadeStartTime = Date()
+        let fadeTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { timer in
+            let elapsed = Date().timeIntervalSince(fadeStartTime)
+            let progress = min(elapsed / fadeDuration, 1.0)
+            p.volume = startVolume * Float(1.0 - progress)
+            if progress >= 1.0 {
+                timer.invalidate()
+                p.stop()
+                p.currentTime = 0
+                p.volume = startVolume
+                p.numberOfLoops = -1  // 重置為循環（下次用）
+            }
+        }
+        RunLoop.main.add(fadeTimer, forMode: .common)
     }
 
     /// 立即停止 loading 音效
