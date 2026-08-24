@@ -327,6 +327,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func saveVisits() {
         if let data = try? JSONEncoder().encode(visits) {
             UserDefaults.standard.set(data, forKey: visitsKey)
+            UserDefaults.standard.synchronize()
         }
     }
 
@@ -607,27 +608,48 @@ final class ParkingFloorStore: ObservableObject {
 
         let coordinate = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
 
-        // 優先用低速/靜止樣本計算（排除開車時的海拔變化）
-        var window = barometer.altitudeWindow(around: visit.arrivalDate,
-                                              before: 4 * 60,
-                                              after: 1 * 60)
-        // 如果到達時間附近嘅樣本唔夠，改用最近 2 分鐘的靜止樣本
-        if window == nil || (window?.samples ?? 0) < 3 {
-            window = barometer.stationaryRecentWindow(seconds: 2 * 60)
-        }
-        // 最後 fallback 到全部樣本
-        if window == nil || (window?.samples ?? 0) < 3 {
-            window = barometer.recentWindow(seconds: 2 * 60)
+        // 方案 A：用「停留瞬間海拔」做基準（最準確）
+        var altitudeDelta: Double? = nil
+        var referenceAlt: Double? = nil
+        var finalAlt: Double? = nil
+        var sampleCount: Int? = nil
+        var pressure: Double? = nil
+
+        if let statAlt = barometer.stationaryAltitude, barometer.samples.count >= 3 {
+            // 用最近 10 秒嘅平滑海拔做 final
+            let recent = barometer.samples.suffix(10)
+            let smoothedFinal = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
+            altitudeDelta = smoothedFinal - statAlt
+            referenceAlt = statAlt
+            finalAlt = smoothedFinal
+            sampleCount = recent.count
+            pressure = barometer.samples.last?.pressure
+        } else {
+            // 方案 B fallback：窗口計算（原有邏輯）
+            var window = barometer.altitudeWindow(around: visit.arrivalDate,
+                                                  before: 4 * 60,
+                                                  after: 1 * 60)
+            if window == nil || (window?.samples ?? 0) < 3 {
+                window = barometer.stationaryRecentWindow(seconds: 2 * 60)
+            }
+            if window == nil || (window?.samples ?? 0) < 3 {
+                window = barometer.recentWindow(seconds: 2 * 60)
+            }
+            altitudeDelta = window?.deltaMeters
+            referenceAlt = window?.referenceAlt
+            finalAlt = window?.finalAlt
+            sampleCount = window?.samples
+            pressure = window?.finalPressure
         }
 
         let predicted = predictFloor(
             near: coordinate,
             createdAt: visit.arrivalDate,
-            altitudeDelta: window?.deltaMeters,
-            sampleCount: window?.samples,
-            referenceAlt: window?.referenceAlt,
-            finalAlt: window?.finalAlt,
-            pressure: window?.finalPressure
+            altitudeDelta: altitudeDelta,
+            sampleCount: sampleCount,
+            referenceAlt: referenceAlt,
+            finalAlt: finalAlt,
+            pressure: pressure
         )
         recordParkingPoint(
             coordinate: coordinate,
@@ -636,11 +658,11 @@ final class ParkingFloorStore: ObservableObject {
             predictedFloorIndex: predicted.floorIndex,
             manualFloorIndex: nil,
             confidence: predicted.confidence,
-            altitudeDelta: window?.deltaMeters,
-            sampleCount: window?.samples,
-            referenceAlt: window?.referenceAlt,
-            finalAlt: window?.finalAlt,
-            pressure: window?.finalPressure,
+            altitudeDelta: altitudeDelta,
+            sampleCount: sampleCount,
+            referenceAlt: referenceAlt,
+            finalAlt: finalAlt,
+            pressure: pressure,
             predictedFromLotLearned: predicted.fromLotLearned
         )
 
@@ -956,14 +978,31 @@ final class ParkingFloorStore: ObservableObject {
     func setLotName(lotID: UUID, name: String?) {
         guard let idx = lots.firstIndex(where: { $0.id == lotID }) else { return }
         let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines)
-        lots[idx].name = trimmed?.isEmpty == true ? nil : trimmed
+        let newName = trimmed?.isEmpty == true ? nil : trimmed
+        lots[idx].name = newName
         lots[idx].updatedAt = Date()
         persist()
-        // 同步更新 TripPredictor placeCatalog 中的 displayName
-        if let newName = lots[idx].name {
-            DispatchQueue.main.async {
-                TripPredictor.shared.renameLotPlace(lotID: lotID, newName: newName)
+        let lot = lots[idx]
+        DispatchQueue.main.async {
+            // 同步 placeCatalog 中嘅 lot: 記錄
+            if let n = newName {
+                TripPredictor.shared.renameLotPlace(lotID: lotID, newName: n)
             }
+            // 同步 placeCatalog 中嘅 addr: 記錄（同一位置嘅地址叢集）
+            TripPredictor.shared.syncClusterName(
+                nearLatitude: lot.centerLatitude,
+                longitude: lot.centerLongitude,
+                newName: newName
+            )
+        }
+    }
+
+    /// 同步停車場名稱：搵到同一位置嘅 lot 並更新名稱（由地址叢集改名觸發）
+    func syncLotName(near coordinate: CLLocationCoordinate2D, newName: String) {
+        if let idx = findLotIndex(near: coordinate, radiusMeters: 180) {
+            lots[idx].name = newName
+            lots[idx].updatedAt = Date()
+            persist()
         }
     }
 
@@ -1000,8 +1039,10 @@ final class ParkingFloorStore: ObservableObject {
         do {
             let data = try JSONEncoder().encode(lots)
             defaults.set(data, forKey: storeKey)
+            defaults.synchronize()
         } catch {
-            defaults.removeObject(forKey: storeKey)
+            // encode 失敗時唔好刪數據，保留上一次成功嘅版本
+            print("[ParkingFloorStore] persist encode error: \(error)")
         }
     }
     
@@ -1035,6 +1076,16 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     @Published var currentSpeedKmh: Double = -1
     /// 最後一次 GPS 更新速度的時間
     var lastSpeedUpdateTime: Date = Date()
+
+    // MARK: - 停留偵測（10 秒靜止 → 記錄海拔）
+    /// 連續低速樣本計數（每秒 +1，高速歸零）
+    private var consecutiveLowSpeedCount: Int = 0
+    /// 是否已記錄停留海拔
+    private var hasRecordedStationaryAltitude = false
+    /// 進入「停留中」瞬間嘅平滑海拔
+    @Published var stationaryAltitude: Double? = nil
+    /// 最近 10 個低速樣本嘅海拔（用於平滑計算，在背景 queue 操作）
+    private var recentLowSpeedAlts: [Double] = []
     
     var isAvailable: Bool { CMAltimeter.isRelativeAltitudeAvailable() }
     
@@ -1086,6 +1137,36 @@ final class BarometerSessionManager: NSObject, ObservableObject {
                 pressure: data.pressure.doubleValue,
                 speedKmh: effectiveSpeed
             )
+
+            // 偵測停留：連續 10 秒低速 → 記錄海拔（取 10 個樣本平滑）
+            let alt = data.relativeAltitude.doubleValue
+            if effectiveSpeed < Self.stationarySpeedThreshold {
+                self.consecutiveLowSpeedCount += 1
+                // 維護最近 10 個低速海拔
+                self.recentLowSpeedAlts.append(alt)
+                if self.recentLowSpeedAlts.count > 10 {
+                    self.recentLowSpeedAlts.removeFirst(self.recentLowSpeedAlts.count - 10)
+                }
+                if self.consecutiveLowSpeedCount >= 10 && !self.hasRecordedStationaryAltitude {
+                    self.hasRecordedStationaryAltitude = true
+                    // 取最近 10 個樣本嘅平均做平滑海拔
+                    let smoothed = self.recentLowSpeedAlts.reduce(0, +) / Double(self.recentLowSpeedAlts.count)
+                    DispatchQueue.main.async {
+                        self.stationaryAltitude = smoothed
+                    }
+                }
+            } else {
+                self.consecutiveLowSpeedCount = 0
+                self.recentLowSpeedAlts.removeAll()
+                // 重新開始行駛 → 重置，下次停車可以再記錄
+                if self.hasRecordedStationaryAltitude {
+                    self.hasRecordedStationaryAltitude = false
+                    DispatchQueue.main.async {
+                        self.stationaryAltitude = nil
+                    }
+                }
+            }
+
             DispatchQueue.main.async {
                 self.samples.append(sample)
                 // 保留最多 ~15 分鐘的樣本（氣壓計每秒約 1 個）

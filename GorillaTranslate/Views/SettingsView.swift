@@ -1269,13 +1269,39 @@ struct AltimeterTestView: View {
                     infoRow("氣壓", value: String(format: "%.2f kPa", last.pressure))
                     infoRow("平滑高度", value: String(format: "%.3f m", smoothedLast))
                 }
+                if let statAlt = barometer.stationaryAltitude {
+                    infoRow("停留海拔", value: String(format: "%.3f m", statAlt), color: .green)
+                }
                 Divider()
                 speedInfoRows
             } header: {
                 Label("實時感測", systemImage: "sensor.tag.radiowaves.forward.fill")
             }
 
-            // 窗口計算
+            // 方案 A：停留海拔
+            Section {
+                if let sp = stationaryPrediction {
+                    infoRow("停留海拔", value: String(format: "%.3f m", sp.ref), color: .green)
+                    infoRow("當前平滑", value: String(format: "%.3f m", sp.final))
+                    infoRow("Δ", value: String(format: "%+.3f m", sp.delta),
+                            color: sp.delta < 0 ? .blue : .orange)
+                    Divider()
+                    infoRow("Offset", value: sp.predicted.offset)
+                    infoRow("Adjusted Δ", value: sp.predicted.adjustedDelta,
+                            color: sp.predicted.adjustedDelta.hasPrefix("-") ? .blue : .orange)
+                    infoRow("Predicted", value: sp.predicted.rawPredicted)
+                    Divider()
+                    infoRow("預測樓層", value: sp.predicted.floor, color: sp.predicted.floor == "—" ? .secondary : .blue)
+                    infoRow("信心度", value: sp.predicted.confidence)
+                } else {
+                    Text("等待進入停留中（連續靜止 10 秒）")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Label("方案 A：停留海拔", systemImage: "figure.stand")
+            }
+
+            // 方案 B：窗口計算
             Section {
                 windowRow(label: "① 到達時間窗口", sublabel: "前4分+後1分",
                           window: window1, threshold: 3)
@@ -1290,14 +1316,14 @@ struct AltimeterTestView: View {
                     infoRow("採用窗口", value: "無可用", color: .red)
                 }
             } header: {
-                Label("窗口計算詳情", systemImage: "rectangle.dashed")
+                Label("方案 B：窗口計算", systemImage: "rectangle.dashed")
             }
 
-            // 樓層預測
+            // 樓層預測（方案 B 結果）
             Section {
                 floorPredictionRows
             } header: {
-                Label("樓層預測", systemImage: "building.2")
+                Label("樓層預測（方案 B）", systemImage: "building.2")
             }
 
             // 高度曲線
@@ -1320,9 +1346,9 @@ struct AltimeterTestView: View {
         VStack(spacing: 0) {
             ScrollView(.vertical, showsIndicators: true) {
                 VStack(spacing: 8) {
-                    // 雙欄區域
-                    HStack(alignment: .top, spacing: 10) {
-                        // 左欄：狀態 + 實時感測
+                    // 三欄區域
+                    HStack(alignment: .top, spacing: 8) {
+                        // 欄 1：狀態 + 實時感測
                         VStack(spacing: 6) {
                             compactToggle
                             compactStatusGrid
@@ -1333,8 +1359,24 @@ struct AltimeterTestView: View {
 
                         Divider()
 
-                        // 右欄：窗口 + 預測
-                        VStack(spacing: 6) {
+                        // 欄 2：方案 A
+                        VStack(spacing: 4) {
+                            Text("方案 A：停留海拔")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.green)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            compactStationarySection
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        Divider()
+
+                        // 欄 3：方案 B
+                        VStack(spacing: 4) {
+                            Text("方案 B：窗口計算")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.orange)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                             compactWindowSection
                             Divider()
                             compactPredictionSection
@@ -1388,6 +1430,9 @@ struct AltimeterTestView: View {
                 compactRow("氣壓", value: String(format: "%.2f kPa", last.pressure))
                 compactRow("平滑", value: String(format: "%.3f m", smoothedLast))
             }
+            if let statAlt = barometer.stationaryAltitude {
+                compactRow("停留海拔", value: String(format: "%.3f m", statAlt), color: .green)
+            }
             compactRow("車速", value: gpsIsStale
                        ? String(format: "%.0f（滯留）", barometer.currentSpeedKmh)
                        : String(format: "%.1f km/h", barometer.currentSpeedKmh),
@@ -1398,6 +1443,31 @@ struct AltimeterTestView: View {
                        color: gpsIsStale ? .red : .green)
             compactRow("標記", value: gpsIsStale ? "0（歸零）" : String(format: "%.1f", barometer.currentSpeedKmh),
                        color: gpsIsStale ? .orange : .primary)
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    private var compactStationarySection: some View {
+        VStack(spacing: 2) {
+            if let sp = stationaryPrediction {
+                compactRow("停留海拔", value: String(format: "%.3f m", sp.ref), color: .green)
+                compactRow("當前平滑", value: String(format: "%.3f m", sp.final))
+                compactRow("Δ", value: String(format: "%+.3f m", sp.delta),
+                           color: sp.delta < 0 ? .blue : .orange)
+                Divider()
+                compactRow("Offset", value: sp.predicted.offset)
+                compactRow("Adj Δ", value: sp.predicted.adjustedDelta,
+                           color: sp.predicted.adjustedDelta.hasPrefix("-") ? .blue : .orange)
+                compactRow("Predicted", value: sp.predicted.rawPredicted)
+                Divider()
+                compactRow("樓層", value: sp.predicted.floor, color: sp.predicted.floor == "—" ? .secondary : .blue)
+            } else {
+                Text("等待停留 10s")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
         }
         .padding(6)
         .background(Color(.secondarySystemBackground))
@@ -1512,7 +1582,8 @@ struct AltimeterTestView: View {
                     altitudeMax: altitudeMax,
                     usedSampleRange: bestWindow?.usedSampleRange,
                     roadBaselineAlt: window1?.referenceAlt,
-                    smoothedAlts: smoothedAlts
+                    smoothedAlts: smoothedAlts,
+                    stationaryAlt: barometer.stationaryAltitude
                 )
                 .frame(height: chartHeight)
 
@@ -1521,6 +1592,7 @@ struct AltimeterTestView: View {
                     legendDot(color: Color(hex: "46ADB8"), label: "平滑曲線")
                     legendDot(color: .red, label: "高速樣本")
                     legendDot(color: .orange, label: "路面基準")
+                    legendDot(color: .green, label: "停留海拔")
                 }
                 .font(.system(size: 9))
                 .foregroundStyle(.secondary)
@@ -1565,6 +1637,16 @@ struct AltimeterTestView: View {
         if let w1 = window1, w1.samples >= 3 { return "① 到達時間" }
         if let w2 = window2, w2.sampleCount >= 3 { return "② 靜止" }
         return "③ 全部"
+    }
+
+    // 方案 A：停留海拔計算
+    private var stationaryPrediction: (delta: Double, ref: Double, final: Double, predicted: (floor: String, confidence: String, mpf: String, offset: String, adjustedDelta: String, rawPredicted: String))? {
+        guard let statAlt = barometer.stationaryAltitude, barometer.samples.count >= 3 else { return nil }
+        let recent = barometer.samples.suffix(10)
+        let smoothedFinal = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
+        let delta = smoothedFinal - statAlt
+        let predicted = predictFloorFrom(delta: delta, sampleCount: recent.count)
+        return (delta, statAlt, smoothedFinal, predicted)
     }
 
     private func predictFloorFrom(delta: Double, sampleCount: Int) -> (floor: String, confidence: String, mpf: String, offset: String, adjustedDelta: String, rawPredicted: String) {
@@ -1686,6 +1768,7 @@ private struct AltitudeChartView2: View {
     var usedSampleRange: Range<Int>? = nil
     var roadBaselineAlt: Double? = nil
     var smoothedAlts: [Double]? = nil
+    var stationaryAlt: Double? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -1785,6 +1868,16 @@ private struct AltitudeChartView2: View {
                             p.addLine(to: CGPoint(x: w, y: y))
                         }
                         .stroke(Color.orange.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    }
+
+                    // 停留海拔標記（綠色實線）
+                    if let statAlt = stationaryAlt {
+                        let y = padH + (h - 2 * padH) * CGFloat(1.0 - (statAlt - altitudeMin) / span)
+                        Path { p in
+                            p.move(to: CGPoint(x: 0, y: y))
+                            p.addLine(to: CGPoint(x: w, y: y))
+                        }
+                        .stroke(Color.green.opacity(0.7), style: StrokeStyle(lineWidth: 1.5))
                     }
 
                     // 最終高度標記

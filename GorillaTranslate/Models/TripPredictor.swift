@@ -499,13 +499,18 @@ final class TripPredictor: ObservableObject {
     // MARK: - Place Rename
 
     /// 統一改名：更新 placeCatalog 中的 displayName
-    /// addressCluster 保持 addressCluster（不升級為 namedLot，因為沒有對應 ParkingLotRecord）
+    /// 同步更新對應嘅 ParkingLotRecord（如果存在）
     func renamePlace(key: String, newName: String) {
         guard var place = placeCatalog[key] else { return }
         place.displayName = newName
         place.updatedAt = Date()
         placeCatalog[key] = place
         saveState()
+        // 如果係地址叢集，同步更新對應嘅停車場
+        if key.hasPrefix("addr:") {
+            let coord = CLLocationCoordinate2D(latitude: place.latitude, longitude: place.longitude)
+            ParkingFloorStore.shared.syncLotName(near: coord, newName: newName)
+        }
     }
 
     /// 根據 lotID 更新 placeCatalog 中對應的 displayName
@@ -517,6 +522,22 @@ final class TripPredictor: ObservableObject {
             placeCatalog[key] = place
             saveState()
         }
+    }
+
+    /// 同步地址叢集名稱：搵到同一位置嘅 addr: 記錄並更新 displayName
+    func syncClusterName(nearLatitude lat: Double, longitude lng: Double, newName: String?) {
+        let loc = CLLocation(latitude: lat, longitude: lng)
+        for (key, place) in placeCatalog {
+            guard key.hasPrefix("addr:") else { continue }
+            let placeLoc = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            if placeLoc.distance(from: loc) <= 180 {
+                var updated = place
+                updated.displayName = newName ?? place.displayName
+                updated.updatedAt = Date()
+                placeCatalog[key] = updated
+            }
+        }
+        saveState()
     }
 
     // MARK: - Persistence
@@ -531,6 +552,7 @@ final class TripPredictor: ObservableObject {
         if let d = try? JSONEncoder().encode(recentPlaceHistory) {
             UserDefaults.standard.set(d, forKey: historyKey)
         }
+        UserDefaults.standard.synchronize()
     }
 
     private func loadState() {
