@@ -20,6 +20,16 @@ struct SpeedView: View {
     private var parallaxY: Double {
         parallaxMode == .gforce ? gForceMotion.gForceY : tiltMotion.tiltY
     }
+
+    /// G 值模式下視差效果倍數（比傾斜模式更強）
+    private var parallaxMultiplier: Double {
+        parallaxMode == .gforce ? 1.8 : 1.0
+    }
+
+    /// 膠囊彈出時模糊陰影倍數
+    private var blurShadowMultiplier: Double {
+        showParallaxToggle ? 1.6 : 1.0
+    }
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
@@ -103,10 +113,10 @@ struct SpeedView: View {
             }
             .ignoresSafeArea(edges: .all)
             // 陀螺儀視差（深層）：圓點平面朝傾斜反方向擺動並做 3D 透視旋轉，
-            // 同前景文字形成前後深度。
-            .rotation3DEffect(.degrees(parallaxX * 12), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
-            .rotation3DEffect(.degrees(parallaxY * 12), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
-            .offset(x: parallaxX * -20, y: parallaxY * -20)
+            // 同前景文字形成前後深度。G 值模式效果更強。
+            .rotation3DEffect(.degrees(parallaxX * 12 * parallaxMultiplier), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+            .rotation3DEffect(.degrees(parallaxY * 12 * parallaxMultiplier), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+            .offset(x: parallaxX * -20 * parallaxMultiplier, y: parallaxY * -20 * parallaxMultiplier)
 
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
@@ -115,8 +125,11 @@ struct SpeedView: View {
                 let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
                 ZStack {
                     // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
+                    // 膠囊彈出時模糊陰影更強
                     ForEach([20, 10, 4], id: \.self) { blurRadius in
-                        let opacity = blurRadius == 20 ? 0.08 : blurRadius == 10 ? 0.12 : 0.2
+                        let baseOpacity = blurRadius == 20 ? 0.08 : blurRadius == 10 ? 0.12 : 0.2
+                        let opacity = baseOpacity * blurShadowMultiplier
+                        let adjustedBlur = CGFloat(blurRadius) * blurShadowMultiplier
                         VStack(spacing: 4) {
                             Spacer()
                             Text(speedText)
@@ -128,10 +141,10 @@ struct SpeedView: View {
                             Spacer()
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .blur(radius: CGFloat(blurRadius))
-                        .offset(x: parallaxX * 14, y: parallaxY * 14)
+                        .blur(radius: adjustedBlur)
+                        .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier)
                     }
-                    // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大
+                    // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大。G 值模式效果更強。
                     VStack(spacing: 4) {
                         Spacer()
                         Text(speedText)
@@ -150,7 +163,7 @@ struct SpeedView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: parallaxX * 24, y: parallaxY * 24)
+                    .offset(x: parallaxX * 24 * parallaxMultiplier, y: parallaxY * 24 * parallaxMultiplier)
                     // 雙擊時速數字：彈出視差模式切換膠囊
                     .onTapGesture(count: 2) {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -217,7 +230,7 @@ struct SpeedView: View {
         }
         .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
         .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
-        .onChange(of: locationManager.speed) { _, newSpeed in
+        .onChange(of: locationManager.smoothedSpeed) { _, newSpeed in
             // GPS 正常時持續更新最後已知時速
             let gpsLost = locationManager.gpsQuality == .bad || locationManager.gpsQuality == .unknown
             if !gpsLost {
@@ -227,7 +240,7 @@ struct SpeedView: View {
         .onChange(of: locationManager.gpsQuality) { _, newQuality in
             let gpsLost = newQuality == .bad || newQuality == .unknown
             if !gpsLost {
-                lastKnownSpeed = max(0, Int(locationManager.speed))
+                lastKnownSpeed = max(0, Int(locationManager.smoothedSpeed))
             }
             // GPS 狀態切換時播放透明度漸變動畫
             withAnimation(.easeInOut(duration: 0.5)) {

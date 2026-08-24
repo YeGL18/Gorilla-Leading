@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
+    @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = false
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
     @State private var isAutoPlaying = false
     @State private var autoPlayTimer: Timer?
@@ -176,6 +177,18 @@ struct SettingsView: View {
                     }
                 } header: {
                     Label(String(localized: "地圖追蹤"), systemImage: "map")
+                }
+
+                // Data Smoothing Section
+                Section {
+                    Toggle(isOn: $kalmanSmoothingEnabled) {
+                        Label(String(localized: "卡爾曼濾波"), systemImage: "waveform.path.ecg")
+                    }
+                    Text(String(localized: "開啟後時速顯示會更平滑，數字輪播動畫更連續。關閉則使用原始 GPS 數據。"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Label(String(localized: "數據平滑"), systemImage: "slider.horizontal.3")
                 }
 
                 Section {
@@ -438,6 +451,7 @@ private let allTestItems: [TestItemDef] = [
     TestItemDef(id: "ocrTest", title: "泊車辨識測試 (OCR)", icon: "text.viewfinder") { AnyView(ParkingRecognitionTestView()) },
     TestItemDef(id: "llmTest", title: "泊車辨識測試 (LLM)", icon: "brain.head.profile") { AnyView(ParkingLLMRecognitionTestView()) },
     TestItemDef(id: "liveActivity", title: "即時活動樣式預覽", icon: "iphone.and.dynamicIsland") { AnyView(LiveActivityPreviewTestView()) },
+    TestItemDef(id: "kalmanTest", title: "卡爾曼濾波對比測試", icon: "waveform.path.ecg") { AnyView(KalmanFilterTestView()) },
 ]
 
 struct ParkingFloorTestView: View {
@@ -457,7 +471,10 @@ struct ParkingFloorTestView: View {
         let defaults = UserDefaults.standard
         if let data = defaults.data(forKey: "testItemOrder"),
            let arr = try? JSONDecoder().decode([String].self, from: data), !arr.isEmpty {
-            orderedIDs = arr
+            // 補充新增嘅測試項（喺存儲排序中冇嘅）
+            let storedSet = Set(arr)
+            let newIDs = allTestItems.map(\.id).filter { !storedSet.contains($0) }
+            orderedIDs = arr + newIDs
         } else {
             orderedIDs = allTestItems.map(\.id)
         }
@@ -6094,5 +6111,330 @@ struct ParkingLLMRecognitionTestView: View {
             deleteOpacity = 1.0
             deleteOffsetY = 0
         }
+    }
+}
+
+
+// MARK: - Kalman Filter Test View
+struct KalmanFilterTestView: View {
+    @State private var simulatedSpeed: Double = 0
+    @State private var defaultDisplaySpeed: Double = 0
+    @State private var rollingDisplaySpeed: Double = 0
+    @State private var kalmanDisplaySpeed: Double = 0
+    @State private var rollingTargetSpeed: Double = 0
+    @State private var kalmanFilter = KalmanFilter(processNoise: 0.5, measurementNoise: 0.3)
+    @State private var isAnimating = false
+    @State private var gpsTimer: Timer?
+    @State private var displayTimer: Timer?
+    @State private var speedHistory: [(default: Double, rolling: Double, kalman: Double)] = []
+    @State private var targetSpeed: Double = 0
+    @State private var gpsUpdateCount: Int = 0
+
+    // Simulated "GPS noise" - random jitter
+    private func addNoise(_ value: Double) -> Double {
+        let noise = Double.random(in: -3...3)
+        return max(0, value + noise)
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 20) {
+                // Title
+                Text("卡爾曼濾波對比測試")
+                    .font(.title2.bold())
+
+                // Speed comparison - 3 columns
+                HStack(spacing: 20) {
+                    // Default (raw) - jumps
+                    VStack(spacing: 6) {
+                        Text("默認")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Text("\(Int(defaultDisplaySpeed))")
+                            .font(.system(size: 56, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.red)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.05), value: Int(defaultDisplaySpeed))
+                        Text("km/h")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("直接跳")
+                            .font(.caption2)
+                            .foregroundStyle(.red.opacity(0.7))
+                    }
+
+                    // Default + Rolling - smooth rolling
+                    VStack(spacing: 6) {
+                        Text("默認+滾動")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Text("\(Int(rollingDisplaySpeed))")
+                            .font(.system(size: 56, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.blue)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.05), value: Int(rollingDisplaySpeed))
+                        Text("km/h")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("平滑滾動")
+                            .font(.caption2)
+                            .foregroundStyle(.blue.opacity(0.7))
+                    }
+
+                    // Kalman - smoothed
+                    VStack(spacing: 6) {
+                        Text("卡爾曼")
+                            .font(.headline)
+                            .foregroundStyle(.secondary)
+                        Text("\(Int(kalmanDisplaySpeed))")
+                            .font(.system(size: 56, weight: .heavy, design: .rounded))
+                            .foregroundStyle(.green)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.05), value: Int(kalmanDisplaySpeed))
+                        Text("km/h")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Text("預測修正")
+                            .font(.caption2)
+                            .foregroundStyle(.green.opacity(0.7))
+                    }
+                }
+                .padding(.vertical)
+
+                // Target speed indicator
+                VStack(spacing: 4) {
+                    Text("目標時速")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("\(Int(targetSpeed)) km/h")
+                        .font(.title3.bold())
+                        .foregroundStyle(.orange)
+                }
+
+                // GPS update counter
+                Text("GPS 更新次數: \(gpsUpdateCount)")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+
+                // Control buttons
+                VStack(spacing: 12) {
+                    Text("模擬場景")
+                        .font(.headline)
+
+                    HStack(spacing: 12) {
+                        Button("靜止 → 30") {
+                            startSimulation(target: 30)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.blue)
+
+                        Button("靜止 → 60") {
+                            startSimulation(target: 60)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.purple)
+
+                        Button("靜止 → 100") {
+                            startSimulation(target: 100)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.orange)
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("30 → 0") {
+                            startSimulation(target: 0)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.red)
+
+                        Button("60 → 30") {
+                            startSimulation(target: 30)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        .tint(.yellow)
+
+                        Button("重置") {
+                            resetSimulation()
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+                .padding()
+
+                // History chart
+                if !speedHistory.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("更新歷史")
+                            .font(.headline)
+
+                        // Legend
+                        HStack(spacing: 16) {
+                            HStack(spacing: 4) {
+                                Circle().fill(.red).frame(width: 8, height: 8)
+                                Text("默認").font(.caption2)
+                            }
+                            HStack(spacing: 4) {
+                                Circle().fill(.blue).frame(width: 8, height: 8)
+                                Text("默認+滾動").font(.caption2)
+                            }
+                            HStack(spacing: 4) {
+                                Circle().fill(.green).frame(width: 8, height: 8)
+                                Text("卡爾曼").font(.caption2)
+                            }
+                        }
+
+                        // History list
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 2) {
+                                ForEach(speedHistory.indices, id: \.self) { index in
+                                    let entry = speedHistory[index]
+                                    VStack(spacing: 1) {
+                                        RoundedRectangle(cornerRadius: 1)
+                                            .fill(.red.opacity(0.7))
+                                            .frame(width: 3, height: CGFloat(entry.default) * 1.2)
+                                        RoundedRectangle(cornerRadius: 1)
+                                            .fill(.blue.opacity(0.7))
+                                            .frame(width: 3, height: CGFloat(entry.rolling) * 1.2)
+                                        RoundedRectangle(cornerRadius: 1)
+                                            .fill(.green.opacity(0.7))
+                                            .frame(width: 3, height: CGFloat(entry.kalman) * 1.2)
+                                    }
+                                }
+                            }
+                            .frame(height: 130)
+                        }
+
+                        // Stats
+                        HStack(spacing: 16) {
+                            VStack(alignment: .leading) {
+                                Text("默認跳動")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "±%.1f", calculateVariance(speedHistory.map { $0.default })))
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.red)
+                            }
+                            VStack(alignment: .leading) {
+                                Text("滾動跳動")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "±%.1f", calculateVariance(speedHistory.map { $0.rolling })))
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.blue)
+                            }
+                            VStack(alignment: .leading) {
+                                Text("卡爾曼跳動")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                                Text(String(format: "±%.1f", calculateVariance(speedHistory.map { $0.kalman })))
+                                    .font(.caption.bold())
+                                    .foregroundStyle(.green)
+                            }
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(12)
+                }
+
+                // Explanation
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("三種模式對比")
+                        .font(.headline)
+                    Text("• 默認：GPS 每秒更新，數字直接跳到新值")
+                    Text("• 默認+滾動：GPS 每秒更新，數字平滑滾動過去")
+                    Text("• 卡爾曼：GPS 每秒更新，預測+修正，數字平滑滾動")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .padding()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color(.systemGray6))
+                .cornerRadius(12)
+            }
+            .padding()
+        }
+        .navigationTitle("卡爾曼濾波測試")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func startSimulation(target: Double) {
+        targetSpeed = target
+        isAnimating = true
+        speedHistory = []
+        kalmanFilter.reset()
+        gpsUpdateCount = 0
+
+        // GPS timer: updates every 1 second (realistic GPS rate)
+        var gpsStep = 0
+        let totalSteps = 10
+        let startSpeed = simulatedSpeed
+
+        gpsTimer?.invalidate()
+        gpsTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            gpsStep += 1
+            gpsUpdateCount = gpsStep
+            if gpsStep > totalSteps {
+                timer.invalidate()
+                isAnimating = false
+                displayTimer?.invalidate()
+                return
+            }
+
+            // Linear interpolation with noise (simulates GPS update)
+            let progress = Double(gpsStep) / Double(totalSteps)
+            let rawTarget = startSpeed + (target - startSpeed) * progress
+            let noisySpeed = addNoise(rawTarget)
+
+            simulatedSpeed = noisySpeed
+
+            // Default: jump directly to new value
+            defaultDisplaySpeed = noisySpeed
+
+            // Rolling: set target for smooth rolling
+            rollingTargetSpeed = noisySpeed
+
+            // Kalman: update filter (it will predict between updates)
+            _ = kalmanFilter.update(measurement: noisySpeed)
+
+            speedHistory.append((default: defaultDisplaySpeed, rolling: rollingTargetSpeed, kalman: kalmanFilter.predictedPosition))
+        }
+
+        // Display timer: updates 20 times per second for smooth animation
+        displayTimer?.invalidate()
+        displayTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { _ in
+            // Rolling: smoothly interpolate toward GPS target
+            let rollingSmoothingFactor = 0.3
+            rollingDisplaySpeed += (rollingTargetSpeed - rollingDisplaySpeed) * rollingSmoothingFactor
+
+            // Kalman: smoothly interpolate toward prediction (ensures first jump is also smooth)
+            let kalmanTarget = kalmanFilter.predict(at: Date())
+            let kalmanSmoothingFactor = 0.3
+            kalmanDisplaySpeed += (kalmanTarget - kalmanDisplaySpeed) * kalmanSmoothingFactor
+        }
+    }
+
+    private func resetSimulation() {
+        gpsTimer?.invalidate()
+        displayTimer?.invalidate()
+        isAnimating = false
+        simulatedSpeed = 0
+        defaultDisplaySpeed = 0
+        rollingDisplaySpeed = 0
+        kalmanDisplaySpeed = 0
+        rollingTargetSpeed = 0
+        targetSpeed = 0
+        speedHistory = []
+        kalmanFilter.reset()
+        gpsUpdateCount = 0
+    }
+
+    private func calculateVariance(_ values: [Double]) -> Double {
+        guard values.count > 1 else { return 0 }
+        let mean = values.reduce(0, +) / Double(values.count)
+        let squaredDiffs = values.map { ($0 - mean) * ($0 - mean) }
+        let variance = squaredDiffs.reduce(0, +) / Double(values.count - 1)
+        return sqrt(variance)
     }
 }

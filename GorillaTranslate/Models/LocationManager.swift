@@ -2,6 +2,96 @@ import Foundation
 import CoreLocation
 import CoreMotion
 
+// MARK: - Kalman Filter for speed smoothing
+class KalmanFilter {
+    // State: [position, velocity]
+    private var x: Double = 0      // position estimate
+    private var v: Double = 0      // velocity estimate
+    private var P: Double = 1      // position error covariance
+    private var Pv: Double = 1     // velocity error covariance
+    let processNoise: Double
+    let measurementNoise: Double
+    private var initialized = false
+    private var lastUpdateTime: Date?
+    private var firstMeasurement: Double?
+    private var firstMeasurementTime: Date?
+
+    init(processNoise: Double = 0.01, measurementNoise: Double = 0.5) {
+        self.processNoise = processNoise
+        self.measurementNoise = measurementNoise
+    }
+
+    /// Update with a new GPS measurement (called every ~1 second)
+    func update(measurement: Double) -> Double {
+        let now = Date()
+
+        if !initialized {
+            // First measurement: just store it
+            x = measurement
+            v = 0
+            initialized = true
+            lastUpdateTime = now
+            firstMeasurement = measurement
+            firstMeasurementTime = now
+            return x
+        }
+
+        // Second measurement: calculate initial velocity
+        if let first = firstMeasurement, let firstTime = firstMeasurementTime {
+            let dt = now.timeIntervalSince(firstTime)
+            if dt > 0 {
+                v = (measurement - first) / dt
+            }
+            firstMeasurement = nil
+            firstMeasurementTime = nil
+        }
+
+        let dt = lastUpdateTime?.timeIntervalSinceNow.magnitude ?? 1.0
+        lastUpdateTime = now
+
+        // Predict step: use velocity to predict next position
+        let predictedX = x + v * dt
+        let predictedP = P + Pv + processNoise
+
+        // Update step
+        let kalmanGain = predictedP / (predictedP + measurementNoise)
+        let innovation = measurement - predictedX
+        x = predictedX + kalmanGain * innovation
+        v = v + kalmanGain * innovation / max(dt, 0.1)  // update velocity estimate
+        P = (1 - kalmanGain) * predictedP
+
+        return x
+    }
+
+    /// Predict position at a future time (for smooth interpolation between GPS updates)
+    func predict(at time: Date) -> Double {
+        guard let lastUpdate = lastUpdateTime else { return x }
+        let dt = time.timeIntervalSince(lastUpdate)
+        return x + v * dt
+    }
+
+    /// Current predicted position (now)
+    var predictedPosition: Double {
+        return x
+    }
+
+    /// Current velocity estimate
+    var velocity: Double {
+        return v
+    }
+
+    func reset() {
+        x = 0
+        v = 0
+        P = 1
+        Pv = 1
+        initialized = false
+        lastUpdateTime = nil
+        firstMeasurement = nil
+        firstMeasurementTime = nil
+    }
+}
+
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private(set) var manager = CLLocationManager()
     private let geocoder = CLGeocoder()
@@ -54,6 +144,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     @Published var speed: Double = 0
+    @Published var smoothedSpeed: Double = 0
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var gpsQuality: GPSQuality = .unknown
     @Published var currentAddress: String = ""
@@ -63,6 +154,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var hasLoadedVisits: Bool = false
 
     private let visitsKey = "visit_records"
+
+    // Kalman filter for speed smoothing
+    private let speedKalmanFilter = KalmanFilter(processNoise: 0.01, measurementNoise: 0.5)
+    private var kalmanSmoothingEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "kalmanSmoothingEnabled")
+    }
 
     // TripPredictor dedupe：一條 visit 只會 learning departure 一次、predict arrival 一次
     private var learnedDepartureVisits: Set<UUID> = []
@@ -103,10 +200,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.lastLocation = location
             if location.speed >= 0 {
-                self.speed = location.speed * 3.6
+                let rawSpeed = location.speed * 3.6
+                self.speed = rawSpeed
+                // Kalman smoothing
+                if self.kalmanSmoothingEnabled {
+                    let smoothed = self.speedKalmanFilter.update(measurement: rawSpeed)
+                    self.smoothedSpeed = smoothed
+                } else {
+                    self.speedKalmanFilter.reset()
+                    self.smoothedSpeed = rawSpeed
+                }
                 // 同步車速給氣壓計，用於標記樣本
                 ParkingFloorStore.shared.barometer.currentSpeedKmh = self.speed
-                ParkingFloorStore.shared.barometer.lastSpeedUpdateTime = Date()
                 ParkingFloorStore.shared.barometer.lastSpeedUpdateTime = Date()
             }
             let newQuality = self.quality(from: location.horizontalAccuracy)

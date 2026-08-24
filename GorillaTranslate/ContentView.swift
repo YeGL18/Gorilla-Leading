@@ -214,7 +214,7 @@ struct ContentView: View {
         }
     }
 
-    @State private var mapHeadingMode: MapHeadingMode = .follow
+    @State private var mapHeadingMode: MapHeadingMode = .continuousFollow
     @State private var headingToastText: String?
     @State private var headingToastTimer: Timer?
     @State private var hkDetailMode = false        // 香港地圖細覽模式
@@ -757,11 +757,8 @@ struct ContentView: View {
                                                 .foregroundStyle(.primary)
                                                 .frame(width: 72, height: 28)
                                                 .glassEffect(.regular, in: .capsule)
-                                                .offset(x: 60)
-                                                .transition(.asymmetric(
-                                                    insertion: .move(edge: .trailing).combined(with: .opacity),
-                                                    removal: .opacity
-                                                ))
+                                                .offset(x: 78)
+                                                .transition(.blurReplace())
                                                 .allowsHitTesting(false)
                                         }
                                     }
@@ -1433,11 +1430,11 @@ struct ContentView: View {
                             .transition(.blurReplace())
                         } else if showSpeedInfo {
                             HStack(spacing: 16) {
-                                Text("\(Int(locationManager.speed)) km/h")
+                                Text("\(Int(locationManager.smoothedSpeed)) km/h")
                                     .font(.body.bold())
                                     .foregroundStyle(adaptiveTextColor())
                                     .contentTransition(.numericText())
-                                    .animation(.easeInOut(duration: 0.15), value: Int(locationManager.speed))
+                                    .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                                 if let eta = drivingETASeconds {
                                     Text(formatCompactETA(eta))
                                         .font(.body.bold())
@@ -1883,11 +1880,11 @@ struct ContentView: View {
 
             HStack {
                 HStack(spacing: 4) {
-                    Text("\(Int(locationManager.speed))")
+                    Text("\(Int(locationManager.smoothedSpeed))")
                         .font(.body.bold())
                         .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                         .contentTransition(.numericText())
-                        .animation(.easeInOut(duration: 0.15), value: Int(locationManager.speed))
+                        .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                     Text("km/h")
                         .font(.body.bold())
                         .foregroundStyle(adaptiveTextColor(opacity: 0.6))
