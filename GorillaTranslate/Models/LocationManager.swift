@@ -985,7 +985,7 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
     
-    private func findLotIndex(near coordinate: CLLocationCoordinate2D, radiusMeters: Double) -> Int? {
+    func findLotIndex(near coordinate: CLLocationCoordinate2D, radiusMeters: Double) -> Int? {
         let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         for (idx, lot) in lots.enumerated() {
             let c = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)

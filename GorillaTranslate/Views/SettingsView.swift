@@ -1185,7 +1185,10 @@ struct AddressCapsuleBeamTestView: View {
 
 struct AltimeterTestView: View {
     @ObservedObject private var barometer = ParkingFloorStore.shared.barometer
+    @EnvironmentObject private var locationManager: LocationManager
     @State private var baseAltitude: Double?
+    @State private var now = Date()
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     private var altitudeMin: Double {
         guard !barometer.samples.isEmpty else { return 0 }
@@ -1196,8 +1199,53 @@ struct AltimeterTestView: View {
         return barometer.samples.map { $0.relativeAltitude }.max() ?? 0
     }
 
+    // 速度狀態
+    private var speedAge: TimeInterval { now.timeIntervalSince(barometer.lastSpeedUpdateTime) }
+    private var gpsIsStale: Bool { speedAge > 15 }
+    private var effectiveSpeed: Double { gpsIsStale ? 0 : barometer.currentSpeedKmh }
+
+    // 窗口計算結果
+    private var window1: BarometerSessionManager.WindowResult? {
+        barometer.altitudeWindow(around: now.addingTimeInterval(-120), before: 4*60, after: 1*60)
+    }
+    private var window2: BarometerSessionManager.WindowResult? {
+        barometer.stationaryRecentWindow(seconds: 2*60)
+    }
+    private var window3: BarometerSessionManager.WindowResult? {
+        barometer.recentWindow(seconds: 2*60)
+    }
+
+    // 最佳窗口（模擬 recordParkingPoint 嘅 fallback 鏈）
+    private var bestWindow: BarometerSessionManager.WindowResult? {
+        if let w = window1, w.samples >= 3 { return w }
+        if let w = window2, w.sampleCount >= 3 { return w }
+        return window3
+    }
+
     var body: some View {
+        GeometryReader { geo in
+            let isLandscape = geo.size.width > geo.size.height
+            if isLandscape {
+                landscapeLayout
+            } else {
+                portraitLayout
+            }
+        }
+        .navigationTitle("氣壓計曲線測試")
+        .navigationBarTitleDisplayMode(.inline)
+        .onReceive(timer) { t in now = t }
+        .onChange(of: barometer.samples.count) { _, _ in
+            if baseAltitude == nil, let first = barometer.samples.first {
+                baseAltitude = first.relativeAltitude
+            }
+        }
+    }
+
+    // MARK: - 豎屏佈局（原有 List）
+
+    private var portraitLayout: some View {
         List {
+            // 氣壓計狀態
             Section {
                 Toggle("主 APP 氣壓計", isOn: Binding(
                     get: { barometer.isUpdating },
@@ -1206,122 +1254,427 @@ struct AltimeterTestView: View {
                     }
                 ))
                 .tint(.orange)
-
-                HStack {
-                    Text("採樣點數")
-                    Spacer()
-                    Text("\(barometer.samples.count)")
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                }
-
-                HStack {
-                    Text("支援狀態")
-                    Spacer()
-                    Text(barometer.isAvailable ? "可用" : "裝置不支援")
-                        .foregroundStyle(barometer.isAvailable ? .green : .red)
-                }
-
-                HStack {
-                    Text("權限")
-                    Spacer()
-                    Text(barometer.authorizationLabel)
-                        .foregroundStyle(.secondary)
-                }
+                infoRow("採樣點數", value: "\(barometer.samples.count)")
+                infoRow("支援狀態", value: barometer.isAvailable ? "可用" : "裝置不支援",
+                        color: barometer.isAvailable ? .green : .red)
+                infoRow("權限", value: barometer.authorizationLabel)
             } header: {
-                Label("主 APP 氣壓計狀態", systemImage: "barometer")
+                Label("氣壓計狀態", systemImage: "barometer")
             }
 
+            // 實時感測
             Section {
                 if let last = barometer.samples.last {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("相對高度")
-                            Spacer()
-                            Text(String(format: "%.2f m", last.relativeAltitude))
-                                .font(.system(size: 17, weight: .semibold))
-                                .monospacedDigit()
-                        }
-                        HStack {
-                            Text("氣壓")
-                            Spacer()
-                            Text(String(format: "%.2f kPa", last.pressure))
-                                .font(.system(size: 17, weight: .semibold))
-                                .monospacedDigit()
-                        }
-                        HStack {
-                            Text("估計樓層變化")
-                            Spacer()
-                            if let base = baseAltitude {
-                                let delta = (last.relativeAltitude - base) / 3.0
-                                Text(String(format: "%.1f 層", delta))
-                                    .font(.system(size: 17, weight: .semibold))
-                                    .monospacedDigit()
-                            } else {
-                                Text("—")
-                                    .foregroundStyle(.secondary)
-                            }
-                        }
-                    }
-                    .padding(.vertical, 4)
-                } else {
-                    Text("尚未有採樣數據")
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
+                    infoRow("相對高度", value: String(format: "%.3f m", last.relativeAltitude))
+                    infoRow("氣壓", value: String(format: "%.2f kPa", last.pressure))
+                    infoRow("平滑高度", value: String(format: "%.3f m", smoothedLast))
                 }
+                Divider()
+                speedInfoRows
             } header: {
-                Label("最新讀數", systemImage: "gauge.medium")
+                Label("實時感測", systemImage: "sensor.tag.radiowaves.forward.fill")
             }
 
+            // 窗口計算
             Section {
-                if barometer.samples.count >= 2 {
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack {
-                            Text("高度曲線")
-                                .font(.system(size: 13, weight: .semibold))
-                            Spacer()
-                            Text(String(format: "min %.1f  max %.1f", altitudeMin, altitudeMax))
-                                .font(.system(size: 11))
-                                .foregroundStyle(.secondary)
-                                .monospacedDigit()
-                        }
-
-                        AltitudeChartView2(samples: barometer.samples,
-                                           altitudeMin: altitudeMin,
-                                           altitudeMax: altitudeMax,
-                                           usedSampleRange: barometer.lastUsedSampleRange())
-                            .frame(height: 180)
-                            .padding(.vertical, 6)
-
-                        Text("每層高度按 3m 估算；曲線縱軸為採樣開始起計嘅相對高度（米）。")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
+                windowRow(label: "① 到達時間窗口", sublabel: "前4分+後1分",
+                          window: window1, threshold: 3)
+                windowRow(label: "② 靜止樣本窗口", sublabel: "最近2分, <20km/h",
+                          window: window2, threshold: 3)
+                windowRow(label: "③ 全部樣本窗口", sublabel: "最近2分, 不限速度",
+                          window: window3, threshold: 3)
+                Divider()
+                if bestWindow != nil {
+                    infoRow("採用窗口", value: bestWindowLabel, color: .blue)
                 } else {
-                    Text("累積 2 點以上先會顯示曲線")
-                        .foregroundStyle(.secondary)
-                        .padding(.vertical, 8)
+                    infoRow("採用窗口", value: "無可用", color: .red)
                 }
+            } header: {
+                Label("窗口計算詳情", systemImage: "rectangle.dashed")
+            }
+
+            // 樓層預測
+            Section {
+                floorPredictionRows
+            } header: {
+                Label("樓層預測", systemImage: "building.2")
+            }
+
+            // 高度曲線
+            Section {
+                chartSection(chartHeight: 200)
             } header: {
                 Label("高度曲線", systemImage: "chart.xyaxis.line")
             }
 
+            // 清除
             Section {
-                Button(role: .destructive) {
-                    barometer.clearSamples()
-                    baseAltitude = nil
-                } label: {
-                    Label("清除數據", systemImage: "trash")
-                }
-                .disabled(barometer.samples.isEmpty)
+                clearButton
             }
         }
-        .navigationTitle("氣壓計曲線測試")
-        .navigationBarTitleDisplayMode(.inline)
-        .onChange(of: barometer.samples.count) { _, newCount in
-            if baseAltitude == nil, let first = barometer.samples.first {
-                baseAltitude = first.relativeAltitude
+    }
+
+    // MARK: - 橫屏佈局（雙欄 + 底部圖表）
+
+    private var landscapeLayout: some View {
+        VStack(spacing: 0) {
+            ScrollView(.vertical, showsIndicators: true) {
+                VStack(spacing: 8) {
+                    // 雙欄區域
+                    HStack(alignment: .top, spacing: 10) {
+                        // 左欄：狀態 + 實時感測
+                        VStack(spacing: 6) {
+                            compactToggle
+                            compactStatusGrid
+                            Divider()
+                            compactSensorGrid
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        Divider()
+
+                        // 右欄：窗口 + 預測
+                        VStack(spacing: 6) {
+                            compactWindowSection
+                            Divider()
+                            compactPredictionSection
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .padding(.horizontal, 12)
+
+                    // 圖表（全寬）
+                    chartSection(chartHeight: 160)
+                        .padding(.horizontal, 12)
+
+                    // 清除按鈕
+                    clearButton
+                        .padding(.horizontal, 12)
+                }
+                .padding(.vertical, 8)
             }
+        }
+    }
+
+    // MARK: - 橫屏專用組件
+
+    private var compactToggle: some View {
+        Toggle("氣壓計", isOn: Binding(
+            get: { barometer.isUpdating },
+            set: { _ in
+                if barometer.isUpdating { barometer.stop() } else { barometer.startIfAuthorized() }
+            }
+        ))
+        .tint(.orange)
+        .font(.system(size: 13))
+    }
+
+    private var compactStatusGrid: some View {
+        VStack(spacing: 2) {
+            compactRow("採樣", value: "\(barometer.samples.count)")
+            compactRow("狀態", value: barometer.isAvailable ? "可用" : "不支援",
+                       color: barometer.isAvailable ? .green : .red)
+            compactRow("權限", value: barometer.authorizationLabel)
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    private var compactSensorGrid: some View {
+        VStack(spacing: 2) {
+            if let last = barometer.samples.last {
+                compactRow("高度", value: String(format: "%.3f m", last.relativeAltitude))
+                compactRow("氣壓", value: String(format: "%.2f kPa", last.pressure))
+                compactRow("平滑", value: String(format: "%.3f m", smoothedLast))
+            }
+            compactRow("車速", value: gpsIsStale
+                       ? String(format: "%.0f（滯留）", barometer.currentSpeedKmh)
+                       : String(format: "%.1f km/h", barometer.currentSpeedKmh),
+                       color: gpsIsStale ? .orange : (effectiveSpeed < 20 ? .green : .red))
+            compactRow("GPS", value: gpsIsStale
+                       ? String(format: "失效 %.0fs", speedAge)
+                       : String(format: "正常 %.0fs", speedAge),
+                       color: gpsIsStale ? .red : .green)
+            compactRow("標記", value: gpsIsStale ? "0（歸零）" : String(format: "%.1f", barometer.currentSpeedKmh),
+                       color: gpsIsStale ? .orange : .primary)
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    private var compactWindowSection: some View {
+        VStack(spacing: 2) {
+            compactWindowRow(label: "①到達", window: window1)
+            compactWindowRow(label: "②靜止", window: window2)
+            compactWindowRow(label: "③全部", window: window3)
+            Divider()
+            if bestWindow != nil {
+                compactRow("採用", value: bestWindowLabel, color: .blue)
+            } else {
+                compactRow("採用", value: "無可用", color: .red)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    private var compactPredictionSection: some View {
+        VStack(spacing: 2) {
+            if let best = bestWindow {
+                compactRow("Δ", value: String(format: "%+.3f m", best.deltaMeters),
+                           color: best.deltaMeters < 0 ? .blue : .orange)
+                compactRow("參考", value: String(format: "%.3f m", best.referenceAlt))
+                compactRow("最終", value: String(format: "%.3f m", best.finalAlt))
+                compactRow("樣本", value: "\(best.sampleCount)")
+                Divider()
+                let predicted = predictFloorFrom(delta: best.deltaMeters, sampleCount: best.sampleCount)
+                compactRow("Offset", value: predicted.offset)
+                compactRow("Adj Δ", value: predicted.adjustedDelta,
+                           color: predicted.adjustedDelta.hasPrefix("-") ? .blue : .orange)
+                compactRow("Predicted", value: predicted.rawPredicted)
+                Divider()
+                compactRow("樓層", value: predicted.floor, color: predicted.floor == "—" ? .secondary : .blue)
+                compactRow("信心", value: predicted.confidence)
+                compactRow("每層", value: predicted.mpf)
+            } else {
+                Text("樣本不足")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    // MARK: - 共用組件
+
+    private var speedInfoRows: some View {
+        Group {
+            infoRow("當前車速", value: gpsIsStale
+                    ? String(format: "%.0f km/h（滯留）", barometer.currentSpeedKmh)
+                    : String(format: "%.1f km/h", barometer.currentSpeedKmh),
+                    color: gpsIsStale ? .orange : (effectiveSpeed < 20 ? .green : .red))
+            infoRow("GPS 狀態", value: gpsIsStale
+                    ? String(format: "失效（%.0f 秒冇更新）", speedAge)
+                    : String(format: "正常（%.0f 秒前更新）", speedAge),
+                    color: gpsIsStale ? .red : .green)
+            infoRow("速度標記", value: gpsIsStale ? "0 km/h（自動歸零）" : String(format: "%.1f km/h", barometer.currentSpeedKmh),
+                    color: gpsIsStale ? .orange : .primary)
+        }
+    }
+
+    private var floorPredictionRows: some View {
+        Group {
+            if let best = bestWindow {
+                infoRow("高度差 Δ", value: String(format: "%+.3f m", best.deltaMeters),
+                        color: best.deltaMeters < 0 ? .blue : .orange)
+                infoRow("參考高度", value: String(format: "%.3f m", best.referenceAlt))
+                infoRow("最終高度", value: String(format: "%.3f m", best.finalAlt))
+                infoRow("樣本數", value: "\(best.sampleCount)")
+                Divider()
+                let predicted = predictFloorFrom(delta: best.deltaMeters, sampleCount: best.sampleCount)
+                infoRow("Offset", value: predicted.offset)
+                infoRow("Adjusted Δ", value: predicted.adjustedDelta,
+                        color: predicted.adjustedDelta.hasPrefix("-") ? .blue : .orange)
+                infoRow("Predicted", value: predicted.rawPredicted)
+                Divider()
+                infoRow("預測樓層", value: predicted.floor, color: predicted.floor == "—" ? .secondary : .blue)
+                infoRow("信心度", value: predicted.confidence)
+                infoRow("每層高度", value: predicted.mpf)
+            } else {
+                Text("樣本不足，無法預測")
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func chartSection(chartHeight: CGFloat) -> some View {
+        if barometer.samples.count >= 2 {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("高度曲線")
+                        .font(.system(size: 13, weight: .semibold))
+                    Spacer()
+                    Text(String(format: "min %.1f  max %.1f", altitudeMin, altitudeMax))
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+
+                AltitudeChartView2(
+                    samples: barometer.samples,
+                    altitudeMin: altitudeMin,
+                    altitudeMax: altitudeMax,
+                    usedSampleRange: bestWindow?.usedSampleRange,
+                    roadBaselineAlt: window1?.referenceAlt,
+                    smoothedAlts: smoothedAlts
+                )
+                .frame(height: chartHeight)
+
+                HStack(spacing: 12) {
+                    legendDot(color: .gray, label: "原始曲線")
+                    legendDot(color: Color(hex: "46ADB8"), label: "平滑曲線")
+                    legendDot(color: .red, label: "高速樣本")
+                    legendDot(color: .orange, label: "路面基準")
+                }
+                .font(.system(size: 9))
+                .foregroundStyle(.secondary)
+            }
+        } else {
+            Text("累積 2 點以上先會顯示曲線")
+                .foregroundStyle(.secondary)
+                .font(.system(size: 12))
+                .padding(.vertical, 8)
+        }
+    }
+
+    private var clearButton: some View {
+        Button(role: .destructive) {
+            barometer.clearSamples()
+            baseAltitude = nil
+        } label: {
+            Label("清除數據", systemImage: "trash")
+                .font(.system(size: 13))
+        }
+        .disabled(barometer.samples.isEmpty)
+    }
+
+    // MARK: - Helpers
+
+    private var smoothedAlts: [Double] {
+        let raw = barometer.samples.map { $0.relativeAltitude }
+        guard raw.count > 1 else { return raw }
+        let half = 2
+        return raw.enumerated().map { i, _ in
+            let lo = max(0, i - half)
+            let hi = min(raw.count, i + half + 1)
+            return raw[lo..<hi].reduce(0, +) / Double(hi - lo)
+        }
+    }
+
+    private var smoothedLast: Double {
+        smoothedAlts.last ?? 0
+    }
+
+    private var bestWindowLabel: String {
+        if let w1 = window1, w1.samples >= 3 { return "① 到達時間" }
+        if let w2 = window2, w2.sampleCount >= 3 { return "② 靜止" }
+        return "③ 全部"
+    }
+
+    private func predictFloorFrom(delta: Double, sampleCount: Int) -> (floor: String, confidence: String, mpf: String, offset: String, adjustedDelta: String, rawPredicted: String) {
+        let lotIdx = ParkingFloorStore.shared.findLotIndex(near: locationManager.lastLocation?.coordinate ?? CLLocationCoordinate2D(), radiusMeters: 180)
+        let mpF: Double
+        let offset: Double
+        if let idx = lotIdx, let learned = ParkingFloorStore.shared.lots[idx].learnedMetersPerFloor {
+            mpF = learned
+            offset = ParkingFloorStore.shared.lots[idx].learnedOffsetMeters ?? 0
+        } else {
+            mpF = 3.0
+            offset = 0
+        }
+        let adjusted = delta - offset
+        guard mpF > 0 else { return ("—", "—", String(format: "%.1f m", mpF), String(format: "%+.3f m", offset), String(format: "%+.3f m", adjusted), "—") }
+        let raw = adjusted / mpF
+        let rounded = raw.rounded(.toNearestOrAwayFromZero)
+        let predicted = max(-10, min(30, Int(rounded)))
+        let floorStr = ParkingFloorStore.formatFloor(predicted)
+        let sampleFactor = sampleCount >= 40 ? 1.0 : (Double(sampleCount) / 40.0)
+        let conf = max(0.1, min(0.98, 0.15 + 0.85 * (0.25 * sampleFactor + 0.2 * (lotIdx != nil ? 1.0 : 0.35))))
+        return (floorStr, String(format: "%.0f%%", conf * 100), String(format: "%.1f m", mpF), String(format: "%+.3f m", offset), String(format: "%+.3f m", adjusted), String(format: "%+.2f 層", raw))
+    }
+
+    // MARK: - Row Builders
+
+    @ViewBuilder
+    private func infoRow(_ label: String, value: String, color: Color = .primary) -> some View {
+        HStack {
+            Text(label)
+            Spacer()
+            Text(value)
+                .monospacedDigit()
+                .foregroundStyle(color)
+        }
+    }
+
+    @ViewBuilder
+    private func compactRow(_ label: String, value: String, color: Color = .primary) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.system(size: 11, weight: .medium))
+                .monospacedDigit()
+                .foregroundStyle(color)
+        }
+    }
+
+    @ViewBuilder
+    private func compactWindowRow(label: String, window: BarometerSessionManager.WindowResult?) -> some View {
+        HStack {
+            Text(label)
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer()
+            if let w = window {
+                Text("\(w.sampleCount)")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(w.sampleCount >= 3 ? .green : .red)
+                    .monospacedDigit()
+                Text(String(format: "%+.2f", w.deltaMeters))
+                    .font(.system(size: 10))
+                    .foregroundStyle(w.deltaMeters < 0 ? .blue : .orange)
+                    .monospacedDigit()
+            } else {
+                Text("—")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func windowRow(label: String, sublabel: String,
+                           window: BarometerSessionManager.WindowResult?, threshold: Int) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(label).font(.system(size: 13, weight: .medium))
+                Spacer()
+                if let w = window {
+                    Text("\(w.sampleCount) 樣本")
+                        .font(.system(size: 12))
+                        .foregroundStyle(w.sampleCount >= threshold ? .green : .red)
+                        .monospacedDigit()
+                } else {
+                    Text("無數據").font(.system(size: 12)).foregroundStyle(.secondary)
+                }
+            }
+            HStack {
+                Text(sublabel).font(.system(size: 11)).foregroundStyle(.secondary)
+                Spacer()
+                if let w = window {
+                    Text(String(format: "Δ %+.3f m", w.deltaMeters))
+                        .font(.system(size: 11))
+                        .foregroundStyle(w.deltaMeters < 0 ? .blue : .orange)
+                        .monospacedDigit()
+                }
+            }
+        }
+        .padding(.vertical, 2)
+    }
+
+    @ViewBuilder
+    private func legendDot(color: Color, label: String) -> some View {
+        HStack(spacing: 3) {
+            Circle().fill(color).frame(width: 6, height: 6)
+            Text(label)
         }
     }
 }
@@ -1331,6 +1684,8 @@ private struct AltitudeChartView2: View {
     let altitudeMin: Double
     let altitudeMax: Double
     var usedSampleRange: Range<Int>? = nil
+    var roadBaselineAlt: Double? = nil
+    var smoothedAlts: [Double]? = nil
 
     var body: some View {
         GeometryReader { geo in
@@ -1353,53 +1708,34 @@ private struct AltitudeChartView2: View {
                 .stroke(Color.secondary.opacity(0.15), style: StrokeStyle(lineWidth: 0.5))
 
                 if n >= 2 {
-                    // 分段繪製：低速樣本（用於預測）用青色，高速/其他樣本用灰色
-                    let range = usedSampleRange
-                    // 灰色曲線（全部樣本，背景）
+                    // 灰色原始曲線
                     Path { p in
                         for (i, s) in samples.enumerated() {
                             let x = CGFloat(i) * xStep
                             let t = (s.relativeAltitude - altitudeMin) / span
                             let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
-                            let pt = CGPoint(x: x, y: y)
-                            if i == 0 { p.move(to: pt) } else { p.addLine(to: pt) }
+                            if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
+                            else { p.addLine(to: CGPoint(x: x, y: y)) }
                         }
                     }
-                    .stroke(Color.secondary.opacity(0.35), style: StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                    .stroke(Color.secondary.opacity(0.3), style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round))
 
-                    // 青色曲線（僅用於預測嘅低速樣本段）
-                    if let range, range.lowerBound < n {
+                    // 青色平滑曲線
+                    if let smoothed = smoothedAlts, smoothed.count == n {
                         Path { p in
-                            var started = false
-                            for i in range {
-                                guard i < samples.count else { break }
+                            for (i, alt) in smoothed.enumerated() {
                                 let x = CGFloat(i) * xStep
-                                let t = (samples[i].relativeAltitude - altitudeMin) / span
+                                let t = (alt - altitudeMin) / span
                                 let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
-                                let pt = CGPoint(x: x, y: y)
-                                if !started { p.move(to: pt); started = true }
-                                else { p.addLine(to: pt) }
+                                if i == 0 { p.move(to: CGPoint(x: x, y: y)) }
+                                else { p.addLine(to: CGPoint(x: x, y: y)) }
                             }
                         }
-                        .stroke(Color(hex: "46ADB8"), style: StrokeStyle(lineWidth: 2.5, lineCap: .round, lineJoin: .round))
+                        .stroke(Color(hex: "46ADB8"), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
                     }
 
-                    // 高速樣本用紅色虛線標記
-                    let highSpeedIndices = samples.enumerated().filter { $0.element.speedKmh >= BarometerSessionManager.stationarySpeedThreshold }
-                    if !highSpeedIndices.isEmpty {
-                        ForEach(Array(highSpeedIndices), id: \.offset) { item in
-                            let x = CGFloat(item.offset) * xStep
-                            let t = (item.element.relativeAltitude - altitudeMin) / span
-                            let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
-                            Circle()
-                                .fill(Color.red.opacity(0.5))
-                                .frame(width: 3, height: 3)
-                                .position(x: x, y: y)
-                        }
-                    }
-
-                    // 漸變填充（用於預測段）
-                    if let range, range.lowerBound < n {
+                    // 預測用樣本範圍填充
+                    if let range = usedSampleRange, range.lowerBound < n {
                         Path { p in
                             var started = false
                             for i in range {
@@ -1407,41 +1743,61 @@ private struct AltitudeChartView2: View {
                                 let x = CGFloat(i) * xStep
                                 let t = (samples[i].relativeAltitude - altitudeMin) / span
                                 let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
-                                let pt = CGPoint(x: x, y: y)
                                 if !started {
-                                    p.move(to: CGPoint(x: pt.x, y: h - padH))
-                                    p.addLine(to: pt)
+                                    p.move(to: CGPoint(x: x, y: h - padH))
+                                    p.addLine(to: CGPoint(x: x, y: y))
                                     started = true
                                 } else {
-                                    p.addLine(to: pt)
+                                    p.addLine(to: CGPoint(x: x, y: y))
                                 }
                             }
-                            // 閉合到底部
                             if let lastI = range.last, lastI < samples.count {
-                                let lastX = CGFloat(lastI) * xStep
-                                p.addLine(to: CGPoint(x: lastX, y: h - padH))
-                                let firstX = CGFloat(range.lowerBound) * xStep
-                                p.addLine(to: CGPoint(x: firstX, y: h - padH))
+                                p.addLine(to: CGPoint(x: CGFloat(lastI) * xStep, y: h - padH))
+                                p.addLine(to: CGPoint(x: CGFloat(range.lowerBound) * xStep, y: h - padH))
                                 p.closeSubpath()
                             }
                         }
-                        .fill(LinearGradient(colors: [Color(hex: "46ADB8").opacity(0.25), Color(hex: "46ADB8").opacity(0.03)],
+                        .fill(LinearGradient(colors: [Color(hex: "46ADB8").opacity(0.2), Color(hex: "46ADB8").opacity(0.02)],
                                              startPoint: .top, endPoint: .bottom))
                     }
-                }
 
-                // 圖例
-                VStack(alignment: .leading, spacing: 3) {
-                    HStack(spacing: 4) {
-                        Circle().fill(Color(hex: "46ADB8")).frame(width: 6, height: 6)
-                        Text("預測用樣本").font(.system(size: 9)).foregroundStyle(.secondary)
+                    // 高速樣本紅點 + GPS失效橙點
+                    ForEach(Array(samples.enumerated()), id: \.offset) { item in
+                        let x = CGFloat(item.offset) * xStep
+                        let t = (item.element.relativeAltitude - altitudeMin) / span
+                        let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
+                        if item.element.speedKmh >= BarometerSessionManager.stationarySpeedThreshold {
+                            Circle()
+                                .fill(Color.red.opacity(0.6))
+                                .frame(width: 3, height: 3)
+                                .position(x: x, y: y)
+                        } else if item.element.speedKmh == 0 && item.offset > 0 {
+                            // speedKmh == 0 可能係 GPS 失效自動歸零（非真正靜止）
+                            // 呢度只標記最後一批連續 0 速度嘅樣本
+                        }
                     }
-                    HStack(spacing: 4) {
-                        Circle().fill(Color.red.opacity(0.5)).frame(width: 6, height: 6)
-                        Text("高速（已排除）").font(.system(size: 9)).foregroundStyle(.secondary)
+
+                    // 路面基準線（水平虛線）
+                    if let baseline = roadBaselineAlt {
+                        let y = padH + (h - 2 * padH) * CGFloat(1.0 - (baseline - altitudeMin) / span)
+                        Path { p in
+                            p.move(to: CGPoint(x: 0, y: y))
+                            p.addLine(to: CGPoint(x: w, y: y))
+                        }
+                        .stroke(Color.orange.opacity(0.6), style: StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                    }
+
+                    // 最終高度標記
+                    if let last = samples.last {
+                        let x = CGFloat(n - 1) * xStep
+                        let t = (last.relativeAltitude - altitudeMin) / span
+                        let y = padH + (h - 2 * padH) * CGFloat(1.0 - t)
+                        Circle()
+                            .fill(Color.blue)
+                            .frame(width: 6, height: 6)
+                            .position(x: x, y: y)
                     }
                 }
-                .padding(.leading, 4).padding(.top, 2)
             }
         }
     }
