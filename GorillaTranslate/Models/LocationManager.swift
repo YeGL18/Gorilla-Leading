@@ -986,7 +986,39 @@ final class ParkingFloorStore: ObservableObject {
             lots[lotIndex].learnedOffsetMeters = offsets.reduce(0.0, +) / Double(offsets.count)
         }
     }
-    
+
+    /// 從測試頁手動學習每層樓高度
+    func learnMetersPerFloor(near coordinate: CLLocationCoordinate2D, metersPerFloor: Double, offset: Double) {
+        // 搵到對應嘅停車場
+        let lotIdx = findLotIndex(near: coordinate, radiusMeters: 180)
+        guard let lotIndex = lotIdx else {
+            // 如果搵唔到停車場，建立一個新嘅
+            let newLot = ParkingLotRecord(
+                id: UUID(),
+                name: nil,
+                centerLatitude: coordinate.latitude,
+                centerLongitude: coordinate.longitude,
+                radiusMeters: 50,
+                createdAt: Date(),
+                updatedAt: Date(),
+                points: [],
+                learnedMetersPerFloor: metersPerFloor,
+                learnedOffsetMeters: offset,
+                learnedConfidence: 0.5,
+                floorLearningHistory: nil
+            )
+            lots.append(newLot)
+            persist()
+            return
+        }
+
+        // 更新學習數據
+        lots[lotIndex].learnedMetersPerFloor = metersPerFloor
+        lots[lotIndex].learnedOffsetMeters = offset
+        lots[lotIndex].updatedAt = Date()
+        persist()
+    }
+
     private func rerunPredictions(lot: ParkingLotRecord) -> ParkingLotRecord {
         var copy = lot
         let mpF = copy.learnedMetersPerFloor ?? Self.defaultMetersPerFloor

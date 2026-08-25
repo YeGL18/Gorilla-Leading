@@ -676,29 +676,29 @@ struct ContentView: View {
                                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
                                 .mask(titleText)
 
-                            // 頂部高光邊緣
+                            // 頂部高光邊緣（描邊加強）
                             titleText
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.white.opacity(0.7), .clear],
+                                        colors: [.white.opacity(0.9), .clear],
                                         startPoint: .top,
                                         endPoint: .bottom
                                     )
                                 )
                                 .blendMode(.overlay)
-                                .opacity(0.6)
+                                .opacity(0.8)
 
-                            // 左上斜角高光
+                            // 左上斜角高光（描邊加強）
                             titleText
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.white.opacity(0.5), .clear, .white.opacity(0.2)],
+                                        colors: [.white.opacity(0.7), .clear, .white.opacity(0.35)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
                                 )
                                 .blendMode(.screen)
-                                .opacity(0.4)
+                                .opacity(0.6)
                         }
                         .compositingGroup()
                         .onTapGesture {

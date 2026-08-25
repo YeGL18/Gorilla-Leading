@@ -1207,6 +1207,11 @@ struct AltimeterTestView: View {
     @State private var now = Date()
     private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
+    // 手動樓層調整
+    @State private var manualFloor: Int = 0
+    @State private var hasManualFloorSelection: Bool = true
+    @State private var showLearnSuccess: Bool = false
+
     private var altitudeMin: Double {
         guard !barometer.samples.isEmpty else { return 0 }
         return barometer.samples.map { $0.relativeAltitude }.min() ?? 0
@@ -1315,7 +1320,81 @@ struct AltimeterTestView: View {
                         .foregroundStyle(.secondary)
                 }
             } header: {
-                Label("方案 A：停留海拔", systemImage: "figure.stand")
+                Label("方案 A：停留海拔（泊車樓層）", systemImage: "figure.stand")
+            }
+
+            // 目前樓層推算 + 手動調整
+            Section {
+                if let cp = currentFloorPrediction {
+                    infoRow("系統預測", value: cp.floor, color: .purple)
+                    infoRow("高度差", value: cp.delta,
+                            color: cp.delta.hasPrefix("-") ? .blue : .orange)
+                    infoRow("信心度", value: cp.confidence)
+
+                    Divider()
+
+                    // 手動調整樓層
+                    HStack {
+                        Text("實際樓層")
+                            .foregroundStyle(.primary)
+                        Spacer()
+
+                        Button {
+                            manualFloor -= 1
+                            hasManualFloorSelection = true
+                        } label: {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+
+                        Text(ParkingFloorStore.formatFloor(manualFloor))
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .frame(width: 60)
+                            .monospacedDigit()
+
+                        Button {
+                            manualFloor += 1
+                            hasManualFloorSelection = true
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.title2)
+                                .foregroundStyle(.blue)
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    Button {
+                        learnMetersPerFloor()
+                    } label: {
+                        HStack {
+                            Image(systemName: "brain")
+                            Text("學習並套用")
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.purple)
+
+                    if showLearnSuccess {
+                        HStack(spacing: 4) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.green)
+                            Text("已學習！下次預測會更準確")
+                                .font(.caption)
+                                .foregroundStyle(.green)
+                        }
+                        .transition(.opacity)
+                    }
+                } else {
+                    Text("需要先進入停留狀態（靜止 10 秒）")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Label("目前樓層（即時推算）", systemImage: "figure.walk")
+            } footer: {
+                Text("調整實際樓層後按「學習並套用」，系統會計算每層樓嘅實際高度，令下次預測更準確")
             }
 
             // 方案 B：窗口計算
@@ -1376,13 +1455,19 @@ struct AltimeterTestView: View {
 
                         Divider()
 
-                        // 欄 2：方案 A
+                        // 欄 2：方案 A + 目前樓層
                         VStack(spacing: 4) {
                             Text("方案 A：停留海拔")
                                 .font(.system(size: 11, weight: .semibold))
                                 .foregroundStyle(.green)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             compactStationarySection
+
+                            Text("目前樓層（即時推算）")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.purple)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            compactCurrentFloorSection
                         }
                         .frame(maxWidth: .infinity)
 
@@ -1479,7 +1564,87 @@ struct AltimeterTestView: View {
                            color: sp.predicted.adjustedDelta.hasPrefix("-") ? .blue : .orange)
                 compactRow("Predicted", value: sp.predicted.rawPredicted)
                 Divider()
-                compactRow("樓層", value: sp.predicted.floor, color: sp.predicted.floor == "—" ? .secondary : .blue)
+                compactRow("泊車樓層", value: sp.predicted.floor, color: sp.predicted.floor == "—" ? .secondary : .blue)
+            } else {
+                Text("等待停留 10s")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(6)
+        .background(Color(.secondarySystemBackground))
+        .cornerRadius(6)
+    }
+
+    private var compactCurrentFloorSection: some View {
+        VStack(spacing: 4) {
+            if let cp = currentFloorPrediction {
+                compactRow("目前樓層", value: cp.floor, color: .purple)
+                compactRow("高度差", value: cp.delta,
+                           color: cp.delta.hasPrefix("-") ? .blue : .orange)
+                compactRow("信心度", value: cp.confidence)
+
+                Divider()
+
+                // 手動調整樓層
+                HStack {
+                    Text("實際樓層")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                    Spacer()
+
+                    Button {
+                        manualFloor -= 1
+                        hasManualFloorSelection = true
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+
+                    Text(ParkingFloorStore.formatFloor(manualFloor))
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .frame(width: 40)
+                        .monospacedDigit()
+
+                    Button {
+                        manualFloor += 1
+                        hasManualFloorSelection = true
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 16))
+                            .foregroundStyle(.blue)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                Button {
+                    learnMetersPerFloor()
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "brain")
+                            .font(.system(size: 11))
+                        Text("學習並套用")
+                            .font(.system(size: 11))
+                    }
+                    .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.purple)
+                .controlSize(.small)
+
+                if showLearnSuccess {
+                    HStack(spacing: 4) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.green)
+                        Text("已學習！")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.green)
+                    }
+                    .transition(.opacity)
+                }
             } else {
                 Text("等待停留 10s")
                     .font(.system(size: 11))
@@ -1686,6 +1851,96 @@ struct AltimeterTestView: View {
         let sampleFactor = sampleCount >= 40 ? 1.0 : (Double(sampleCount) / 40.0)
         let conf = max(0.1, min(0.98, 0.15 + 0.85 * (0.25 * sampleFactor + 0.2 * (lotIdx != nil ? 1.0 : 0.35))))
         return (floorStr, String(format: "%.0f%%", conf * 100), String(format: "%.1f m", mpF), String(format: "%+.3f m", offset), String(format: "%+.3f m", adjusted), String(format: "%+.2f 層", raw))
+    }
+
+    // MARK: - 目前樓層推算（相對於泊車海拔）
+
+    /// 目前樓層推算：用泊車時嘅停留海拔做基準，計算而家嘅高度差，推算目前樓層
+    private var currentFloorPrediction: (floor: String, delta: String, confidence: String)? {
+        // 需要有泊車時嘅停留海拔同目前嘅氣壓計樣本
+        guard let parkingAlt = barometer.stationaryAltitude,
+              barometer.samples.count >= 3 else { return nil }
+
+        // 用最近 5 個樣本做平滑
+        let recent = barometer.samples.suffix(5)
+        let currentAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
+        let delta = currentAlt - parkingAlt
+
+        // 取得學習數據或用預設值
+        let lotIdx = ParkingFloorStore.shared.findLotIndex(
+            near: locationManager.lastLocation?.coordinate ?? CLLocationCoordinate2D(),
+            radiusMeters: 180
+        )
+        let mpF: Double
+        let offset: Double
+        if let idx = lotIdx, let learned = ParkingFloorStore.shared.lots[idx].learnedMetersPerFloor {
+            mpF = learned
+            offset = ParkingFloorStore.shared.lots[idx].learnedOffsetMeters ?? 0
+        } else {
+            mpF = 3.0
+            offset = 0
+        }
+
+        let adjusted = delta - offset
+        guard mpF > 0 else { return ("—", String(format: "%+.3f m", delta), "—") }
+
+        let raw = adjusted / mpF
+        let rounded = raw.rounded(.toNearestOrAwayFromZero)
+        let predicted = max(-10, min(30, Int(rounded)))
+        let floorStr = ParkingFloorStore.formatFloor(predicted)
+
+        // 信心度計算
+        let sampleFactor = recent.count >= 40 ? 1.0 : (Double(recent.count) / 40.0)
+        let conf = max(0.1, min(0.98, 0.15 + 0.85 * (0.25 * sampleFactor + 0.2 * (lotIdx != nil ? 1.0 : 0.35))))
+
+        return (floorStr, String(format: "%+.3f m", delta), String(format: "%.0f%%", conf * 100))
+    }
+
+    // MARK: - 學習每層樓高度
+
+    private func learnMetersPerFloor() {
+        guard let parkingAlt = barometer.stationaryAltitude,
+              barometer.samples.count >= 3 else { return }
+
+        // 計算目前高度差
+        let recent = barometer.samples.suffix(5)
+        let currentAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
+        let delta = currentAlt - parkingAlt
+
+        // 手動調整嘅樓層數（相對於泊車樓層 = 0）
+        let floorCount = manualFloor
+
+        // 取得目前位置
+        let coordinate = locationManager.lastLocation?.coordinate ?? CLLocationCoordinate2D()
+
+        // 如果樓層數係 0（即地面層），用預設每層高度 3 米
+        let metersPerFloor: Double
+        if floorCount == 0 {
+            // 用戶確認目前喺地面層，用預設值
+            metersPerFloor = 3.0
+        } else {
+            // 計算每層樓高度 = 高度差 / 樓層數
+            metersPerFloor = abs(delta / Double(floorCount))
+        }
+
+        // 儲存學習數據
+        ParkingFloorStore.shared.learnMetersPerFloor(
+            near: coordinate,
+            metersPerFloor: metersPerFloor,
+            offset: 0
+        )
+
+        // 顯示成功提示
+        withAnimation {
+            showLearnSuccess = true
+        }
+
+        // 2 秒後隱藏提示
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            withAnimation {
+                showLearnSuccess = false
+            }
+        }
     }
 
     // MARK: - Row Builders
