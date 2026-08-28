@@ -444,6 +444,7 @@ private let allTestItems: [TestItemDef] = [
     TestItemDef(id: "visitRecords", title: "到訪記錄測試", icon: "mappin.and.ellipse") { AnyView(VisitRecordsTestView()) },
     TestItemDef(id: "speedAnim", title: "模擬動畫時速動畫測試", icon: "speedometer") { AnyView(SpeedAnimationTestView()) },
     TestItemDef(id: "altimeter", title: "氣壓計曲線測試", icon: "barometer") { AnyView(AltimeterTestView()) },
+    TestItemDef(id: "floorCurve", title: "樓層曲線懸浮窗測試", icon: "chart.line.uptrend.xyaxis") { AnyView(FloorCurveTestView()) },
     TestItemDef(id: "addressBeam", title: "地址膠囊 BorderBeam 測試", icon: "dot.squareshape.split.2x2") { AnyView(AddressCapsuleBeamTestView()) },
     TestItemDef(id: "placeMgmt", title: "地點管理", icon: "brain.head.profile") { AnyView(PlaceManagementView()) },
     TestItemDef(id: "photoTest", title: "泊車記憶拍照效果測試", icon: "camera.on.rectangle") { AnyView(ParkingMemoryPhotoTestView()) },
@@ -1913,21 +1914,28 @@ struct AltimeterTestView: View {
         // 取得目前位置
         let coordinate = locationManager.lastLocation?.coordinate ?? CLLocationCoordinate2D()
 
-        // 如果樓層數係 0（即地面層），用預設每層高度 3 米
+        // 計算每層樓高度同 offset
         let metersPerFloor: Double
+        let offset: Double
+
         if floorCount == 0 {
-            // 用戶確認目前喺地面層，用預設值
+            // 用戶確認目前喺泊車層（G/F）
+            // delta 就係海拔偏差，offset = delta 令 adjusted = 0 → 預測 = 0 層
             metersPerFloor = 3.0
+            offset = delta
         } else {
             // 計算每層樓高度 = 高度差 / 樓層數
             metersPerFloor = abs(delta / Double(floorCount))
+            // offset = delta - floorCount * mpF
+            // 令 adjusted = delta - offset = floorCount * mpF → raw = floorCount
+            offset = delta - Double(floorCount) * metersPerFloor
         }
 
         // 儲存學習數據
         ParkingFloorStore.shared.learnMetersPerFloor(
             near: coordinate,
             metersPerFloor: metersPerFloor,
-            offset: 0
+            offset: offset
         )
 
         // 顯示成功提示
@@ -6691,5 +6699,1129 @@ struct KalmanFilterTestView: View {
         let squaredDiffs = values.map { ($0 - mean) * ($0 - mean) }
         let variance = squaredDiffs.reduce(0, +) / Double(values.count - 1)
         return sqrt(variance)
+    }
+}
+
+// MARK: - 嵌入曲線內容
+
+struct InlineCurveContent: View {
+    let history: [CGFloat]
+    let w: CGFloat
+    let h: CGFloat
+    let accentColor: Color
+    let carIconName: String
+
+    /// 左側樓層標籤寬度
+    private let labelWidth: CGFloat = 28
+    /// 右邊車 icon 空間
+    private let carPadding: CGFloat = 22
+    /// 基礎點距
+    private let baseSpacing: CGFloat = 4
+    /// 一層樓高度
+    private let oneFloorMeters: CGFloat = 3.0
+
+    /// 曲線可用寬度
+    private var curveAreaWidth: CGFloat { w - labelWidth - carPadding }
+
+    /// 壓縮 + 降採樣後嘅點
+    private func compressedPoints() -> [CGFloat] {
+        let count = history.count
+        guard count > 1 else { return history }
+        let needed = CGFloat(count - 1) * baseSpacing
+        if needed <= curveAreaWidth { return history }
+        let spacing = curveAreaWidth / CGFloat(count - 1)
+        if spacing >= 1.0 { return history }
+        let target = Int(curveAreaWidth)
+        let step = max(1, count / target)
+        var pts: [CGFloat] = []
+        for i in stride(from: 0, to: count - 1, by: step) { pts.append(history[i]) }
+        if pts.last != history.last { pts.append(history.last!) }
+        return pts
+    }
+
+    /// Y 映射
+    private func yFor(_ alt: CGFloat, mid: CGFloat, range: CGFloat) -> CGFloat {
+        let paddingTop: CGFloat = h * 0.12
+        let paddingBottom: CGFloat = h * 0.14
+        let usableTop = h / 2 - paddingTop
+        let usableBottom = h / 2 - paddingBottom
+        let t = (alt - mid) / range
+        if t >= 0 {
+            return h / 2 - usableTop * t
+        } else {
+            return h / 2 - usableBottom * t
+        }
+    }
+
+    /// 可見範圍內嘅樓層標籤
+    private func visibleFloors(mid: CGFloat, range: CGFloat) -> [(floor: Int, label: String, alt: CGFloat)] {
+        let padding: CGFloat = h * 0.12
+        let paddingBottom: CGFloat = h * 0.14
+        let topAlt = mid + range
+        let bottomAlt = mid - range
+
+        var floors: [(Int, String, CGFloat)] = []
+        let floorMin = Int(floor(bottomAlt / oneFloorMeters))
+        let floorMax = Int(ceil(topAlt / oneFloorMeters))
+        for f in floorMin...floorMax {
+            let alt = CGFloat(f) * oneFloorMeters
+            if alt >= bottomAlt - 0.5 && alt <= topAlt + 0.5 {
+                floors.append((f, ParkingFloorStore.formatFloor(f), alt))
+            }
+        }
+        return floors
+    }
+
+    var body: some View {
+        let pts = compressedPoints()
+        let count = pts.count
+        let minAlt = pts.min()!
+        let maxAlt = pts.max()!
+        let mid = (minAlt + maxAlt) / 2
+        let halfRange = max((maxAlt - minAlt) / 2, oneFloorMeters / 2)
+
+        let actualSpacing = count > 1 ? curveAreaWidth / CGFloat(count - 1) : 0
+        let curveWidth = count > 1 ? CGFloat(count - 1) * min(actualSpacing, baseSpacing) : 0
+        let usedWidth = min(curveWidth, curveAreaWidth)
+
+        let floors = visibleFloors(mid: mid, range: halfRange)
+
+        HStack(spacing: 0) {
+            // 左側樓層標籤
+            ZStack(alignment: .trailing) {
+                ForEach(floors, id: \.0) { floor, label, alt in
+                    let y = yFor(alt, mid: mid, range: halfRange)
+                    Text(label)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(width: labelWidth, alignment: .trailing)
+                        .padding(.trailing, 4)
+                        .position(x: labelWidth / 2, y: y)
+                        .transition(.opacity.combined(with: .scale(scale: 0.7)))
+                }
+            }
+            .frame(width: labelWidth, height: h)
+
+            // 右側曲線區域
+            ZStack {
+                // 填充（帶右側漸變淡化）
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: h))
+                    p.addLine(to: CGPoint(x: 0, y: yFor(pts[0], mid: mid, range: halfRange)))
+                    for i in 0..<count {
+                        let x = count > 1 ? usedWidth * CGFloat(i) / CGFloat(count - 1) : 0
+                        p.addLine(to: CGPoint(x: x, y: yFor(pts[i], mid: mid, range: halfRange)))
+                    }
+                    let lastX = count > 1 ? usedWidth : 0
+                    p.addLine(to: CGPoint(x: lastX, y: yFor(pts.last!, mid: mid, range: halfRange)))
+                    p.addLine(to: CGPoint(x: lastX, y: h))
+                    p.closeSubpath()
+                }
+                .fill(
+                    LinearGradient(
+                        colors: [accentColor.opacity(0.10), accentColor.opacity(0.03)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+
+                // 線條
+                Path { p in
+                    p.move(to: CGPoint(x: 0, y: yFor(pts[0], mid: mid, range: halfRange)))
+                    for i in 1..<count {
+                        let x = usedWidth * CGFloat(i) / CGFloat(count - 1)
+                        p.addLine(to: CGPoint(x: x, y: yFor(pts[i], mid: mid, range: halfRange)))
+                    }
+                }
+                .stroke(accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+
+                // 車喺最新點
+                let lastX = count > 1 ? usedWidth : 0
+                let lastY = yFor(pts.last!, mid: mid, range: halfRange)
+                ZStack {
+                    Circle()
+                        .fill(accentColor.opacity(0.15))
+                        .frame(width: 28, height: 28)
+                    Image(systemName: carIconName)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(accentColor)
+                        .scaleEffect(x: -1)
+                }
+                .position(x: lastX, y: lastY)
+            }
+            .frame(width: curveAreaWidth, height: h)
+        }
+    }
+}
+
+// MARK: - 樓層曲線懸浮窗測試
+
+struct FloorCurveTestView: View {
+    @State private var showPopup = false
+    @State private var viewMode: ViewMode = .popup
+    @State private var animationDirection: FloorCurveDirection = .down
+    @State private var targetFloor: Int = -1
+    @State private var currentDisplayFloor: Int = 0
+    @State private var carProgress: CGFloat = 0
+    @State private var isAnimating = false
+    @State private var animationTimer: Timer?
+    @AppStorage("floorCurveCarIcon") private var carIcon: String = "car.side.fill"
+
+    // 嵌入模式：拖動高度
+    @State private var dragAltitude: CGFloat = 0          // 模擬海拔變化（米）
+    @State private var altitudeHistory: [CGFloat] = []     // 歷史海拔點
+    @State private var sampleTimer: Timer?
+    @State private var currentDirection: FloorCurveDirection = .down
+
+    // 膠囊模式：可拖動切換狀態
+    enum CapsuleState { case compact, expanded, floorCurve }
+    @State private var capsuleState: CapsuleState = .compact
+    @State private var capsuleDragOffset: CGFloat = 0
+    @State private var isCapsuleDragging: Bool = false
+
+    enum FloorCurveDirection { case up, down }
+    enum ViewMode: String, CaseIterable { case popup = "彈窗", inline = "嵌入", capsule = "膠囊" }
+
+    private var carIconName: String { carIcon }
+
+    // 拖動模式下嘅樓層
+    private var dragFloor: Int {
+        let mpF: Double = 3.0
+        return Int((dragAltitude / mpF).rounded(.toNearestOrAwayFromZero))
+    }
+
+    // 動態曲線高度：根據海拔範圍自動調整
+    private var dynamicCurveHeight: CGFloat {
+        guard altitudeHistory.count > 1 else { return 90 }
+        let minAlt = altitudeHistory.min()!
+        let maxAlt = altitudeHistory.max()!
+        let range = maxAlt - minAlt
+        let floors = range / 3.0  // 幾層樓
+        // 一層 90pt，最少 90pt
+        return max(90, floors * 90)
+    }
+
+    var body: some View {
+        ZStack {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // 模式切換
+                    Picker("顯示模式", selection: $viewMode) {
+                        ForEach(ViewMode.allCases, id: \.self) { mode in
+                            Text(mode.rawValue).tag(mode)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+
+                    // 嵌入模式
+                    if viewMode == .inline {
+                        inlineCard
+                            .padding(.horizontal)
+
+                        // 拖動高度控制
+                        VStack(spacing: 12) {
+                            Text("拖動模擬高度")
+                                .font(.headline)
+                            HStack(spacing: 16) {
+                                Image(systemName: "arrow.down.to.line")
+                                    .foregroundStyle(.blue)
+                                Slider(value: $dragAltitude, in: -20...20, step: 0.1) { editing in
+                                    if editing {
+                                        startSampling()
+                                    } else {
+                                        stopSampling()
+                                    }
+                                }
+                                .tint(.blue)
+                                Image(systemName: "arrow.up.to.line")
+                                    .foregroundStyle(.green)
+                            }
+                            .padding(.horizontal, 4)
+
+                            HStack {
+                                Text(ParkingFloorStore.formatFloor(dragFloor))
+                                    .monospacedDigit().foregroundStyle(.blue)
+                                Spacer()
+                                Text(String(format: "%+.1f m", dragAltitude))
+                                    .monospacedDigit().foregroundStyle(.secondary)
+                            }
+                            .font(.system(size: 15, weight: .medium))
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(16)
+                        .padding(.horizontal)
+                    }
+
+                    // 膠囊模式預覽
+                    if viewMode == .capsule {
+                        VStack(spacing: 16) {
+                            Text("膠囊互動測試")
+                                .font(.headline)
+                                .foregroundStyle(.white)
+                                .padding(.top, 8)
+
+                            Text("向上拖動展開，繼續拖動切換到樓層探測")
+                                .font(.caption)
+                                .foregroundStyle(.white.opacity(0.7))
+
+                            // 互動膠囊
+                            interactiveCapsule
+                                .padding(.vertical, 20)
+
+                            // 當前狀態顯示
+                            HStack {
+                                Text("當前狀態：")
+                                    .foregroundStyle(.white.opacity(0.7))
+                                Spacer()
+                                Text(capsuleStateLabel)
+                                    .font(.body.bold())
+                                    .foregroundStyle(.white)
+                            }
+                            .padding()
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(12)
+
+                            // 手動切換按鈕
+                            HStack(spacing: 12) {
+                                Button("緊湊態") {
+                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                        capsuleState = .compact
+                                    }
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(capsuleState == .compact ? Color.teal : Color.white.opacity(0.15))
+                                .foregroundStyle(capsuleState == .compact ? .white : .white.opacity(0.8))
+                                .cornerRadius(16)
+
+                                Button("擴展態") {
+                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                        capsuleState = .expanded
+                                    }
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(capsuleState == .expanded ? Color.teal : Color.white.opacity(0.15))
+                                .foregroundStyle(capsuleState == .expanded ? .white : .white.opacity(0.8))
+                                .cornerRadius(16)
+
+                                Button("樓層探測") {
+                                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                        capsuleState = .floorCurve
+                                    }
+                                }
+                                .font(.caption)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(capsuleState == .floorCurve ? Color.teal : Color.white.opacity(0.15))
+                                .foregroundStyle(capsuleState == .floorCurve ? .white : .white.opacity(0.8))
+                                .cornerRadius(16)
+                            }
+                        }
+                        .padding()
+                        .background(
+                            ZStack {
+                                // 深色背景
+                                Color.black.opacity(0.92)
+
+                                // 光球效果
+                                GeometryReader { geo in
+                                    let w = geo.size.width
+                                    let h = geo.size.height
+
+                                    ZStack {
+                                        // 藍色光球
+                                        Circle()
+                                            .fill(
+                                                RadialGradient(
+                                                    colors: [Color(hex: "0098FF").opacity(0.3), Color.clear],
+                                                    center: .center,
+                                                    startRadius: 0,
+                                                    endRadius: w * 0.4
+                                                )
+                                            )
+                                            .frame(width: w * 0.8, height: w * 0.8)
+                                            .offset(x: -w * 0.2, y: -h * 0.1)
+
+                                        // 青色光球
+                                        Circle()
+                                            .fill(
+                                                RadialGradient(
+                                                    colors: [Color(hex: "5CAEB7").opacity(0.25), Color.clear],
+                                                    center: .center,
+                                                    startRadius: 0,
+                                                    endRadius: w * 0.35
+                                                )
+                                            )
+                                            .frame(width: w * 0.7, height: w * 0.7)
+                                            .offset(x: w * 0.2, y: h * 0.1)
+
+                                        // 黃色光球
+                                        Circle()
+                                            .fill(
+                                                RadialGradient(
+                                                    colors: [Color(hex: "BEBC3F").opacity(0.2), Color.clear],
+                                                    center: .center,
+                                                    startRadius: 0,
+                                                    endRadius: w * 0.3
+                                                )
+                                            )
+                                            .frame(width: w * 0.6, height: w * 0.6)
+                                            .offset(x: w * 0.1, y: -h * 0.2)
+                                    }
+                                }
+                            }
+                        )
+                        .cornerRadius(16)
+                        .padding(.horizontal)
+                    }
+
+                    // 彈窗模式嘅控制
+                    if viewMode == .popup {
+                        VStack(spacing: 14) {
+                            Text("模擬場景").font(.headline)
+                            VStack(spacing: 8) {
+                                Text("去到...").font(.caption).foregroundStyle(.secondary)
+                                HStack(spacing: 12) {
+                                    floorButton("B4", floor: -4)
+                                    floorButton("B3", floor: -3)
+                                    floorButton("B2", floor: -2)
+                                    floorButton("B1", floor: -1)
+                                }
+                                HStack(spacing: 12) {
+                                    floorButton("G", floor: 0)
+                                    floorButton("1F", floor: 1)
+                                    floorButton("2F", floor: 2)
+                                    floorButton("3F", floor: 3)
+                                }
+                            }
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(16)
+                        .padding(.horizontal)
+
+                        // 當前狀態
+                        HStack {
+                            Text("當前樓層").foregroundStyle(.secondary)
+                            Spacer()
+                            Text(ParkingFloorStore.formatFloor(currentDisplayFloor))
+                                .monospacedDigit().foregroundStyle(.blue)
+                        }
+                        .padding()
+                        .background(Color(.systemGray6))
+                        .cornerRadius(12)
+                        .padding(.horizontal)
+                    }
+
+                    // 車 Icon 選擇
+                    VStack(spacing: 10) {
+                        Text("車輛 Icon").font(.headline)
+                        HStack(spacing: 16) {
+                            iconChoiceButton("car.side.fill", label: "轎車")
+                            iconChoiceButton("suv.side.fill", label: "SUV")
+                        }
+                    }
+                    .padding()
+                    .background(Color(.systemGray6))
+                    .cornerRadius(16)
+                    .padding(.horizontal)
+                }
+                .padding(.vertical)
+            }
+
+            // 彈窗模式
+            if showPopup && viewMode == .popup {
+                Color.black.opacity(0.25)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+                    .onTapGesture { dismissPopup() }
+
+                popupCard
+                    .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 28))
+                    .padding(.horizontal, 24)
+                    .frame(maxWidth: 340)
+                    .transition(.blurReplace)
+            }
+        }
+        .navigationTitle("樓層曲線測試")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - 互動膠囊
+
+    private var capsuleStateLabel: String {
+        switch capsuleState {
+        case .compact: return "緊湊態"
+        case .expanded: return "擴展態"
+        case .floorCurve: return "樓層探測態"
+        }
+    }
+
+    private var interactiveCapsuleHeight: CGFloat {
+        switch capsuleState {
+        case .compact: return 44
+        case .expanded: return 182
+        case .floorCurve: return 240
+        }
+    }
+
+    private var interactiveCapsuleWidth: CGFloat {
+        switch capsuleState {
+        case .compact: return 270
+        case .expanded, .floorCurve: return 370
+        }
+    }
+
+    private var interactiveCapsule: some View {
+        let accentColor: Color = currentDirection == .down ? .blue : .green
+
+        return ZStack {
+            if capsuleState == .floorCurve {
+                // 樓層探測態內容
+                VStack(spacing: 8) {
+                    HStack(spacing: 12) {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(accentColor.opacity(0.12))
+                                .frame(width: 36, height: 36)
+                            Image(systemName: carIconName)
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundStyle(accentColor)
+                                .scaleEffect(x: -1)
+                        }
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("樓層探測")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(.secondary)
+                            Text(ParkingFloorStore.formatFloor(dragFloor))
+                                .font(.system(size: 24, weight: .bold, design: .rounded))
+                                .foregroundStyle(.primary)
+                                .contentTransition(.numericText())
+                                .animation(.easeInOut(duration: 0.2), value: dragFloor)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: currentDirection == .down ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(accentColor)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+
+                    inlineCurveArea(accentColor: accentColor, direction: currentDirection)
+                        .frame(height: 80)
+                        .padding(.horizontal, 8)
+                        .background(accentColor.opacity(0.04))
+                        .cornerRadius(12)
+                        .padding(.horizontal, 12)
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 12))
+                            .foregroundStyle(.teal)
+                        Text("已鎖定樓層")
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.bottom, 8)
+                }
+            } else if capsuleState == .expanded {
+                // 擴展態內容
+                VStack(spacing: 8) {
+                    HStack {
+                        Text("已停留")
+                            .font(.body.bold())
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        Text("00:05:23")
+                            .font(.body.bold())
+                            .monospacedDigit()
+                            .foregroundStyle(.primary)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 12)
+
+                    HStack {
+                        Image(systemName: "mappin.circle.fill")
+                            .foregroundStyle(.teal)
+                        Text("我的位置地址")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+
+                    HStack(spacing: 12) {
+                        Button("泊車記憶") {}
+                            .font(.caption)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.teal.opacity(0.15))
+                            .cornerRadius(16)
+                        Button("最優路線") {}
+                            .font(.caption)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color.blue.opacity(0.15))
+                            .cornerRadius(16)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                }
+            } else {
+                // 緊湊態內容
+                HStack {
+                    RoseFourView(loop: 1.0, opacity: 1.0, blurRadius: 0)
+                        .frame(width: 50, height: 50)
+                        .padding(.horizontal, 6)
+                    Text("我的位置")
+                        .font(.body.bold())
+                        .foregroundStyle(.primary)
+                    Spacer()
+                }
+                .padding(.horizontal, 8)
+            }
+        }
+        .frame(width: interactiveCapsuleWidth, height: interactiveCapsuleHeight)
+        .background(
+            RoundedRectangle(cornerRadius: 34)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .cornerRadius(34)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .gesture(
+            DragGesture()
+                .onChanged { value in
+                    isCapsuleDragging = true
+                    capsuleDragOffset = value.translation.height
+                }
+                .onEnded { value in
+                    isCapsuleDragging = false
+                    let dy = value.translation.height
+
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        if dy < -50 {
+                            // 向上拖動
+                            switch capsuleState {
+                            case .compact:
+                                capsuleState = .expanded
+                            case .expanded:
+                                capsuleState = .floorCurve
+                            case .floorCurve:
+                                break
+                            }
+                        } else if dy > 50 {
+                            // 向下拖動
+                            switch capsuleState {
+                            case .floorCurve:
+                                capsuleState = .expanded
+                            case .expanded:
+                                capsuleState = .compact
+                            case .compact:
+                                break
+                            }
+                        }
+                    }
+                    capsuleDragOffset = 0
+                }
+        )
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: capsuleState)
+    }
+
+    // MARK: - 膠囊預覽
+
+    /// 緊湊態膠囊預覽
+    private var compactCapsulePreview: some View {
+        HStack {
+            RoseFourView(loop: 1.0, opacity: 1.0, blurRadius: 0)
+                .frame(width: 50, height: 50)
+                .padding(.horizontal, 6)
+            Text("我的位置")
+                .font(.body.bold())
+                .foregroundStyle(.primary)
+            Spacer()
+        }
+        .frame(width: 270, height: 44)
+        .background(
+            RoundedRectangle(cornerRadius: 34)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .cornerRadius(34)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    /// 擴展態膠囊預覽
+    private var expandedCapsulePreview: some View {
+        VStack(spacing: 8) {
+            HStack {
+                Text("已停留")
+                    .font(.body.bold())
+                    .foregroundStyle(.primary)
+                Spacer()
+                Text("00:05:23")
+                    .font(.body.bold())
+                    .monospacedDigit()
+                    .foregroundStyle(.primary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            HStack {
+                Image(systemName: "mappin.circle.fill")
+                    .foregroundStyle(.teal)
+                Text("我的位置地址")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+
+            HStack(spacing: 12) {
+                Button("泊車記憶") {}
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.teal.opacity(0.15))
+                    .cornerRadius(16)
+                Button("最優路線") {}
+                    .font(.caption)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color.blue.opacity(0.15))
+                    .cornerRadius(16)
+                Spacer()
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 12)
+        }
+        .frame(width: 370, height: 182)
+        .background(
+            RoundedRectangle(cornerRadius: 34)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .cornerRadius(34)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    /// 樓層探測態膠囊預覽
+    private var floorCurveCapsulePreview: some View {
+        let accentColor: Color = currentDirection == .down ? .blue : .green
+
+        return VStack(spacing: 8) {
+            // 頂部：車 icon + 樓層 + 方向
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(accentColor.opacity(0.12))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: carIconName)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .scaleEffect(x: -1)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("樓層探測")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(ParkingFloorStore.formatFloor(dragFloor))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.2), value: dragFloor)
+                }
+
+                Spacer()
+
+                Image(systemName: currentDirection == .down ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(accentColor)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            // 曲線區域
+            inlineCurveArea(accentColor: accentColor, direction: currentDirection)
+                .frame(height: 80)
+                .padding(.horizontal, 8)
+                .background(accentColor.opacity(0.04))
+                .cornerRadius(12)
+                .padding(.horizontal, 12)
+
+            // 鎖定後顯示確認訊息
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.teal)
+                Text("已鎖定樓層")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 8)
+        }
+        .frame(width: 370, height: 240)
+        .background(
+            RoundedRectangle(cornerRadius: 34)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .cornerRadius(34)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+    }
+
+    // MARK: - 嵌入模式卡片
+
+    private var inlineCard: some View {
+        let accentColor: Color = currentDirection == .down ? .blue : .green
+        let direction = currentDirection
+
+        return VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(accentColor.opacity(0.12))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: carIconName)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .scaleEffect(x: -1)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("樓層探測")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(ParkingFloorStore.formatFloor(dragFloor))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.2), value: dragFloor)
+                }
+
+                Spacer()
+
+                Image(systemName: direction == .down ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(accentColor)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+
+            inlineCurveArea(accentColor: accentColor, direction: direction)
+                .frame(height: 100)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(accentColor.opacity(0.04))
+                .cornerRadius(14)
+                .padding(.horizontal, 14)
+
+            // 鎖定狀態預覽
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.teal)
+                Text("已鎖定樓層")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 8)
+        }
+        .frame(maxWidth: 340)
+        .background(
+            RoundedRectangle(cornerRadius: 28)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .cornerRadius(28)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 28)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+
+    // MARK: - 嵌入曲線區域
+
+    private func inlineCurveArea(accentColor: Color, direction: FloorCurveDirection) -> some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+
+            ZStack {
+                if altitudeHistory.count <= 1 {
+                    // 未開始拖動或只有一個初始點：只顯示車喺左邊，冇橫線
+                    carIconView(color: accentColor)
+                        .position(x: 20, y: h / 2)
+                } else {
+                    InlineCurveContent(
+                        history: altitudeHistory,
+                        w: w, h: h,
+                        accentColor: accentColor,
+                        carIconName: carIconName
+                    )
+                }
+            }
+        }
+    }
+
+    // MARK: - 彈窗模式卡片
+
+    private var popupCard: some View {
+        let accentColor: Color = animationDirection == .down ? .blue : .green
+
+        return VStack(spacing: 10) {
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(accentColor.opacity(0.12))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: carIconName)
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .scaleEffect(x: -1)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("樓層探測")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    Text(ParkingFloorStore.formatFloor(isAnimating ? interpolatedFloor : targetFloor))
+                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.5), value: interpolatedFloor)
+                }
+
+                Spacer()
+
+                Image(systemName: animationDirection == .down ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(accentColor)
+                    .symbolEffect(.pulse, isActive: isAnimating)
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+
+            popupCurveArea(accentColor: accentColor)
+                .frame(height: 100)
+                .padding(.horizontal, 10)
+                .background(accentColor.opacity(0.04))
+                .cornerRadius(14)
+                .padding(.horizontal, 14)
+
+            Spacer().frame(height: 4)
+        }
+    }
+
+    // MARK: - 彈窗曲線區域
+
+    private func popupCurveArea(accentColor: Color) -> some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            let startY = animationDirection == .down ? h * 0.25 : h * 0.75
+            let endY = animationDirection == .down ? h * 0.75 : h * 0.25
+
+            ZStack {
+                curveFillPath(w: w, h: h, startY: startY, endY: endY)
+                    .fill(accentColor.opacity(0.08))
+                curveLinePath(w: w, h: h, startY: startY, endY: endY)
+                    .stroke(accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+
+                let t = carProgress
+                let x = w * t
+                let y = curveY(t: t, height: h, startY: startY, endY: endY)
+                carIconView(color: accentColor)
+                    .position(x: min(x, w - 16), y: y)
+            }
+        }
+    }
+
+    // MARK: - 車 Icon
+
+    private func carIconView(color: Color) -> some View {
+        ZStack {
+            Circle()
+                .fill(color.opacity(0.15))
+                .frame(width: 28, height: 28)
+            Image(systemName: carIconName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(color)
+                .scaleEffect(x: -1)
+        }
+    }
+
+    // MARK: - 拖動高度處理
+
+    // MARK: - 拖動取樣
+
+    private func startSampling() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            altitudeHistory = [0]
+            currentDirection = .down
+        }
+
+        sampleTimer?.invalidate()
+        sampleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            DispatchQueue.main.async {
+                let prev = altitudeHistory.last ?? 0
+                let now = dragAltitude
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    currentDirection = now >= prev ? .up : .down
+                    altitudeHistory.append(now)
+                }
+            }
+        }
+    }
+
+    private func stopSampling() {
+        sampleTimer?.invalidate()
+        sampleTimer = nil
+        let prev = altitudeHistory.last ?? 0
+        let now = dragAltitude
+        withAnimation(.easeInOut(duration: 0.3)) {
+            currentDirection = now >= prev ? .up : .down
+            altitudeHistory.append(now)
+        }
+
+        // 如果回到 0 附近，重置曲線
+        if abs(dragAltitude) < 0.2 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    altitudeHistory = []
+                    currentDirection = .down
+                }
+            }
+        }
+    }
+
+    // MARK: - 按鈕
+
+    private func floorButton(_ label: String, floor: Int) -> some View {
+        Button {
+            triggerAnimation(to: floor)
+        } label: {
+            Text(label)
+                .font(.system(size: 16, weight: .semibold))
+                .frame(width: 60, height: 44)
+                .background(floor < currentDisplayFloor ? Color.blue : Color.green)
+                .foregroundColor(.white)
+                .cornerRadius(10)
+        }
+    }
+
+    private func iconChoiceButton(_ icon: String, label: String) -> some View {
+        Button {
+            carIcon = icon
+        } label: {
+            VStack(spacing: 6) {
+                Image(systemName: icon)
+                    .font(.system(size: 28))
+                    .foregroundStyle(carIcon == icon ? .blue : .secondary)
+                Text(label)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(carIcon == icon ? .blue : .secondary)
+            }
+            .frame(width: 80, height: 60)
+            .background(carIcon == icon ? Color.blue.opacity(0.1) : Color.clear)
+            .cornerRadius(12)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(carIcon == icon ? Color.blue : Color.clear, lineWidth: 2)
+            )
+        }
+    }
+
+    // MARK: - 彈窗動畫
+
+    private func triggerAnimation(to floor: Int) {
+        targetFloor = floor
+        animationDirection = floor < currentDisplayFloor ? .down : .up
+        carProgress = 0
+        isAnimating = true
+
+        withAnimation(.easeInOut(duration: 0.4)) { showPopup = true }
+
+        let floorCount = abs(floor - currentDisplayFloor)
+        guard floorCount > 0 else { return }
+        let duration = Double(floorCount) * 3.0
+        let steps = Int(duration / 0.03)
+        let increment = 1.0 / CGFloat(steps)
+
+        animationTimer?.invalidate()
+        animationTimer = Timer.scheduledTimer(withTimeInterval: 0.03, repeats: true) { timer in
+            carProgress += increment
+            if carProgress >= 1.0 {
+                timer.invalidate()
+                isAnimating = false
+                currentDisplayFloor = targetFloor
+                carProgress = 1.0
+            }
+        }
+    }
+
+    private func dismissPopup() {
+        animationTimer?.invalidate()
+        withAnimation(.easeInOut(duration: 0.4)) { showPopup = false }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            carProgress = 0
+            isAnimating = false
+        }
+    }
+
+    // MARK: - 插值樓層
+
+    private var interpolatedFloor: Int {
+        let diff = Double(targetFloor - currentDisplayFloor)
+        let current = Double(currentDisplayFloor) + diff * Double(carProgress)
+        return Int(current.rounded())
+    }
+
+    // MARK: - 彈窗曲線計算
+
+    private func curveY(t: CGFloat, height: CGFloat, startY: CGFloat, endY: CGFloat) -> CGFloat {
+        let base = startY + (endY - startY) * t
+        let noise1 = sin(t * 28) * height * 0.015
+        let noise2 = sin(t * 47 + 1.3) * height * 0.01
+        let noise3 = sin(t * 73 + 2.7) * height * 0.008
+        let floorCount = abs(targetFloor - currentDisplayFloor)
+        let stepNoise: CGFloat = floorCount > 0 ? sin(t * CGFloat(floorCount) * .pi) * height * 0.04 : 0
+        return base + noise1 + noise2 + noise3 + stepNoise
+    }
+
+    private func curveLinePath(w: CGFloat, h: CGFloat, startY: CGFloat, endY: CGFloat) -> Path {
+        var path = Path()
+        let steps = 60
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let x = w * t
+            let y = curveY(t: t, height: h, startY: startY, endY: endY)
+            if i == 0 { path.move(to: CGPoint(x: x, y: y)) }
+            else { path.addLine(to: CGPoint(x: x, y: y)) }
+        }
+        return path
+    }
+
+    private func curveFillPath(w: CGFloat, h: CGFloat, startY: CGFloat, endY: CGFloat) -> Path {
+        var path = Path()
+        let steps = 60
+        path.move(to: CGPoint(x: 0, y: h))
+        path.addLine(to: CGPoint(x: 0, y: startY))
+        for i in 0...steps {
+            let t = CGFloat(i) / CGFloat(steps)
+            let x = w * t
+            let y = curveY(t: t, height: h, startY: startY, endY: endY)
+            path.addLine(to: CGPoint(x: x, y: y))
+        }
+        path.addLine(to: CGPoint(x: w, y: endY))
+        path.addLine(to: CGPoint(x: w, y: h))
+        path.closeSubpath()
+        return path
     }
 }

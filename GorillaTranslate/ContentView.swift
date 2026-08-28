@@ -257,6 +257,16 @@ struct ContentView: View {
     @State private var currentRecognizingPhotoID: UUID? = nil
     @State private var parkingOrbBoost: Double = 1.0
     @State private var orbBoostElapsedOffset: Double = 0
+    // Floor curve popup (auto-detect garage descent)
+    @State private var showFloorCurvePopup = false
+    @State private var floorCurveHistory: [CGFloat] = []
+    @State private var floorCurveBaseAltitude: Double = 0
+    @State private var floorCurveLocked = false
+    @State private var floorCurveLockedFloor: Int = 0
+    @State private var floorCurveSampleTimer: Timer?
+    @State private var floorCurveDismissTimer: Timer?
+    @State private var floorCurveDescendingCount: Int = 0
+    @State private var isFloorCurveInCapsule: Bool = false
     @State private var isOrbRecognizingBoost: Bool = false
     @State private var orbGradualStopTimer: Timer?
     @State private var drivingETASeconds: TimeInterval?
@@ -397,6 +407,8 @@ struct ContentView: View {
                 refreshVisitAndTimersForForeground()
                 sfxPlayer.prepare()
                 photoStorage.prepare()
+                startFloorCurveDetection()
+                startCapsuleUpdateTimer()
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 200_000_000)
@@ -404,6 +416,8 @@ struct ContentView: View {
         }
         .onDisappear {
             UIApplication.shared.isIdleTimerDisabled = false
+            stopFloorCurveDetection()
+            stopCapsuleUpdateTimer()
         }
         .onChange(of: scenePhase) { _, phase in
             if phase == .active {
@@ -1236,6 +1250,413 @@ struct ContentView: View {
         )
     }
 
+    // MARK: - Floor Curve Popup (Auto Garage Detection)
+
+    /// 啟動地庫下降偵測
+    private func startFloorCurveDetection() {
+        floorCurveSampleTimer?.invalidate()
+        // 低速時每 0.25 秒偵測一次，高速時每 1 秒一次
+        let interval: TimeInterval = parkingFloorStore.barometer.currentSpeedKmh < 20 ? 0.25 : 1.0
+        floorCurveSampleTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
+            DispatchQueue.main.async {
+                self.checkGarageDescent()
+                // 動態調整頻率
+                self.adjustDetectionFrequency()
+            }
+        }
+    }
+
+    /// 根據速度動態調整偵測頻率
+    private func adjustDetectionFrequency() {
+        let barometer = parkingFloorStore.barometer
+        let newInterval: TimeInterval = barometer.currentSpeedKmh < 20 ? 0.25 : 1.0
+        let currentInterval = floorCurveSampleTimer?.timeInterval ?? 1.0
+        // 頻率變化超過 0.1 秒才重啟
+        if abs(newInterval - currentInterval) > 0.1 {
+            startFloorCurveDetection()
+        }
+    }
+
+    /// 停止偵測
+    private func stopFloorCurveDetection() {
+        floorCurveSampleTimer?.invalidate()
+        floorCurveSampleTimer = nil
+        floorCurveDismissTimer?.invalidate()
+        floorCurveDismissTimer = nil
+    }
+
+    /// 檢查是否正在下降入地庫
+    private func checkGarageDescent() {
+        // 已經顯示緊就唔好重複觸發
+        guard !isFloorCurveInCapsule else { return }
+
+        let barometer = parkingFloorStore.barometer
+        guard barometer.samples.count >= 5 else { return }
+
+        // 取最近 5 個樣本
+        let recent = Array(barometer.samples.suffix(5))
+        let alts = recent.map { $0.relativeAltitude }
+        let speeds = recent.map { $0.speedKmh }
+
+        // 全部都要低速（< 20 km/h）
+        guard speeds.allSatisfy({ $0 < 20 }) else {
+            floorCurveDescendingCount = 0
+            return
+        }
+
+        // 檢查海拔是否持續下降
+        var descending = true
+        for i in 1..<alts.count {
+            if alts[i] >= alts[i-1] - 0.05 { // 允許少許噪音
+                descending = false
+                break
+            }
+        }
+
+        if descending {
+            floorCurveDescendingCount += 1
+            // 連續 3 次檢測到下降（3 秒）才觸發
+            if floorCurveDescendingCount >= 3 {
+                triggerFloorCurvePopup()
+            }
+        } else {
+            floorCurveDescendingCount = 0
+        }
+    }
+
+    /// 觸發彈窗
+    private func triggerFloorCurvePopup() {
+        let barometer = parkingFloorStore.barometer
+        guard let lastSample = barometer.samples.last else { return }
+
+        floorCurveBaseAltitude = lastSample.relativeAltitude
+        floorCurveHistory = [0] // 起始點為 0
+        floorCurveLocked = false
+        floorCurveLockedFloor = 0
+        floorCurveDescendingCount = 0
+
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            isFloorCurveInCapsule = true
+        }
+
+        // 開始 0.5 秒採樣
+        startFloorCurveSampling()
+
+        // 監聽停留偵測
+        startStationaryMonitoring()
+    }
+
+    /// 0.5 秒採樣海拔
+    private func startFloorCurveSampling() {
+        floorCurveSampleTimer?.invalidate()
+        floorCurveSampleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            DispatchQueue.main.async {
+                guard self.isFloorCurveInCapsule, !self.floorCurveLocked else { return }
+                let barometer = self.parkingFloorStore.barometer
+                guard let lastSample = barometer.samples.last else { return }
+                let relativeAlt = lastSample.relativeAltitude - self.floorCurveBaseAltitude
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    self.floorCurveHistory.append(relativeAlt)
+                }
+            }
+        }
+    }
+
+    /// 監聽停留偵測
+    private func startStationaryMonitoring() {
+        // 用 Timer 每秒檢查 stationaryAltitude
+        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            DispatchQueue.main.async {
+                guard self.isFloorCurveInCapsule else {
+                    timer.invalidate()
+                    return
+                }
+                let barometer = self.parkingFloorStore.barometer
+                if let statAlt = barometer.stationaryAltitude {
+                    // 停留中！鎖定樓層
+                    self.lockFloorCurve(statAlt: statAlt)
+                    timer.invalidate()
+                }
+            }
+        }
+    }
+
+    /// 鎖定樓層
+    private func lockFloorCurve(statAlt: Double) {
+        guard !floorCurveLocked else { return }
+        floorCurveLocked = true
+
+        // 計算樓層
+        let barometer = parkingFloorStore.barometer
+        let recent = barometer.samples.suffix(10)
+        let currentAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
+        let delta = currentAlt - statAlt
+        let mpF = parkingFloorStore.lots.first?.learnedMetersPerFloor ?? 3.0
+        let offset = parkingFloorStore.lots.first?.learnedOffsetMeters ?? 0
+        let adjusted = delta - offset
+        let raw = adjusted / mpF
+        floorCurveLockedFloor = Int(raw.rounded(.toNearestOrAwayFromZero))
+
+        // 5 秒後自動關閉
+        floorCurveDismissTimer?.invalidate()
+        floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+            DispatchQueue.main.async {
+                self.dismissFloorCurve()
+            }
+        }
+    }
+
+    /// 關閉彈窗
+    private func dismissFloorCurve() {
+        floorCurveDismissTimer?.invalidate()
+        floorCurveDismissTimer = nil
+        floorCurveSampleTimer?.invalidate()
+        floorCurveSampleTimer = nil
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            isFloorCurveInCapsule = false
+        }
+        // 重置
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+            floorCurveHistory = []
+            floorCurveLocked = false
+            floorCurveDescendingCount = 0
+        }
+    }
+
+    /// 膠囊內嘅樓層探測內容
+    private var floorCurveCapsuleContent: some View {
+        let accentColor: Color = (floorCurveHistory.last ?? 0) < 0 ? .blue : .green
+        let barometer = parkingFloorStore.barometer
+        let currentAlt = barometer.samples.last?.relativeAltitude ?? 0
+        let relativeAlt = currentAlt - floorCurveBaseAltitude
+
+        return VStack(spacing: 8) {
+            // 頂部：車 icon + 樓層 + 方向
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(accentColor.opacity(0.12))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: "car.side.fill")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .scaleEffect(x: -1)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("樓層探測")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(floorCurveLocked ? ParkingFloorStore.formatFloor(floorCurveLockedFloor) : String(format: "%+.1fm", relativeAlt))
+                            .font(.system(size: 24, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.2), value: floorCurveLocked)
+                            .scaleEffect(floorCurveLocked ? 1.05 : 1.0)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: floorCurveLocked)
+
+                        if floorCurveLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.teal)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                }
+
+                Spacer()
+
+                if floorCurveLocked {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(.teal)
+                        .symbolEffect(.bounce, value: floorCurveLocked)
+                } else {
+                    Image(systemName: relativeAlt < 0 ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(accentColor)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 12)
+
+            // 曲線區域
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h = geo.size.height
+
+                ZStack {
+                    if floorCurveHistory.count <= 1 {
+                        ZStack {
+                            Circle()
+                                .fill(accentColor.opacity(0.15))
+                                .frame(width: 24, height: 24)
+                            Image(systemName: "car.side.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(accentColor)
+                                .scaleEffect(x: -1)
+                        }
+                        .position(x: 18, y: h / 2)
+                    } else {
+                        InlineCurveContent(
+                            history: floorCurveHistory,
+                            w: w, h: h,
+                            accentColor: accentColor,
+                            carIconName: "car.side.fill"
+                        )
+                    }
+                }
+            }
+            .frame(height: 80)
+            .padding(.horizontal, 8)
+            .background(accentColor.opacity(0.04))
+            .cornerRadius(12)
+            .padding(.horizontal, 12)
+
+            // 鎖定後顯示確認訊息
+            if floorCurveLocked {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.teal)
+                    Text("已鎖定樓層")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+    }
+
+    /// 彈窗卡片
+    private func floorCurvePopupCard(geoWidth: CGFloat) -> some View {
+        let accentColor: Color = (floorCurveHistory.last ?? 0) < 0 ? .blue : .green
+        let barometer = parkingFloorStore.barometer
+        let currentAlt = barometer.samples.last?.relativeAltitude ?? 0
+        let relativeAlt = currentAlt - floorCurveBaseAltitude
+
+        return VStack(spacing: 10) {
+            // 頂部：車 icon + 樓層 + 方向
+            HStack(spacing: 12) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(accentColor.opacity(0.12))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "car.side.fill")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundStyle(accentColor)
+                        .scaleEffect(x: -1)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("樓層探測")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(floorCurveLocked ? ParkingFloorStore.formatFloor(floorCurveLockedFloor) : String(format: "%+.1fm", relativeAlt))
+                            .font(.system(size: 28, weight: .bold, design: .rounded))
+                            .foregroundStyle(.primary)
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.2), value: floorCurveLocked)
+                            .scaleEffect(floorCurveLocked ? 1.05 : 1.0)
+                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: floorCurveLocked)
+
+                        if floorCurveLocked {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.teal)
+                                .transition(.scale.combined(with: .opacity))
+                        }
+                    }
+                }
+
+                Spacer()
+
+                if floorCurveLocked {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(.teal)
+                        .symbolEffect(.bounce, value: floorCurveLocked)
+                } else {
+                    Image(systemName: relativeAlt < 0 ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(accentColor)
+                }
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 16)
+
+            // 曲線區域
+            floorCurveArea(accentColor: accentColor)
+                .frame(height: 100)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 4)
+                .background(accentColor.opacity(0.04))
+                .cornerRadius(14)
+                .padding(.horizontal, 14)
+
+            // 鎖定後顯示確認訊息
+            if floorCurveLocked {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.seal.fill")
+                        .font(.system(size: 13))
+                        .foregroundStyle(.teal)
+                    Text("已鎖定樓層")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                }
+                .padding(.bottom, 8)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+
+            Spacer().frame(height: floorCurveLocked ? 0 : 4)
+        }
+        .frame(maxWidth: 340)
+        .background(
+            RoundedRectangle(cornerRadius: 28)
+                .fill(Color(.secondarySystemBackground))
+        )
+        .cornerRadius(28)
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .overlay(
+            RoundedRectangle(cornerRadius: 28)
+                .stroke(Color.primary.opacity(0.08), lineWidth: 0.5)
+        )
+    }
+
+    /// 曲線區域
+    private func floorCurveArea(accentColor: Color) -> some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+
+            ZStack {
+                if floorCurveHistory.count <= 1 {
+                    // 只有一個初始點：顯示車喺左邊
+                    ZStack {
+                        Circle()
+                            .fill(accentColor.opacity(0.15))
+                            .frame(width: 28, height: 28)
+                        Image(systemName: "car.side.fill")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(accentColor)
+                            .scaleEffect(x: -1)
+                    }
+                    .position(x: 20, y: h / 2)
+                } else {
+                    InlineCurveContent(
+                        history: floorCurveHistory,
+                        w: w, h: h,
+                        accentColor: accentColor,
+                        carIconName: "car.side.fill"
+                    )
+                }
+            }
+        }
+    }
+
     // MARK: - Recognized Info Overlay
     private func recognizedInfoOverlay(info: ParkingRecognizedInfo) -> some View {
         let items = info.relevantItems
@@ -1343,10 +1764,13 @@ struct ContentView: View {
 
     // MARK: - Address Capsule
     private var addressCapsule: some View {
-        let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isCapsuleExpanded ? 182 : 44)
+        let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isFloorCurveInCapsule ? 240 : (isCapsuleExpanded ? 182 : 44))
         let capsuleHeight: CGFloat = {
             if isParkingMemoryExpanded {
                 return isLandscape ? 296 : 495
+            }
+            if isFloorCurveInCapsule {
+                return 240
             }
             let raw: CGFloat
             if capsuleDragState.active {
@@ -1369,9 +1793,9 @@ struct ContentView: View {
         let capsuleWidth: CGFloat = {
             if isLandscape {
                 if isParkingMemoryExpanded { return 525 }
-                if isCapsuleExpanded { return 370 }
+                if isCapsuleExpanded || isFloorCurveInCapsule { return 370 }
             }
-            return isCapsuleExpanded ? 370 : (270 + 100 * dragProgress)
+            return (isCapsuleExpanded || isFloorCurveInCapsule) ? 370 : (270 + 100 * dragProgress)
         }()
 
         return ZStack {
@@ -1400,6 +1824,9 @@ struct ContentView: View {
                     } message: {
                         Text(buildRecognitionLogicText())
                     }
+            } else if isFloorCurveInCapsule {
+                floorCurveCapsuleContent
+                    .transition(.opacity)
             } else if isCapsuleExpanded {
                 expandedContent
                     .id(parkingStartTime)
@@ -1470,6 +1897,7 @@ struct ContentView: View {
         .scaleEffect(capsuleScale)
         .animation(capsuleDragState.active ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isCapsuleExpanded)
         .animation(capsuleDragState.active ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isParkingMemoryExpanded)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isFloorCurveInCapsule)
         .animation(.easeInOut(duration: 0.4), value: orbOpacity)
         .gesture(
             DragGesture()
@@ -1593,10 +2021,8 @@ struct ContentView: View {
         }
         .onChange(of: isCapsuleExpanded) { _, expanded in
             if expanded {
-                startCapsuleUpdateTimer()
                 stopRandomInfoTimer()
             } else {
-                stopCapsuleUpdateTimer()
                 if !isParkingMemoryExpanded {
                     startRandomInfoTimer()
                 }
