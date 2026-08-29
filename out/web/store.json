@@ -1,0 +1,385 @@
+{
+  "generatedAt": "2026-08-29T10:21:39.272Z",
+  "app": {
+    "name": "GorillaTranslate",
+    "subtitle": {
+      "zh-TW": "智能泊車與翻譯助手",
+      "en-US": "Smart Parking & Translation"
+    },
+    "developer": "YeGL18",
+    "category": "Navigation",
+    "rating": 4.8,
+    "ratingCount": "100+ Ratings",
+    "ageRating": "4+",
+    "price": "Free",
+    "description": {
+      "zh-TW": "智能泊車記憶、即時翻譯、樓層探測，讓你的出行更輕鬆。",
+      "en-US": "Smart parking memory, real-time translation, and floor detection for easier travel."
+    }
+  },
+  "devices": [
+    {
+      "key": "iphone-6.9",
+      "label": "6.9",
+      "simulatorName": "iPhone 17 Pro Max",
+      "screenshot": {
+        "width": 1320,
+        "height": 2868
+      },
+      "preview": {
+        "width": 886,
+        "height": 1920
+      }
+    }
+  ],
+  "locales": [
+    "zh-TW",
+    "en-US"
+  ],
+  "assets": {
+    "iphone-6.9": {
+      "zh-TW": {
+        "screenshots": [
+          {
+            "sceneId": "home",
+            "url": "screenshots/6.9/zh-TW/01-home.png",
+            "width": 1320,
+            "height": 2868,
+            "bytes": 1154204
+          },
+          {
+            "sceneId": "parking",
+            "url": "screenshots/6.9/zh-TW/02-parking.png",
+            "width": 1320,
+            "height": 2868,
+            "bytes": 1136614
+          },
+          {
+            "sceneId": "settings",
+            "url": "screenshots/6.9/zh-TW/03-settings.png",
+            "width": 1320,
+            "height": 2868,
+            "bytes": 1116548
+          }
+        ],
+        "preview": null
+      },
+      "en-US": {
+        "screenshots": [
+          {
+            "sceneId": "home",
+            "url": "screenshots/6.9/en-US/01-home.png",
+            "width": 1320,
+            "height": 2868,
+            "bytes": 1158076
+          },
+          {
+            "sceneId": "parking",
+            "url": "screenshots/6.9/en-US/02-parking.png",
+            "width": 1320,
+            "height": 2868,
+            "bytes": 1146791
+          },
+          {
+            "sceneId": "settings",
+            "url": "screenshots/6.9/en-US/03-settings.png",
+            "width": 1320,
+            "height": 2868,
+            "bytes": 1126896
+          }
+        ],
+        "preview": null
+      }
+    }
+  },
+  "design": {
+    "theme": {
+      "background": "linear-gradient(160deg, #1a1a2e 0%, #16213e 55%, #0f3460 100%)",
+      "headlineColor": "#FFFFFF",
+      "subheadColor": "#B0B0B0",
+      "fontFamily": "-apple-system, \"SF Pro Display\", system-ui, sans-serif",
+      "copyHeightRatio": 0.24,
+      "deviceWidthRatio": 0.84,
+      "layout": "classic"
+    },
+    "frameVariant": "17-pro-blue",
+    "frameVariants": [
+      "17-pro-silver",
+      "17-pro-blue",
+      "17-pro-orange"
+    ],
+    "customFrameUrl": null,
+    "fonts": [
+      {
+        "key": "merriweather",
+        "family": "Merriweather",
+        "fallback": "Georgia, serif",
+        "faces": [
+          {
+            "weight": 400,
+            "url": "fonts/Merriweather-400.ttf"
+          },
+          {
+            "weight": 700,
+            "url": "fonts/Merriweather-700.ttf"
+          }
+        ]
+      },
+      {
+        "key": "dm-mono",
+        "family": "DM Mono",
+        "fallback": "ui-monospace, Menlo, monospace",
+        "faces": [
+          {
+            "weight": 400,
+            "url": "fonts/DMMono-400.ttf"
+          },
+          {
+            "weight": 500,
+            "url": "fonts/DMMono-500.ttf"
+          }
+        ]
+      },
+      {
+        "key": "lato",
+        "family": "Lato",
+        "fallback": "system-ui, sans-serif",
+        "faces": [
+          {
+            "weight": 400,
+            "url": "fonts/Lato-400.ttf"
+          },
+          {
+            "weight": 700,
+            "url": "fonts/Lato-700.ttf"
+          }
+        ]
+      },
+      {
+        "key": "dm-sans",
+        "family": "DM Sans",
+        "fallback": "system-ui, sans-serif",
+        "faces": [
+          {
+            "weight": 400,
+            "url": "fonts/DMSans-400.ttf"
+          },
+          {
+            "weight": 700,
+            "url": "fonts/DMSans-700.ttf"
+          }
+        ]
+      },
+      {
+        "key": "montserrat",
+        "family": "Montserrat",
+        "fallback": "system-ui, sans-serif",
+        "faces": [
+          {
+            "weight": 400,
+            "url": "fonts/Montserrat-400.ttf"
+          },
+          {
+            "weight": 700,
+            "url": "fonts/Montserrat-700.ttf"
+          }
+        ]
+      }
+    ],
+    "layouts": [
+      {
+        "key": "classic",
+        "label": "Classic",
+        "description": "Centred copy above a centred device.",
+        "span": 1
+      },
+      {
+        "key": "copy-below",
+        "label": "Copy below",
+        "description": "Device hanging from the top edge, copy underneath.",
+        "span": 1
+      },
+      {
+        "key": "hero",
+        "label": "Hero",
+        "description": "Copy on top, a large device running off the bottom.",
+        "span": 1
+      },
+      {
+        "key": "offset",
+        "label": "Offset",
+        "description": "Left-aligned copy, device pushed to the bottom right.",
+        "span": 1
+      },
+      {
+        "key": "tilt",
+        "label": "Tilt",
+        "description": "Copy on top, device tilted and running off the bottom.",
+        "span": 1
+      },
+      {
+        "key": "tilt-right",
+        "label": "Tilt right",
+        "description": "Left-aligned copy, device tilted into the bottom right corner.",
+        "span": 1
+      },
+      {
+        "key": "duo",
+        "label": "Duo",
+        "description": "Two screens: a smaller one behind on the left, the main one in front.",
+        "span": 1
+      },
+      {
+        "key": "duo-tilt",
+        "label": "Duo tilt",
+        "description": "Two tilted screens stepping down diagonally.",
+        "span": 1
+      },
+      {
+        "key": "panorama",
+        "label": "Panorama",
+        "description": "Two tiles: copy on the left, one big tilted device across the seam.",
+        "span": 2
+      },
+      {
+        "key": "panorama-duo",
+        "label": "Panorama duo",
+        "description": "Two tiles sharing one headline, a screen on each side leaning inward.",
+        "span": 2
+      },
+      {
+        "key": "minimal",
+        "label": "Minimal",
+        "description": "No copy, just the device, large and centred.",
+        "span": 1
+      }
+    ],
+    "templates": [
+      {
+        "key": "uniform",
+        "label": "Uniform",
+        "description": "Every tile in the theme's one layout.",
+        "sequence": []
+      },
+      {
+        "key": "editorial",
+        "label": "Editorial",
+        "description": "A panorama opener, then a hero, an offset, a breather and a tilt.",
+        "sequence": [
+          "panorama",
+          "hero",
+          "offset",
+          "minimal",
+          "tilt"
+        ]
+      },
+      {
+        "key": "showcase",
+        "label": "Showcase",
+        "description": "Hero first, then tilted and paired screens, ending on a breather.",
+        "sequence": [
+          "hero",
+          "tilt",
+          "duo",
+          "tilt-right",
+          "minimal"
+        ]
+      },
+      {
+        "key": "magazine",
+        "label": "Magazine",
+        "description": "Left-aligned copy and copy-below tiles alternating with big devices.",
+        "sequence": [
+          "offset",
+          "copy-below",
+          "tilt-right",
+          "hero",
+          "minimal"
+        ]
+      },
+      {
+        "key": "storyboard",
+        "label": "Storyboard",
+        "description": "A two-screen panorama, then a copy-below, a hero and a breather.",
+        "sequence": [
+          "panorama-duo",
+          "copy-below",
+          "hero",
+          "minimal",
+          "tilt"
+        ]
+      },
+      {
+        "key": "dynamic",
+        "label": "Dynamic",
+        "description": "Everything tilted: a tilt, a tilted pair, a panorama, a breather.",
+        "sequence": [
+          "tilt",
+          "duo-tilt",
+          "panorama",
+          "minimal",
+          "tilt-right"
+        ]
+      }
+    ],
+    "template": null,
+    "layout": "classic",
+    "screenOnly": false,
+    "decorations": [],
+    "scenes": [
+      {
+        "id": "home",
+        "headline": {
+          "zh-TW": "智能地圖追蹤",
+          "en-US": "Smart Map Tracking"
+        },
+        "subhead": {
+          "zh-TW": "即時定位與導航",
+          "en-US": "Real-time location & navigation"
+        }
+      },
+      {
+        "id": "parking",
+        "headline": {
+          "zh-TW": "泊車記憶",
+          "en-US": "Parking Memory"
+        },
+        "subhead": {
+          "zh-TW": "自動記錄停車位置",
+          "en-US": "Auto-record parking location"
+        }
+      },
+      {
+        "id": "settings",
+        "headline": {
+          "zh-TW": "個性化設定",
+          "en-US": "Personalized Settings"
+        },
+        "subhead": {
+          "zh-TW": "自訂你的使用體驗",
+          "en-US": "Customize your experience"
+        }
+      }
+    ],
+    "preview": null,
+    "captures": {
+      "iphone-6.9": {
+        "screenshots": [
+          {
+            "sceneId": "home",
+            "url": "raw/iphone-6.9/home.png"
+          },
+          {
+            "sceneId": "parking",
+            "url": "raw/iphone-6.9/parking.png"
+          },
+          {
+            "sceneId": "settings",
+            "url": "raw/iphone-6.9/settings.png"
+          }
+        ],
+        "clips": null
+      }
+    }
+  }
+}

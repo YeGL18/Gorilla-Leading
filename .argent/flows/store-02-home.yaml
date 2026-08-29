@@ -1,0 +1,8 @@
+steps:
+  - tool: launch-app
+    args:
+      bundleId: com.gorilla.translation
+  - wait: 5000
+  - tool: screenshot
+    args:
+      out: /tmp/goldie-home.png

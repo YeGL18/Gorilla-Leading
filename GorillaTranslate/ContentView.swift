@@ -92,6 +92,7 @@ struct ContentView: View {
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     
     @State private var selectedTab: Int = 1
     @State private var hasPlayedEntrance = false
@@ -443,6 +444,10 @@ struct ContentView: View {
         .onReceive(locationManager.$lastLocation) { location in
             guard let location = location else { return }
             timePhaseManager.fetchSunTimes(for: location.coordinate)
+            // 追蹤低速時的 GPS 位置（用於修正泊車位置）
+            if parkingFloorStore.barometer.currentSpeedKmh < 20 {
+                parkingFloorStore.lastStationaryCoordinate = location.coordinate
+            }
         }
         .onReceive(locationManager.$lastLocation) { location in
             guard let location = location else { return }
@@ -474,6 +479,9 @@ struct ContentView: View {
                     departureTime = lastVisit.departureDate
                     showDepartedLabel = true
                     clearParkingContributions()
+                    // 清理樓層曲線鎖定狀態
+                    parkingFloorStore.floorCurveLockedFloor = nil
+                    parkingFloorStore.lastStationaryCoordinate = nil
                     // 系統自動偵測到離開 — 推送通知
                     let content = UNMutableNotificationContent()
                     content.title = String(localized: "Gorilla 泊車記憶")
@@ -525,6 +533,8 @@ struct ContentView: View {
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
                     parkingFloorStore.recordParkingPoint(from: lastVisit)
+                    // Bug 1 修復：強制 SwiftUI 重新渲染地圖（確保停車點標記出現）
+                    parkingFloorStore.objectWillChange.send()
                     // Show parking info on new arrival
                     parkingInfoDisplayMode = true
                     clearParkingContributions()
@@ -533,14 +543,17 @@ struct ContentView: View {
         }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
             if expanded {
+                // Bug 2 修復：防禦性檢查，確保狀態穩定後再啟動相機
                 isCameraActive = true
                 cameraFadeOpacity = 0
                 cameraButtonBlurIn = false  // 先重置
                 viewfinderBreathe = false   // 先停止呼吸
                 resetCameraInactivityTimer()
-                // 拍照按鈕模糊入場動畫
-                withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
-                    cameraButtonBlurIn = true
+                // 拍照按鈕模糊入場動畫（延遲確保視圖已穩定）
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                    withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
+                        cameraButtonBlurIn = true
+                    }
                 }
                 if hasDeparted {
                     hasDeparted = false
@@ -1295,7 +1308,6 @@ struct ContentView: View {
 
         // 取最近 5 個樣本
         let recent = Array(barometer.samples.suffix(5))
-        let alts = recent.map { $0.relativeAltitude }
         let speeds = recent.map { $0.speedKmh }
 
         // 全部都要低速（< 20 km/h）
@@ -1304,23 +1316,26 @@ struct ContentView: View {
             return
         }
 
-        // 檢查海拔是否持續下降
-        var descending = true
-        for i in 1..<alts.count {
-            if alts[i] >= alts[i-1] - 0.05 { // 允許少許噪音
-                descending = false
-                break
-            }
-        }
-
-        if descending {
+        if floorCurveTriggerMode == 0 {
+            // 模式 A（純速度）：速度 < 20 就觸發，不需要海拔持續下降
             floorCurveDescendingCount += 1
-            // 連續 3 次檢測到下降（3 秒）才觸發
-            if floorCurveDescendingCount >= 3 {
+            if floorCurveDescendingCount >= 2 {
                 triggerFloorCurvePopup()
             }
         } else {
-            floorCurveDescendingCount = 0
+            // 模式 B（速度 + 海拔）：需要偵測到海拔變化
+            let alts = recent.map { $0.relativeAltitude }
+            // 檢查海拔是否有明顯變化（總變化 > 0.3m）
+            let altChange = (alts.max() ?? 0) - (alts.min() ?? 0)
+            if altChange > 0.3 {
+                floorCurveDescendingCount += 1
+                // 連續 2 次檢測到變化才觸發
+                if floorCurveDescendingCount >= 2 {
+                    triggerFloorCurvePopup()
+                }
+            } else {
+                floorCurveDescendingCount = 0
+            }
         }
     }
 
@@ -1364,7 +1379,7 @@ struct ContentView: View {
 
     /// 監聽停留偵測
     private func startStationaryMonitoring() {
-        // 用 Timer 每秒檢查 stationaryAltitude
+        // 用 Timer 每秒檢查 stationaryAltitude 或速度 = 0
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
             DispatchQueue.main.async {
                 guard self.isFloorCurveInCapsule else {
@@ -1372,9 +1387,21 @@ struct ContentView: View {
                     return
                 }
                 let barometer = self.parkingFloorStore.barometer
+
+                // 條件 1：stationaryAltitude 已計算（10 秒低速）
                 if let statAlt = barometer.stationaryAltitude {
-                    // 停留中！鎖定樓層
                     self.lockFloorCurve(statAlt: statAlt)
+                    timer.invalidate()
+                    return
+                }
+
+                // 條件 2：速度 = 0（停車了），立即鎖定
+                if barometer.currentSpeedKmh <= 0.5 {
+                    // 用最近 10 個樣本的平均海拔作為 stationary altitude
+                    let recent = barometer.samples.suffix(10)
+                    guard recent.count >= 3 else { return }
+                    let smoothedAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
+                    self.lockFloorCurve(statAlt: smoothedAlt)
                     timer.invalidate()
                 }
             }
@@ -1396,6 +1423,11 @@ struct ContentView: View {
         let adjusted = delta - offset
         let raw = adjusted / mpF
         floorCurveLockedFloor = Int(raw.rounded(.toNearestOrAwayFromZero))
+
+        // Bug 3b 修復：保存鎖定樓層到 ParkingFloorStore
+        let lockedFloor = floorCurveLockedFloor
+        let currentCoord = locationManager.lastLocation?.coordinate
+        parkingFloorStore.updateActivePointFromFloorCurve(lockedFloor: lockedFloor, coordinate: currentCoord)
 
         // 5 秒後自動關閉
         floorCurveDismissTimer?.invalidate()
@@ -4358,7 +4390,8 @@ struct ContentView: View {
             cameraDimOverlay
             // 相機未啟動時禁用 hit testing，讓觸控穿透到黑色遮罩
             cameraPhotoStack
-            captureAnimationOverlay
+            // captureAnimationOverlay — DEBUG: replaced with EmptyView
+            EmptyView()
             cameraButton
                 .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
 
@@ -4618,7 +4651,7 @@ struct ContentView: View {
     private var captureAnimationOverlay: some View {
         let camW: CGFloat = isLandscape ? 304 : 338
         let camH: CGFloat = isLandscape ? 211 : 235
-        return Group {
+        return VStack(spacing: 0) {
             if animatingPhotoID != nil, let img = animatingPhotoImage {
                 let isShrunk = animatingPhotoPhase == 1
                 let cr: CGFloat = isShrunk ? 5 : (isLandscape ? 33 : 37)

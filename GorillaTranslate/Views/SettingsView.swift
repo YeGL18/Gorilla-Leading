@@ -19,6 +19,7 @@ struct SettingsView: View {
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
+    @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = false
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
     @State private var isAutoPlaying = false
@@ -221,6 +222,21 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } header: {
                     Label(String(localized: "泊車識別"), systemImage: "car")
+                }
+
+                Section {
+                    Picker(String(localized: "樓層探測觸發"), selection: $floorCurveTriggerMode) {
+                        Text(String(localized: "純速度")).tag(0)
+                        Text(String(localized: "速度 + 海拔")).tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    Text(floorCurveTriggerMode == 0
+                        ? String(localized: "速度低於 20 km/h 時自動展開膠囊，不管有冇海拔變化。")
+                        : String(localized: "速度低於 20 km/h 且偵測到海拔變化時才展開膠囊。"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Label(String(localized: "樓層探測"), systemImage: "chart.line.uptrend.xyaxis")
                 }
 
                 // Orb Effects Section

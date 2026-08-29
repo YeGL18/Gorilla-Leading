@@ -90,6 +90,7 @@ struct MapView: UIViewRepresentable {
         if #available(iOS 16.0, *), mapStyleIndex == 1 {
             let config = MKStandardMapConfiguration()
             config.emphasisStyle = .muted
+            config.elevationStyle = .realistic
             mapView.preferredConfiguration = config
         }
         mapView.delegate = context.coordinator
@@ -373,6 +374,8 @@ struct MapView: UIViewRepresentable {
         private let drivingSpeedThreshold: Double = 15
         fileprivate let drivingTrackingDistance: CLLocationDistance = 1200
         fileprivate let idleTrackingDistance: CLLocationDistance = 800
+        fileprivate let drivingPitch: CGFloat = 20  // 駕駛時輕微 3D 傾斜
+        fileprivate let idlePitch: CGFloat = 0      // 靜止追蹤平面視角
         
         // 柔软追踪相关
         private var softLatVelocity: Double = 0   // 纬度速度（度/帧）
@@ -522,8 +525,8 @@ struct MapView: UIViewRepresentable {
             var h = parent.locationManager.heading
             if let windowScene = mapView?.window?.windowScene {
                 switch windowScene.interfaceOrientation {
-                case .landscapeLeft:  h -= 90
-                case .landscapeRight: h += 90
+                case .landscapeLeft:  h += 90
+                case .landscapeRight: h -= 90
                 default: break
                 }
             }
@@ -695,14 +698,16 @@ struct MapView: UIViewRepresentable {
                 longitude: location.coordinate.longitude
             )
             let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
-            
+            let targetPitch: CGFloat = isDriving ? drivingPitch : idlePitch
+
             mapView.allowCameraChange = true
-            
+
             let camera = mapView.camera
             camera.centerCoordinate = targetCenter
             camera.centerCoordinateDistance = targetDistance
+            camera.pitch = targetPitch
             mapView.setCamera(camera, animated: true)
-            
+
             mapView.allowCameraChange = false
         }
 
@@ -714,6 +719,8 @@ struct MapView: UIViewRepresentable {
         private var smoothToDistance: CLLocationDistance = 800
         private var smoothFromHeading: CLLocationDirection = 0
         private var smoothToHeading: CLLocationDirection = 0
+        private var smoothFromPitch: CGFloat = 0
+        private var smoothToPitch: CGFloat = 0
         private var smoothProgress: TimeInterval = 0
         private let smoothDuration: TimeInterval = 0.6
 
@@ -757,12 +764,14 @@ struct MapView: UIViewRepresentable {
             smoothFromCenter = mapView.camera.centerCoordinate
             smoothFromDistance = mapView.camera.centerCoordinateDistance
             smoothFromHeading = mapView.camera.heading
+            smoothFromPitch = mapView.camera.pitch
             smoothToCenter = CLLocationCoordinate2D(
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
             smoothToDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
             smoothToHeading = parent.followHeading ? correctedHeading : 0
+            smoothToPitch = isDriving ? drivingPitch : idlePitch
             smoothProgress = 0
             
             let startTime = Date()
@@ -776,12 +785,14 @@ struct MapView: UIViewRepresentable {
                 let lon = self.smoothFromCenter.longitude + (self.smoothToCenter.longitude - self.smoothFromCenter.longitude) * ease
                 let dist = self.smoothFromDistance + (self.smoothToDistance - self.smoothFromDistance) * ease
                 let hdg = self.smoothFromHeading + (self.smoothToHeading - self.smoothFromHeading) * ease
-                
+                let pitch = self.smoothFromPitch + (self.smoothToPitch - self.smoothFromPitch) * ease
+
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
                 camera.heading = hdg
+                camera.pitch = pitch
                 mapView.setCamera(camera, animated: false)
                 mapView.allowCameraChange = false
                 
@@ -852,6 +863,9 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+                let targetPitchSmooth: CGFloat = isDriving ? drivingPitch : idlePitch
+                let currentPitchSmooth = camera.pitch
+                camera.pitch = currentPitchSmooth + (targetPitchSmooth - currentPitchSmooth) * ease
                 let targetHeadingSmooth: CLLocationDirection = parent.followHeading ? correctedHeading : 0
                 let currentHeadingSmooth = camera.heading
                 let headingDiffSmooth = targetHeadingSmooth - currentHeadingSmooth
@@ -907,6 +921,9 @@ struct MapView: UIViewRepresentable {
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
                 camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+                let targetPitchSoft: CGFloat = isDriving ? drivingPitch : idlePitch
+                let currentPitchSoft = camera.pitch
+                camera.pitch = currentPitchSoft + (targetPitchSoft - currentPitchSoft) * 0.15
                 let targetHeadingSoft: CLLocationDirection = parent.followHeading ? correctedHeading : 0
                 let currentHeadingSoft = camera.heading
                 let headingDiffSoft = targetHeadingSoft - currentHeadingSoft
@@ -1198,8 +1215,10 @@ struct MapView: UIViewRepresentable {
                 longitude: location.coordinate.longitude
             )
             let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+            let targetPitchVal: CGFloat = isDriving ? drivingPitch : idlePitch
             let startCenter = mapView.centerCoordinate
             let startHeading = mapView.camera.heading
+            let startPitch = mapView.camera.pitch
             let targetHeading: CLLocationDirection = northOverrideArmed ? 0 : (parent.followHeading ? correctedHeading : 0)
             // 首次从高空飞下来（加载瓦片），后续用当前高度
             let startDistance: CLLocationDistance = hasShownHighAltitude
@@ -1222,10 +1241,12 @@ struct MapView: UIViewRepresentable {
                 let lat = startCenter.latitude + (targetCenter.latitude - startCenter.latitude) * posEase
                 let lon = startCenter.longitude + (targetCenter.longitude - startCenter.longitude) * posEase
                 let dist = startDistance + (targetDistance - startDistance) * distEase
+                let pitch = startPitch + (targetPitchVal - startPitch) * posEase
 
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
+                camera.pitch = pitch
                 // 持續跟隨模式：heading 由 continuousHeadingTimer 控制，飛行動畫不管
                 if !continuousFollow {
                     let headingDiff = targetHeading - startHeading
@@ -1262,6 +1283,8 @@ struct MapView: UIViewRepresentable {
             let startCenter = mapView.camera.centerCoordinate
             let startDistance = mapView.camera.centerCoordinateDistance
             let startHeading = mapView.camera.heading
+            let startPitch = mapView.camera.pitch
+            let targetPitchVal: CGFloat = isDriving ? drivingPitch : idlePitch
             let targetHeading: CLLocationDirection = parent.followHeading ? correctedHeading : 0
             mapView.allowCameraChange = true
             let startTime = Date()
@@ -1273,10 +1296,12 @@ struct MapView: UIViewRepresentable {
                 let lat = startCenter.latitude + (coordinate.latitude - startCenter.latitude) * ease
                 let lon = startCenter.longitude + (coordinate.longitude - startCenter.longitude) * ease
                 let dist = startDistance + (distance - startDistance) * ease
+                let pitch = startPitch + (targetPitchVal - startPitch) * ease
 
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
                 camera.centerCoordinateDistance = dist
+                camera.pitch = pitch
                 // 持續跟隨模式：heading 由 continuousHeadingTimer 控制
                 if !continuousFollow {
                     camera.heading = startHeading + (targetHeading - startHeading) * ease
@@ -1743,6 +1768,7 @@ struct ReadOnlyMapView: UIViewRepresentable {
         if #available(iOS 16.0, *), mapStyleIndex == 1 {
             let config = MKStandardMapConfiguration()
             config.emphasisStyle = .muted
+            config.elevationStyle = .realistic
             mapView.preferredConfiguration = config
         }
         if let camera = camera {

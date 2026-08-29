@@ -615,6 +615,11 @@ final class ParkingFloorStore: ObservableObject {
     /// 當前活躍的停車場 ID（最近一次 recordParkingPoint 命中的 lot）
     @Published var activeLotID: UUID?
 
+    /// 最近一次低速/停留時的 GPS 位置（用於修正泊車位置，避免使用 visit 到達位置）
+    var lastStationaryCoordinate: CLLocationCoordinate2D?
+    /// 樓層曲線鎖定的樓層值（用於修正泊車樓層，避免獨立計算結果不一致）
+    var floorCurveLockedFloor: Int?
+
     private let storeKey = "parking_floor_store_v1"
     private let defaults: UserDefaults
 
@@ -711,7 +716,21 @@ final class ParkingFloorStore: ObservableObject {
         // 確保氣壓計正在運行
         barometer.startIfAuthorized()
 
-        let coordinate = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
+        // Bug 3a 修復：優先使用停留時的 GPS 位置（更準確）
+        let visitCoord = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
+        let coordinate: CLLocationCoordinate2D
+        if let statCoord = lastStationaryCoordinate {
+            let statLoc = CLLocation(latitude: statCoord.latitude, longitude: statCoord.longitude)
+            let visitLoc = CLLocation(latitude: visitCoord.latitude, longitude: visitCoord.longitude)
+            // 如果停留位置距離 visit 位置 < 200m，使用停留位置（更準確）
+            if statLoc.distance(from: visitLoc) < 200 {
+                coordinate = statCoord
+            } else {
+                coordinate = visitCoord
+            }
+        } else {
+            coordinate = visitCoord
+        }
 
         // 方案 A：用「停留瞬間海拔」做基準（最準確）
         var altitudeDelta: Double? = nil
@@ -756,13 +775,25 @@ final class ParkingFloorStore: ObservableObject {
             finalAlt: finalAlt,
             pressure: pressure
         )
+
+        // Bug 3b 修復：優先使用樓層曲線鎖定的樓層（更準確）
+        let finalFloorIndex: Int?
+        let finalConfidence: Double?
+        if let lockedFloor = floorCurveLockedFloor {
+            finalFloorIndex = lockedFloor
+            finalConfidence = 0.9  // 鎖定的樓層信心度高
+        } else {
+            finalFloorIndex = predicted.floorIndex
+            finalConfidence = predicted.confidence
+        }
+
         recordParkingPoint(
             coordinate: coordinate,
             address: visit.address,
             createdAt: visit.arrivalDate,
-            predictedFloorIndex: predicted.floorIndex,
+            predictedFloorIndex: finalFloorIndex,
             manualFloorIndex: nil,
-            confidence: predicted.confidence,
+            confidence: finalConfidence,
             altitudeDelta: altitudeDelta,
             sampleCount: sampleCount,
             referenceAlt: referenceAlt,
@@ -778,6 +809,35 @@ final class ParkingFloorStore: ObservableObject {
                 self.retryFloorPrediction(coordinate: coordinate)
             }
         }
+    }
+
+    /// 當樓層曲線鎖定時，更新活躍泊車點的坐標和樓層
+    func updateActivePointFromFloorCurve(lockedFloor: Int, coordinate: CLLocationCoordinate2D?) {
+        // 保存鎖定樓層供 recordParkingPoint 使用
+        floorCurveLockedFloor = lockedFloor
+
+        guard let activeLotID, let lotIdx = lots.firstIndex(where: { $0.id == activeLotID }) else { return }
+        guard let point = lots[lotIdx].points.first else { return }
+
+        // 更新樓層
+        if point.predictedFloorIndex != lockedFloor {
+            lots[lotIdx].points[0].predictedFloorIndex = lockedFloor
+            lots[lotIdx].points[0].confidence = 0.9
+        }
+
+        // 更新坐標（如果有更準確的位置）
+        if let coord = coordinate {
+            let existingLoc = CLLocation(latitude: point.latitude, longitude: point.longitude)
+            let newLoc = CLLocation(latitude: coord.latitude, longitude: coord.longitude)
+            // 只有當新位置距離現有位置 < 200m 時才更新（避免錯誤更新）
+            if existingLoc.distance(from: newLoc) < 200 {
+                lots[lotIdx].points[0].latitude = coord.latitude
+                lots[lotIdx].points[0].longitude = coord.longitude
+            }
+        }
+
+        lots[lotIdx].updatedAt = Date()
+        persist()
     }
 
     private func retryFloorPrediction(coordinate: CLLocationCoordinate2D) {

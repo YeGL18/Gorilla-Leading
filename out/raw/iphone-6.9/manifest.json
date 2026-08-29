@@ -1,0 +1,24 @@
+{
+  "device": "iphone-6.9",
+  "udid": "BC4D4644-2EA8-4C96-9D57-5574671C89DB",
+  "capturedAt": "2026-08-29T10:51:00.000Z",
+  "screenshots": [
+    {
+      "sceneId": "speed",
+      "file": "/Users/yegl/Downloads/GorillaTranslation/out/screenshots/6.9/zh-TW/01-speed.png"
+    },
+    {
+      "sceneId": "home",
+      "file": "/Users/yegl/Downloads/GorillaTranslation/out/screenshots/6.9/zh-TW/02-home.png"
+    },
+    {
+      "sceneId": "parking",
+      "file": "/Users/yegl/Downloads/GorillaTranslation/out/screenshots/6.9/zh-TW/03-parking.png"
+    },
+    {
+      "sceneId": "settings",
+      "file": "/Users/yegl/Downloads/GorillaTranslation/out/screenshots/6.9/zh-TW/04-settings.png"
+    }
+  ],
+  "preview": null
+}

@@ -1,0 +1,13 @@
+steps:
+  - tool: launch-app
+    args:
+      bundleId: com.gorilla.translation
+  - wait: 5000
+  - tool: gesture-tap
+    args:
+      x: 0.69
+      y: 0.94
+  - wait: 3000
+  - tool: screenshot
+    args:
+      out: /tmp/goldie-settings.png
