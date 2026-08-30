@@ -525,8 +525,8 @@ struct MapView: UIViewRepresentable {
             var h = parent.locationManager.heading
             if let windowScene = mapView?.window?.windowScene {
                 switch windowScene.interfaceOrientation {
-                case .landscapeLeft:  h += 90
-                case .landscapeRight: h -= 90
+                case .landscapeLeft:  h -= 90
+                case .landscapeRight: h += 90
                 default: break
                 }
             }
