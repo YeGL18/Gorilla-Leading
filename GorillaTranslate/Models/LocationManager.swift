@@ -505,6 +505,16 @@ extension CLLocationCoordinate2D {
             return self
         }
 
+        // Hong Kong, Macau, and Taiwan use WGS-84 (not GCJ-02).
+        // Apple Maps in these regions serves its own WGS-84 tiles,
+        // so no conversion is needed.
+        let isInHongKong = (longitude >= 113.8 && longitude <= 114.5 && latitude >= 22.1 && latitude <= 22.6)
+        let isInMacau = (longitude >= 113.5 && longitude <= 113.7 && latitude >= 22.0 && latitude <= 22.3)
+        let isInTaiwan = (longitude >= 119.9 && longitude <= 122.1 && latitude >= 21.8 && latitude <= 25.4)
+        if isInHongKong || isInMacau || isInTaiwan {
+            return self
+        }
+
         let a: Double = 6378245.0
         let ee: Double = 0.00669342162296594323
 
@@ -547,6 +557,14 @@ extension CLLocationCoordinate2D {
         // is an exact no-op.
         guard longitude >= 72.004 && longitude <= 137.8347 &&
               latitude >= 0.8293 && latitude <= 55.8271 else {
+            return self
+        }
+
+        // Hong Kong, Macau, and Taiwan use WGS-84 — no conversion needed.
+        let isInHongKong = (longitude >= 113.8 && longitude <= 114.5 && latitude >= 22.1 && latitude <= 22.6)
+        let isInMacau = (longitude >= 113.5 && longitude <= 113.7 && latitude >= 22.0 && latitude <= 22.3)
+        let isInTaiwan = (longitude >= 119.9 && longitude <= 122.1 && latitude >= 21.8 && latitude <= 25.4)
+        if isInHongKong || isInMacau || isInTaiwan {
             return self
         }
         var wgs = self
