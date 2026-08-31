@@ -1221,6 +1221,28 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
 
+    /// 刪除指定停車點
+    func deletePoint(pointID: UUID) {
+        for lotIndex in lots.indices {
+            if let pIndex = lots[lotIndex].points.firstIndex(where: { $0.id == pointID }) {
+                lots[lotIndex].points.remove(at: pIndex)
+                lots[lotIndex].updatedAt = Date()
+                // 如果刪除後該停車場無點，則刪除整個停車場
+                if lots[lotIndex].points.isEmpty {
+                    lots.remove(at: lotIndex)
+                }
+                persist()
+                return
+            }
+        }
+    }
+
+    /// 刪除整個停車場
+    func deleteLot(lotID: UUID) {
+        lots.removeAll { $0.id == lotID }
+        persist()
+    }
+
     func nudgePoint(pointID: UUID, northMeters: Double, eastMeters: Double) {
         guard northMeters != 0 || eastMeters != 0 else { return }
         for lotIndex in lots.indices {

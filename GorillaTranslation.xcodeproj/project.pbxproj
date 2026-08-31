@@ -44,6 +44,8 @@
 		F3A0C00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */; };
 		F3A0C00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */; };
 		F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */; };
+		F3A0C010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 */; };
+		F3A0C011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 */; };
 		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
 		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
@@ -108,6 +110,8 @@
 		F3A0A00AB2C3D4E5F6071829 /* gorilla_parking_status_notifi.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_parking_status_notifi.mp3; sourceTree = "<group>"; };
 		F3A0A00CB2C3D4E5F6071829 /* gorilla_ai_loading.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_loading.mp3; sourceTree = "<group>"; };
 		F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = gorilla_ai_done.mp3; sourceTree = "<group>"; };
+		F3A0A010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_floor_curve_appear.mp3; sourceTree = "<group>"; };
+		F3A0A011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_floor_curve_locked.mp3; sourceTree = "<group>"; };
 		L10001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10002 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
@@ -284,6 +288,8 @@
 				F3A0A00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 */,
 				F3A0A003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 */,
 				F3A0A002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 */,
+				F3A0A010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 */,
+				F3A0A011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 */,
 			);
 			path = SFX;
 			sourceTree = "<group>";
@@ -401,6 +407,8 @@
 				F3A0C00DB2C3D4E5F6071829 /* gorilla_ai_done.mp3 in Resources */,
 				F3A0C003B2C3D4E5F6071829 /* sfx_enter_driving.mp3 in Resources */,
 				F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */,
+				F3A0C010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 in Resources */,
+				F3A0C011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 in Resources */,
 				L10003 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

@@ -195,6 +195,19 @@ final class SFXPlayer: ObservableObject {
         return Bundle.main.url(forResource: name, withExtension: "mp3")
     }
 
+    // MARK: - 樓層探測音效
+
+    private var floorCurveAppearPlayer: AVAudioPlayer?
+    private var floorCurveLockedPlayer: AVAudioPlayer?
+
+    func playFloorCurveAppear() {
+        playOnce(&floorCurveAppearPlayer, fallbackName: "sfx_floor_curve_appear", volumeMultiplier: 1.0)
+    }
+
+    func playFloorCurveLocked() {
+        playOnce(&floorCurveLockedPlayer, fallbackName: "sfx_floor_curve_locked", volumeMultiplier: 1.0)
+    }
+
     // MARK: - VLM 識別音效
 
     /// 開始循環播放 loading 音效

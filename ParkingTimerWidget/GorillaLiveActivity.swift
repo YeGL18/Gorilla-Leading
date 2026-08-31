@@ -79,7 +79,7 @@ struct GorillaLiveActivity: Widget {
                     }
                 }
             } compactLeading: {
-                // No leading gap — the island edge sits flush against the info.
+                // P icon + "泊車中" text
                 HStack(spacing: 4) {
                     Image(systemName: context.state.state.symbol)
                         .font(.system(size: 12, weight: .bold))
@@ -87,9 +87,12 @@ struct GorillaLiveActivity: Widget {
                     Text(context.state.state.label)
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
+                        .lineLimit(1)
                 }
+                .padding(.leading, 2)
             } compactTrailing: {
-                timerText(context.state, size: 14, color: context.state.state.color)
+                // Timer: hours + minutes only (or just minutes if < 1 hour)
+                compactTimerText(context.state)
             } minimal: {
                 Image(systemName: context.state.state.symbol)
                     .font(.system(size: 13, weight: .bold))
@@ -115,6 +118,21 @@ struct GorillaLiveActivity: Widget {
             .monospacedDigit()
             .foregroundStyle(color)
             .multilineTextAlignment(.trailing)
+    }
+
+    /// Compact timer: hours + minutes only (or just minutes if < 1 hour).
+    private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
+        TimelineView(.periodic(from: .now, by: 60)) { timeline in
+            let elapsed = Int(timeline.date.timeIntervalSince(state.startDate))
+            let hours = elapsed / 3600
+            let minutes = (elapsed % 3600) / 60
+            let text: String = hours > 0 ? "\(hours)時\(minutes)分" : "\(minutes)分"
+            Text(text)
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(state.state.color)
+                .lineLimit(1)
+        }
     }
 }
 

@@ -2863,32 +2863,31 @@ struct PlaceManagementView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(parkingFloorStore.lots) { lot in
-                    HStack {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text(lot.name ?? "未命名")
-                                .font(.subheadline.weight(.semibold))
-                            Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
-                                .font(.caption2.monospaced())
-                                .foregroundStyle(.secondary)
+                    NavigationLink {
+                        ParkingLotPointsView(lot: lot)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(lot.name ?? "未命名")
+                                    .font(.subheadline.weight(.semibold))
+                                Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
+                                    .font(.caption2.monospaced())
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button {
+                                renamingKey = "lot:\(lot.id.uuidString)"
+                                renamingText = lot.name ?? ""
+                                showRenameAlert = true
+                            } label: {
+                                Image(systemName: "pencil")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
                         }
-                        Spacer()
-                        Button {
-                            renamingKey = "lot:\(lot.id.uuidString)"
-                            renamingText = lot.name ?? ""
-                            showRenameAlert = true
-                        } label: {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 32, height: 32)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        mapPreviewName = lot.name ?? "未命名停車場"
-                        mapPreviewCoordinate = CLLocationCoordinate2D(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
                     }
                     .padding(.vertical, 2)
                 }
@@ -3161,6 +3160,85 @@ struct PlaceManagementView: View {
             return "\(prefix)\(extra) → \(fromName)  ·  星期\(wd)  \(k.timeSlot.description)"
         }
         return "\(prefix)from: \(fromName)  ·  星期\(wd)  \(k.timeSlot.description)"
+    }
+}
+
+// MARK: - 停車場停車點列表（可刪除）
+struct ParkingLotPointsView: View {
+    @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
+    let lot: ParkingLotRecord
+    @State private var showDeleteAlert = false
+    @State private var pointToDelete: ParkingPointRecord?
+    @Environment(\.dismiss) private var dismiss
+
+    // 從 parkingFloorStore 獲取最新的 lot 數據
+    private var currentLot: ParkingLotRecord? {
+        parkingFloorStore.lots.first { $0.id == lot.id }
+    }
+
+    var body: some View {
+        List {
+            Section {
+                if let currentLot {
+                    ForEach(currentLot.points.sorted(by: { $0.createdAt > $1.createdAt })) { point in
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                // 優先顯示停車場名稱，其次顯示地址
+                                Text(lot.name ?? (point.address.isEmpty ? "未命名停車場" : point.address))
+                                    .font(.subheadline.weight(.semibold))
+                                Text(point.createdAt, format: .dateTime.year().month().day().hour().minute())
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                HStack(spacing: 12) {
+                                    if let floor = point.displayFloor {
+                                        Text("樓層: \(floor)")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Text(String(format: "%.5f, %.5f", point.latitude, point.longitude))
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            Button {
+                                pointToDelete = point
+                                showDeleteAlert = true
+                            } label: {
+                                Image(systemName: "trash")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.red)
+                                    .frame(width: 32, height: 32)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                } else {
+                    Text("停車場已被刪除")
+                        .foregroundStyle(.secondary)
+                }
+            } header: {
+                Text("\(lot.name ?? "未命名") - \(currentLot?.points.count ?? 0) 個停車點")
+            }
+        }
+        .navigationTitle("停車點管理")
+        .navigationBarTitleDisplayMode(.inline)
+        .alert("確認刪除", isPresented: $showDeleteAlert) {
+            Button("取消", role: .cancel) {}
+            Button("刪除", role: .destructive) {
+                if let point = pointToDelete {
+                    parkingFloorStore.deletePoint(pointID: point.id)
+                    // 如果刪除後停車場已無點，自動返回
+                    if currentLot == nil || currentLot?.points.isEmpty == true {
+                        dismiss()
+                    }
+                }
+            }
+        } message: {
+            Text("確定要刪除此停車點嗎？此操作無法撤銷。")
+        }
     }
 }
 

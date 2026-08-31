@@ -267,6 +267,8 @@ struct ContentView: View {
     @State private var floorCurveSampleTimer: Timer?
     @State private var floorCurveDismissTimer: Timer?
     @State private var floorCurveDescendingCount: Int = 0
+    @State private var floorCurveAppearTime: Date? = nil
+    @State private var floorCurveLockAnimating: Bool = false
     @State private var isFloorCurveInCapsule: Bool = false
     @State private var isOrbRecognizingBoost: Bool = false
     @State private var orbGradualStopTimer: Timer?
@@ -746,7 +748,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
 
-                    let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isCapsuleExpanded ? -140 : 0)) : 0
+                    let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isFloorCurveInCapsule ? -170 : (isCapsuleExpanded ? -140 : 0))) : 0
                     let landscapeButtonOffset: CGFloat = (isLandscape && showMap) ? 20 : 0
                     HStack {
                         if !hkDetailMode {
@@ -953,7 +955,7 @@ struct ContentView: View {
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 30)
                         .onEnded { value in
-                            guard isLandscape && (isCapsuleExpanded || isParkingMemoryExpanded) else { return }
+                            guard isLandscape && (isCapsuleExpanded || isParkingMemoryExpanded || isFloorCurveInCapsule) else { return }
                             let horizontal = value.translation.width
                             let vertical = value.translation.height
                             guard abs(horizontal) > abs(vertical) * 2 else { return }
@@ -1350,9 +1352,15 @@ struct ContentView: View {
         floorCurveLockedFloor = 0
         floorCurveDescendingCount = 0
 
+        floorCurveAppearTime = Date()
+        floorCurveLockAnimating = false
+
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             isFloorCurveInCapsule = true
         }
+
+        // 播放樓層探測態出現音效
+        sfxPlayer.playFloorCurveAppear()
 
         // 開始 0.5 秒採樣
         startFloorCurveSampling()
@@ -1386,6 +1394,9 @@ struct ContentView: View {
                     timer.invalidate()
                     return
                 }
+                // 樓層探測態出現後至少等 1 秒才能鎖定
+                guard let appearTime = self.floorCurveAppearTime,
+                      Date().timeIntervalSince(appearTime) >= 2.0 else { return }
                 let barometer = self.parkingFloorStore.barometer
 
                 // 條件 1：stationaryAltitude 已計算（10 秒低速）
@@ -1412,21 +1423,37 @@ struct ContentView: View {
     private func lockFloorCurve(statAlt: Double) {
         guard !floorCurveLocked else { return }
         floorCurveLocked = true
+        // 播放樓層鎖定音效
+        sfxPlayer.playFloorCurveLocked()
+        // 模糊漸入動畫
+        floorCurveLockAnimating = false
+        withAnimation(.easeInOut(duration: 0.5)) {
+            floorCurveLockAnimating = true
+        }
 
         // 計算樓層
         let barometer = parkingFloorStore.barometer
         let recent = barometer.samples.suffix(10)
         let currentAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
         let delta = currentAlt - statAlt
-        let mpF = parkingFloorStore.lots.first?.learnedMetersPerFloor ?? 3.0
-        let offset = parkingFloorStore.lots.first?.learnedOffsetMeters ?? 0
+        // 找最近的停車場，用佢嘅 learnedMetersPerFloor
+        let currentCoord = locationManager.lastLocation?.coordinate
+        let nearestLotIdx = currentCoord.flatMap { parkingFloorStore.findLotIndex(near: $0, radiusMeters: 180) }
+        let mpF: Double
+        let offset: Double
+        if let idx = nearestLotIdx, let learned = parkingFloorStore.lots[idx].learnedMetersPerFloor {
+            mpF = learned
+            offset = parkingFloorStore.lots[idx].learnedOffsetMeters ?? 0
+        } else {
+            mpF = 3.0
+            offset = 0
+        }
         let adjusted = delta - offset
         let raw = adjusted / mpF
         floorCurveLockedFloor = Int(raw.rounded(.toNearestOrAwayFromZero))
 
         // Bug 3b 修復：保存鎖定樓層到 ParkingFloorStore
         let lockedFloor = floorCurveLockedFloor
-        let currentCoord = locationManager.lastLocation?.coordinate
         parkingFloorStore.updateActivePointFromFloorCurve(lockedFloor: lockedFloor, coordinate: currentCoord)
 
         // 5 秒後自動關閉
@@ -1451,7 +1478,9 @@ struct ContentView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             floorCurveHistory = []
             floorCurveLocked = false
+            floorCurveLockAnimating = false
             floorCurveDescendingCount = 0
+            floorCurveAppearTime = nil
         }
     }
 
@@ -1462,48 +1491,45 @@ struct ContentView: View {
         let currentAlt = barometer.samples.last?.relativeAltitude ?? 0
         let relativeAlt = currentAlt - floorCurveBaseAltitude
 
-        return VStack(spacing: 8) {
-            // 頂部：車 icon + 樓層 + 方向
-            HStack(spacing: 12) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(accentColor.opacity(0.12))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "car.side.fill")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundStyle(accentColor)
-                        .scaleEffect(x: -1)
+        return VStack(spacing: 10) {
+            // 頂部：返回 + 樓層探測 + 車 icon + 樓層 + 方向
+            HStack {
+                Button(action: {
+                    dismissFloorCurve()
+                }) {
+                    Image(systemName: "chevron.left.circle.fill")
+                        .font(.system(size: 28))
+                        .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                 }
+                Text("樓層探測")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundStyle(adaptiveTextColor())
+                Spacer()
+                HStack(spacing: 6) {
+                    Text(floorCurveLocked ? ParkingFloorStore.formatFloor(floorCurveLockedFloor) : String(format: "%+.1fm", relativeAlt))
+                        .font(.system(size: 24, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.2), value: floorCurveLocked)
+                        .scaleEffect(floorCurveLocked ? 1.05 : 1.0)
+                        .animation(.spring(response: 0.3, dampingFraction: 0.6), value: floorCurveLocked)
 
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("樓層探測")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(.secondary)
-                    HStack(spacing: 6) {
-                        Text(floorCurveLocked ? ParkingFloorStore.formatFloor(floorCurveLockedFloor) : String(format: "%+.1fm", relativeAlt))
-                            .font(.system(size: 24, weight: .bold, design: .rounded))
-                            .foregroundStyle(.primary)
-                            .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.2), value: floorCurveLocked)
-                            .scaleEffect(floorCurveLocked ? 1.05 : 1.0)
-                            .animation(.spring(response: 0.3, dampingFraction: 0.6), value: floorCurveLocked)
-
-                        if floorCurveLocked {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.teal)
-                                .transition(.scale.combined(with: .opacity))
-                        }
+                    if floorCurveLocked {
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.teal)
+                            .transition(.scale.combined(with: .opacity))
+                            .blur(radius: floorCurveLockAnimating ? 0 : 6)
+                            .opacity(floorCurveLockAnimating ? 1 : 0)
                     }
                 }
-
-                Spacer()
-
                 if floorCurveLocked {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20))
                         .foregroundStyle(.teal)
                         .symbolEffect(.bounce, value: floorCurveLocked)
+                        .blur(radius: floorCurveLockAnimating ? 0 : 6)
+                        .opacity(floorCurveLockAnimating ? 1 : 0)
                 } else {
                     Image(systemName: relativeAlt < 0 ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                         .font(.system(size: 20))
@@ -1511,7 +1537,7 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 12)
+            .padding(.top, 14)
 
             // 曲線區域
             GeometryReader { geo in
@@ -1540,25 +1566,24 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(height: 80)
+            .frame(height: 110)
             .padding(.horizontal, 8)
-            .background(accentColor.opacity(0.04))
+            .background(accentColor.opacity(0.1))
             .cornerRadius(12)
             .padding(.horizontal, 12)
 
-            // 鎖定後顯示確認訊息
-            if floorCurveLocked {
-                HStack(spacing: 6) {
-                    Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.teal)
-                    Text("已鎖定樓層")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.secondary)
-                }
-                .padding(.bottom, 8)
-                .transition(.move(edge: .bottom).combined(with: .opacity))
+            // 鎖定後顯示確認訊息（固定佔位，用 opacity 控制可見性）
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: 15))
+                    .foregroundStyle(.teal)
+                Text("已鎖定樓層")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.secondary)
             }
+            .padding(.bottom, 4)
+            .blur(radius: floorCurveLocked ? (floorCurveLockAnimating ? 0 : 6) : 0)
+            .opacity(floorCurveLocked ? (floorCurveLockAnimating ? 1 : 0) : 0)
         }
     }
 
@@ -1618,25 +1643,25 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 18)
-            .padding(.top, 16)
+            .padding(.top, 14)
 
             // 曲線區域
             floorCurveArea(accentColor: accentColor)
                 .frame(height: 100)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 4)
-                .background(accentColor.opacity(0.04))
+                .background(accentColor.opacity(0.1))
                 .cornerRadius(14)
                 .padding(.horizontal, 14)
 
             // 鎖定後顯示確認訊息
             if floorCurveLocked {
-                HStack(spacing: 6) {
+                HStack(spacing: 8) {
                     Image(systemName: "checkmark.seal.fill")
-                        .font(.system(size: 13))
+                        .font(.system(size: 15))
                         .foregroundStyle(.teal)
                     Text("已鎖定樓層")
-                        .font(.system(size: 13, weight: .medium))
+                        .font(.system(size: 15, weight: .semibold))
                         .foregroundStyle(.secondary)
                 }
                 .padding(.bottom, 8)
@@ -1796,13 +1821,13 @@ struct ContentView: View {
 
     // MARK: - Address Capsule
     private var addressCapsule: some View {
-        let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isFloorCurveInCapsule ? 240 : (isCapsuleExpanded ? 182 : 44))
+        let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isFloorCurveInCapsule ? 210 : (isCapsuleExpanded ? 182 : 44))
         let capsuleHeight: CGFloat = {
             if isParkingMemoryExpanded {
                 return isLandscape ? 296 : 495
             }
             if isFloorCurveInCapsule {
-                return 240
+                return 210
             }
             let raw: CGFloat
             if capsuleDragState.active {
@@ -1826,6 +1851,7 @@ struct ContentView: View {
             if isLandscape {
                 if isParkingMemoryExpanded { return 525 }
                 if isCapsuleExpanded || isFloorCurveInCapsule { return 370 }
+                return 280
             }
             return (isCapsuleExpanded || isFloorCurveInCapsule) ? 370 : (270 + 100 * dragProgress)
         }()
@@ -1858,6 +1884,7 @@ struct ContentView: View {
                     }
             } else if isFloorCurveInCapsule {
                 floorCurveCapsuleContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                     .transition(.opacity)
             } else if isCapsuleExpanded {
                 expandedContent
@@ -1967,6 +1994,17 @@ struct ContentView: View {
                     let dy = value.translation.height
                     let predictedDY = value.predictedEndTranslation.height
                     let threshold: CGFloat = 50
+
+                    // 樓層探測態：下滑縮回整修態
+                    if isFloorCurveInCapsule {
+                        if dy > threshold || predictedDY > threshold {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                dismissFloorCurve()
+                            }
+                        }
+                        return
+                    }
+
                     let shouldExpand = (!isCapsuleExpanded) && (dy < -threshold || predictedDY < -threshold)
                     let shouldCollapse = isCapsuleExpanded && (dy > threshold || predictedDY > threshold)
                     let targetExpanded: Bool = shouldExpand ? true : (shouldCollapse ? false : isCapsuleExpanded)
@@ -2502,7 +2540,7 @@ struct ContentView: View {
                                         .frame(width: 161, height: 70)
                                         .overlay(
                                             RoundedRectangle(cornerRadius: 25)
-                                                .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                                                .stroke(Color.white.opacity(0.6), lineWidth: 4)
                                         )
                                     if let countdown = parkingCountdown {
                                         Text("\(countdown)")
@@ -2568,7 +2606,7 @@ struct ContentView: View {
                             .glassEffect(.regular, in: .rect(cornerRadius: 25))
                             .overlay(
                                 RoundedRectangle(cornerRadius: 25)
-                                    .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                                    .stroke(Color.white.opacity(0.6), lineWidth: 4)
                             )
                             VStack(spacing: 2) {
                                 Text(parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時"))
@@ -2738,7 +2776,7 @@ struct ContentView: View {
                                 .frame(width: 161, height: 87)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 25)
-                                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                                        .stroke(Color.white.opacity(0.6), lineWidth: 4)
                                 )
                             if let countdown = parkingCountdown {
                                 Text("\(countdown)")
@@ -2804,7 +2842,7 @@ struct ContentView: View {
                         .glassEffect(.regular, in: .rect(cornerRadius: 25))
                         .overlay(
                             RoundedRectangle(cornerRadius: 25)
-                                .stroke(Color.white.opacity(0.8), lineWidth: 4)
+                                .stroke(Color.white.opacity(0.6), lineWidth: 4)
                         )
                         VStack(spacing: 2) {
                             Text(parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時"))
@@ -4335,12 +4373,7 @@ struct ContentView: View {
                 .clipShape(RoundedRectangle(cornerRadius: camCR))
                 .overlay(
                     RoundedRectangle(cornerRadius: camCR)
-                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: camCR - 2)
-                        .stroke(Color.white.opacity(0.25), lineWidth: 1)
-                        .padding(2)
+                        .stroke(Color.white.opacity(0.6), lineWidth: 4)
                 )
 
             // Black fade overlay — 相機未啟動時顯示，攔截觸控開啟相機
@@ -4349,12 +4382,7 @@ struct ContentView: View {
                 .frame(width: camW, height: camH)
                 .overlay(
                     RoundedRectangle(cornerRadius: camCR)
-                        .stroke(Color.white.opacity(0.8), lineWidth: 4)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: camCR - 2)
-                        .stroke(Color.white.opacity(0.25), lineWidth: 1)
-                        .padding(2)
+                        .stroke(Color.white.opacity(0.6), lineWidth: 4)
                 )
                 .overlay(
                     VStack(spacing: 10) {
