@@ -3,18 +3,20 @@ import SwiftUI
 
 // MARK: - Activity State
 
-/// The three live states shown in the Dynamic Island & Lock Screen.
-/// Mirrors the app's visitStatus: 已停留 / 已泊車 / 已開車.
+/// The four live states shown in the Dynamic Island & Lock Screen.
+/// Mirrors the app's visitStatus: 已停留 / 已泊車 / 已開車 / 已停留(非開車).
 enum GorillaActivityState: String, Codable, Hashable {
-    case stationary   // 停留中 — yellow, pause icon
-    case parking      // 泊車中 — teal, P icon
-    case driving      // 開車中 — blue, car icon
+    case stationary          // 停留中（開車期間靜止）— yellow, pause icon
+    case parking             // 泊車中（開車到達）— teal, P icon
+    case driving             // 開車中 — blue, car icon
+    case nonAutomotiveParking // 停留中（非開車到達）— orange, mappin icon
 
     var label: String {
         switch self {
-        case .stationary: return "停留中"
-        case .parking:    return "泊車中"
-        case .driving:    return "開車中"
+        case .stationary:          return "停留中"
+        case .parking:             return "泊車中"
+        case .driving:             return "開車中"
+        case .nonAutomotiveParking: return "停留中"
         }
     }
 
@@ -26,7 +28,8 @@ enum GorillaActivityState: String, Codable, Hashable {
             let defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
             let hex = defaults.string(forKey: "parkingTimerColorHex") ?? "46ADB8"
             return Self.colorFromHex(hex) ?? Color(red: 0.275, green: 0.678, blue: 0.722)
-        case .driving:    return Color(red: 0.0,   green: 0.596, blue: 1.0)   // #0098FF
+        case .driving:             return Color(red: 0.0,   green: 0.596, blue: 1.0)   // #0098FF
+        case .nonAutomotiveParking: return Color(red: 1.0,   green: 0.584, blue: 0.0)   // #FF9500
         }
     }
 
@@ -43,9 +46,10 @@ enum GorillaActivityState: String, Codable, Hashable {
 
     var symbol: String {
         switch self {
-        case .stationary: return "pause.fill"
-        case .parking:    return "parkingsign"
-        case .driving:    return "car.fill"
+        case .stationary:          return "pause.fill"
+        case .parking:             return "parkingsign"
+        case .driving:             return "car.fill"
+        case .nonAutomotiveParking: return "mappin.and.ellipse"
         }
     }
 }

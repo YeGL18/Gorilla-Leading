@@ -100,6 +100,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var lastGeocodeLocation: CLLocation?
     private var locationServicesStarted = false
 
+    // MARK: - CMMotionActivity 交通模式偵測
+    private let motionActivityManager = CMMotionActivityManager()
+    @Published var currentMotionActivity: CMMotionActivity?
+    /// 最後一次偵測到 automotive 活動的時間
+    @Published var lastAutomotiveTime: Date?
+
     enum GPSQuality {
         case good
         case poor
@@ -115,6 +121,25 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let arrivalDate: Date
         var departureDate: Date?
         let transportType: String
+        /// CMMotionActivity 偵測：到訪前是否有 automotive 活動（舊資料預設 true）
+        let isAutomotive: Bool
+
+        // 向後相容：舊資料沒有 isAutomotive 欄位時預設 true
+        enum CodingKeys: String, CodingKey {
+            case id, address, latitude, longitude, arrivalDate, departureDate, transportType, isAutomotive
+        }
+
+        init(from decoder: Decoder) throws {
+            let c = try decoder.container(keyedBy: CodingKeys.self)
+            id = try c.decode(UUID.self, forKey: .id)
+            address = try c.decode(String.self, forKey: .address)
+            latitude = try c.decode(Double.self, forKey: .latitude)
+            longitude = try c.decode(Double.self, forKey: .longitude)
+            arrivalDate = try c.decode(Date.self, forKey: .arrivalDate)
+            departureDate = try c.decodeIfPresent(Date.self, forKey: .departureDate)
+            transportType = try c.decode(String.self, forKey: .transportType)
+            isAutomotive = try c.decodeIfPresent(Bool.self, forKey: .isAutomotive) ?? true
+        }
 
         var duration: String {
             let departure: Date
@@ -186,6 +211,27 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         // 啟動氣壓計持續採集，用於泊車樓層預測
         ParkingFloorStore.shared.barometer.startIfAuthorized()
+        // 啟動 CMMotionActivity 偵測交通模式
+        startMotionActivityMonitoring()
+    }
+
+    // MARK: - CMMotionActivity 監測
+
+    private func startMotionActivityMonitoring() {
+        guard CMMotionActivityManager.isActivityAvailable() else { return }
+        motionActivityManager.startActivityUpdates(to: .main) { [weak self] activity in
+            guard let activity else { return }
+            self?.currentMotionActivity = activity
+            if activity.automotive {
+                self?.lastAutomotiveTime = Date()
+            }
+        }
+    }
+
+    /// 判斷某個時間點前後是否在開車（用於 CLVisit 到達時判斷交通模式）
+    func wasAutomotive(around date: Date, within interval: TimeInterval = 300) -> Bool {
+        guard let lastAuto = lastAutomotiveTime else { return false }
+        return abs(lastAuto.timeIntervalSince(date)) < interval
     }
 
     private func quality(from accuracy: CLLocationAccuracy) -> GPSQuality {
@@ -243,6 +289,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             transport = "Transit"
         }
 
+        // 根據 CMMotionActivity 判斷是否開車到達
+        let automotive = wasAutomotive(around: visit.arrivalDate)
+
         let record = VisitRecord(
             id: UUID(),
             address: "",
@@ -250,7 +299,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             longitude: visit.coordinate.longitude,
             arrivalDate: visit.arrivalDate,
             departureDate: visit.departureDate.timeIntervalSince(visit.arrivalDate) < 7 * 24 * 3600 ? visit.departureDate : nil,
-            transportType: transport
+            transportType: transport,
+            isAutomotive: automotive
         )
 
         let location = CLLocation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude)
@@ -264,11 +314,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 longitude: record.longitude,
                 arrivalDate: record.arrivalDate,
                 departureDate: record.departureDate,
-                transportType: record.transportType
+                transportType: record.transportType,
+                isAutomotive: record.isAutomotive
             )
             self.upsertVisitRecord(base)
         }
-        
+
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
             guard let self else { return }
             var addr = ""
@@ -291,7 +342,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                     longitude: record.longitude,
                     arrivalDate: record.arrivalDate,
                     departureDate: record.departureDate,
-                    transportType: record.transportType
+                    transportType: record.transportType,
+                    isAutomotive: record.isAutomotive
                 )
                 self.upsertVisitRecord(updated)
             }
@@ -347,7 +399,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                     longitude: cur.longitude,
                     arrivalDate: cur.arrivalDate,
                     departureDate: cur.departureDate,
-                    transportType: cur.transportType
+                    transportType: cur.transportType,
+                    isAutomotive: cur.isAutomotive
                 )
             }
 
@@ -365,8 +418,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         saveVisits()
 
-        // MARK: TripPredictor: arrival / departure 掛鉤
+        // MARK: TripPredictor: arrival / departure 掛鉤（只限開車到訪）
         Task { @MainActor in
+            // 非開車到訪不納入行程預測
+            guard record.isAutomotive else { return }
+
             // 1) Arrival Predict：新 visit（matched==nil）且 address 非空 → predictNext
             let latest = self.visits.first(where: { $0.id == record.id }) ?? record
             if matchedIdx == nil,
@@ -476,6 +532,40 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     var llmSpotNumber: String?
     var llmAreaCode: String?
     var llmFloorText: String?
+    /// 是否開車到達（false = 非開車停留，顯示為「停留點」而非「停車點」）
+    var isAutomotive: Bool
+
+    // 向後相容：舊資料沒有 isAutomotive 欄位時預設 true
+    enum CodingKeys: String, CodingKey {
+        case id, address, latitude, longitude, createdAt
+        case predictedFloorIndex, manualFloorIndex, confidence
+        case barometerAltitudeDeltaMeters, barometerSampleCount
+        case barometerReferenceAltitude, barometerFinalAltitude, barometerPressureKPa
+        case predictedFromLotLearned, llmSpotNumber, llmAreaCode, llmFloorText
+        case isAutomotive
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(UUID.self, forKey: .id)
+        address = try c.decode(String.self, forKey: .address)
+        latitude = try c.decode(Double.self, forKey: .latitude)
+        longitude = try c.decode(Double.self, forKey: .longitude)
+        createdAt = try c.decode(Date.self, forKey: .createdAt)
+        predictedFloorIndex = try c.decodeIfPresent(Int.self, forKey: .predictedFloorIndex)
+        manualFloorIndex = try c.decodeIfPresent(Int.self, forKey: .manualFloorIndex)
+        confidence = try c.decodeIfPresent(Double.self, forKey: .confidence)
+        barometerAltitudeDeltaMeters = try c.decodeIfPresent(Double.self, forKey: .barometerAltitudeDeltaMeters)
+        barometerSampleCount = try c.decodeIfPresent(Int.self, forKey: .barometerSampleCount)
+        barometerReferenceAltitude = try c.decodeIfPresent(Double.self, forKey: .barometerReferenceAltitude)
+        barometerFinalAltitude = try c.decodeIfPresent(Double.self, forKey: .barometerFinalAltitude)
+        barometerPressureKPa = try c.decodeIfPresent(Double.self, forKey: .barometerPressureKPa)
+        predictedFromLotLearned = try c.decodeIfPresent(Bool.self, forKey: .predictedFromLotLearned)
+        llmSpotNumber = try c.decodeIfPresent(String.self, forKey: .llmSpotNumber)
+        llmAreaCode = try c.decodeIfPresent(String.self, forKey: .llmAreaCode)
+        llmFloorText = try c.decodeIfPresent(String.self, forKey: .llmFloorText)
+        isAutomotive = try c.decodeIfPresent(Bool.self, forKey: .isAutomotive) ?? true
+    }
 
     var coordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
@@ -750,6 +840,26 @@ final class ParkingFloorStore: ObservableObject {
             coordinate = visitCoord
         }
 
+        // 非開車到達不需要樓層偵測 — 直接建點，無樓層資訊
+        if !visit.isAutomotive {
+            recordParkingPoint(
+                coordinate: coordinate,
+                address: visit.address,
+                createdAt: visit.arrivalDate,
+                predictedFloorIndex: nil,
+                manualFloorIndex: nil,
+                confidence: nil,
+                altitudeDelta: nil,
+                sampleCount: nil,
+                referenceAlt: nil,
+                finalAlt: nil,
+                pressure: nil,
+                predictedFromLotLearned: false,
+                isAutomotive: false
+            )
+            return
+        }
+
         // 方案 A：用「停留瞬間海拔」做基準（最準確）
         var altitudeDelta: Double? = nil
         var referenceAlt: Double? = nil
@@ -817,7 +927,8 @@ final class ParkingFloorStore: ObservableObject {
             referenceAlt: referenceAlt,
             finalAlt: finalAlt,
             pressure: pressure,
-            predictedFromLotLearned: predicted.fromLotLearned
+            predictedFromLotLearned: predicted.fromLotLearned,
+            isAutomotive: true
         )
 
         // 如果氣壓計樣本不夠導致樓層未知，60 秒後重試
@@ -897,7 +1008,8 @@ final class ParkingFloorStore: ObservableObject {
         createdAt: Date,
         predictedFloorIndex: Int?,
         manualFloorIndex: Int?,
-        confidence: Double?
+        confidence: Double?,
+        isAutomotive: Bool = true
     ) {
         recordParkingPoint(
             coordinate: coordinate,
@@ -911,10 +1023,11 @@ final class ParkingFloorStore: ObservableObject {
             referenceAlt: nil,
             finalAlt: nil,
             pressure: nil,
-            predictedFromLotLearned: nil
+            predictedFromLotLearned: nil,
+            isAutomotive: isAutomotive
         )
     }
-    
+
     private func recordParkingPoint(
         coordinate: CLLocationCoordinate2D,
         address: String,
@@ -927,7 +1040,8 @@ final class ParkingFloorStore: ObservableObject {
         referenceAlt: Double?,
         finalAlt: Double?,
         pressure: Double?,
-        predictedFromLotLearned: Bool?
+        predictedFromLotLearned: Bool?,
+        isAutomotive: Bool = true
     ) {
         let now = Date()
         let inserting = ParkingPointRecord(
@@ -944,7 +1058,8 @@ final class ParkingFloorStore: ObservableObject {
             barometerReferenceAltitude: referenceAlt,
             barometerFinalAltitude: finalAlt,
             barometerPressureKPa: pressure,
-            predictedFromLotLearned: predictedFromLotLearned
+            predictedFromLotLearned: predictedFromLotLearned,
+            isAutomotive: isAutomotive
         )
         
         if let idx = findLotIndex(near: coordinate, radiusMeters: Self.defaultRadiusMeters) {

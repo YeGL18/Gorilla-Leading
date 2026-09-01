@@ -4,7 +4,7 @@ import SwiftUI
 // Ported 1:1 from design/live-activities-preview.html
 
 struct LiveActivityPreviewTestView: View {
-    private let states: [GorillaActivityState] = [.parking, .driving, .stationary]
+    private let states: [GorillaActivityState] = [.parking, .driving, .stationary, .nonAutomotiveParking]
     private let anchor = Date(timeIntervalSinceNow: -3723) // 01:02:03 ago
 
     // MARK: Design tokens (from live-activities-preview.html)
@@ -260,6 +260,18 @@ struct LiveActivityPreviewTestView: View {
                 Spacer()
                 valueUnit("39", "mins")
             }
+
+        case .nonAutomotiveParking:
+            // Similar to parking but without floor/spot
+            HStack(spacing: 30) {
+                Text("中央公園")
+                    .foregroundStyle(.white)
+                Text("入口廣場")
+                    .foregroundStyle(infoGradient)
+                    .lineLimit(1)
+            }
+            .font(.system(size: 16))
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 

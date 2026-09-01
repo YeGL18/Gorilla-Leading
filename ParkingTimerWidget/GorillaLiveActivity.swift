@@ -210,6 +210,19 @@ struct GorillaInfoRow: View {
             .font(.system(size: 16))
             .frame(maxWidth: .infinity, alignment: .leading)
 
+        case .nonAutomotiveParking:
+            // Same layout as parking but without floor/spot (non-automotive stops have no floor detection)
+            HStack(spacing: 20) {
+                Text(state.location ?? "-")
+                    .foregroundStyle(.white)
+                Text(state.area ?? "-")
+                    .foregroundStyle(GorillaLADesign.infoGradient)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+            .font(.system(size: 16))
+            .frame(maxWidth: .infinity, alignment: .leading)
+
         case .driving:
             // speed · road name (larger) · eta — all left aligned
             HStack(alignment: .firstTextBaseline, spacing: 20) {
@@ -283,6 +296,9 @@ private let stationaryPreview = GorillaActivityAttributes.ContentState(
     state: .stationary, startDate: .now, location: "台北101", road: "Sai Sha Rd 599",
     etaMinutes: 39, destinationName: "家", distanceText: "46.1 km"
 )
+private let nonAutomotivePreview = GorillaActivityAttributes.ContentState(
+    state: .nonAutomotiveParking, startDate: .now, location: "中央公園", area: "入口廣場"
+)
 
 #Preview(as: .dynamicIsland(.compact), using: GorillaActivityAttributes()) {
     GorillaLiveActivity()
@@ -290,6 +306,7 @@ private let stationaryPreview = GorillaActivityAttributes.ContentState(
     parkingPreview
     drivingPreview
     stationaryPreview
+    nonAutomotivePreview
 }
 
 #Preview(as: .dynamicIsland(.expanded), using: GorillaActivityAttributes()) {
@@ -298,6 +315,7 @@ private let stationaryPreview = GorillaActivityAttributes.ContentState(
     parkingPreview
     drivingPreview
     stationaryPreview
+    nonAutomotivePreview
 }
 
 #Preview(as: .content, using: GorillaActivityAttributes()) {
@@ -306,4 +324,5 @@ private let stationaryPreview = GorillaActivityAttributes.ContentState(
     parkingPreview
     drivingPreview
     stationaryPreview
+    nonAutomotivePreview
 }

@@ -276,6 +276,8 @@ struct ContentView: View {
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
+    /// 非開車到達時為 true（步行/跑步/騎行到達），控制 UI 標籤和靈動島狀態
+    @State private var isNonAutomotiveArrival: Bool = false
     @State private var selectedParkingPointID: UUID?
     @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
     /// 專注模式（nil = 關閉）—— 時速頁左下角按鈕控制
@@ -493,8 +495,13 @@ struct ContentView: View {
                     parkingFloorStore.lastStationaryCoordinate = nil
                     // 系統自動偵測到離開 — 推送通知
                     let content = UNMutableNotificationContent()
-                    content.title = String(localized: "Gorilla 泊車記憶")
-                    content.body = String(localized: "泊車已退出")
+                    if isNonAutomotiveArrival {
+                        content.title = String(localized: "Gorilla 停留記憶")
+                        content.body = String(localized: "停留已退出")
+                    } else {
+                        content.title = String(localized: "Gorilla 泊車記憶")
+                        content.body = String(localized: "泊車已退出")
+                    }
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-departed-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
@@ -536,8 +543,13 @@ struct ContentView: View {
                     startPersistentTimer()
                     // 系統自動偵測到泊車 — 推送通知
                     let content = UNMutableNotificationContent()
-                    content.title = String(localized: "Gorilla 泊車記憶")
-                    content.body = String(localized: "泊車已開啟")
+                    if lastVisit.isAutomotive {
+                        content.title = String(localized: "Gorilla 泊車記憶")
+                        content.body = String(localized: "泊車已開啟")
+                    } else {
+                        content.title = String(localized: "Gorilla 停留記憶")
+                        content.body = String(localized: "停留已開啟")
+                    }
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
@@ -2265,7 +2277,7 @@ struct ContentView: View {
                             startPersistentTimer()
                         }
                     }) {
-                        Label(String(localized: "泊車記憶"), systemImage: "car.fill")
+                        Label(isNonAutomotiveArrival ? String(localized: "停留記憶") : String(localized: "泊車記憶"), systemImage: isNonAutomotiveArrival ? "mappin.and.ellipse" : "car.fill")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -2461,7 +2473,7 @@ struct ContentView: View {
                                 .font(.system(size: 28))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                         }
-                        Text(String(localized: "泊車記憶"))
+                        Text(isNonAutomotiveArrival ? String(localized: "停留記憶") : String(localized: "泊車記憶"))
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                         Spacer()
@@ -2692,7 +2704,7 @@ struct ContentView: View {
                             .font(.system(size: 32))
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                     }
-                    Text(String(localized: "泊車記憶"))
+                    Text(isNonAutomotiveArrival ? String(localized: "停留記憶") : String(localized: "泊車記憶"))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(adaptiveTextColor())
                     Spacer()
@@ -2948,7 +2960,10 @@ struct ContentView: View {
     }
 
     private var compactStatusTitle: String {
-        if !hasDeparted { return String(localized: "已泊車") }
+        if !hasDeparted {
+            if isNonAutomotiveArrival { return String(localized: "已停留") }
+            return String(localized: "已泊車")
+        }
         if visitStatus == "已停留" { return String(localized: "已停留") }
         if visitStatus == "已開車" { return String(localized: "已開車") }
         if visitStatus == "已開車（未離場）" { return String(localized: "已開車（未離場）") }
@@ -4200,6 +4215,7 @@ struct ContentView: View {
         guard !focusCutsDetection else { return }
         guard let lastVisit = locationManager.visits.first else {
             visitStatus = "已停留"
+            isNonAutomotiveArrival = false
             if visitSecondaryStatus != nil {
                 withAnimation(.easeInOut(duration: 0.22)) {
                     visitSecondaryStatus = nil
@@ -4248,6 +4264,7 @@ struct ContentView: View {
             }
         } else if lastVisit.departureDate == nil {
             visitStatus = "已泊車"
+            isNonAutomotiveArrival = !lastVisit.isAutomotive
             
             let now = Date()
             let speed = locationManager.speed
@@ -4306,7 +4323,7 @@ struct ContentView: View {
 
         switch visitStatus {
         case "已泊車":
-            activityState = .parking
+            activityState = isNonAutomotiveArrival ? .nonAutomotiveParking : .parking
             anchor = parkingStartTime
         case "已開車":
             activityState = .driving
@@ -4337,6 +4354,12 @@ struct ContentView: View {
             content.area = session?.areaCode
             content.floor = session?.floorDisplay
             content.spot = session?.spotNumber
+        case .nonAutomotiveParking:
+            let session = parkingFloorStore.currentSession
+            let entry = d.string(forKey: "parkingEntryLocation")
+            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
+            content.area = session?.areaCode
+            // Non-automotive: no floor/spot
         case .stationary:
             let session = parkingFloorStore.currentSession
             let entry = d.string(forKey: "parkingEntryLocation")

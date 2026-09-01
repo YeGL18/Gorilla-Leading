@@ -2930,13 +2930,17 @@ struct PlaceManagementView: View {
 
     var body: some View {
         List {
-            // ── Section 1：停車場（ParkingFloorStore.lots）──
+            // ── Section 1：停車場（ParkingFloorStore.lots，排除非開車到達的停留點）──
             Section {
-                if parkingFloorStore.lots.isEmpty {
+                let automotiveLots = parkingFloorStore.lots.filter { lot in
+                    // 只顯示開車到達的停車場（排除停留點）
+                    lot.points.allSatisfy { $0.isAutomotive }
+                }
+                if automotiveLots.isEmpty {
                     Text("暫無停車場數據。")
                         .foregroundStyle(.secondary)
                 }
-                ForEach(parkingFloorStore.lots) { lot in
+                ForEach(automotiveLots) { lot in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(lot.name ?? "未命名")

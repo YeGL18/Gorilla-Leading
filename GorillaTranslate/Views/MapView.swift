@@ -33,12 +33,14 @@ final class ParkingPointAnnotation: NSObject, MKAnnotation {
     dynamic var coordinate: CLLocationCoordinate2D
     dynamic var title: String?
     dynamic var subtitle: String?
-    
-    init(pointID: UUID, coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?) {
+    let isAutomotive: Bool
+
+    init(pointID: UUID, coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?, isAutomotive: Bool = true) {
         self.pointID = pointID
         self.coordinate = coordinate
         self.title = title
         self.subtitle = subtitle
+        self.isAutomotive = isAutomotive
         super.init()
     }
 }
@@ -1351,6 +1353,7 @@ struct MapView: UIViewRepresentable {
                 hasher.combine(p.createdAt.timeIntervalSince1970)
                 hasher.combine(p.predictedFloorIndex)
                 hasher.combine(p.manualFloorIndex)
+                hasher.combine(p.isAutomotive)
                 hasher.combine(titlePrefixesByID[p.id] ?? "")
                 if let c = p.confidence {
                     hasher.combine(c)
@@ -1373,15 +1376,23 @@ struct MapView: UIViewRepresentable {
                         pointID: p.id,
                         coordinate: gcj02,
                         title: nil,
-                        subtitle: nil
+                        subtitle: nil,
+                        isAutomotive: p.isAutomotive
                     )
                     mapView.addAnnotation(anno)
                 }
                 anno.coordinate = gcj02
-                let floor = p.displayFloor ?? String(localized: "未知")
-                let suffix = (floor == String(localized: "未知")) ? String(localized: "未知") : (floor.contains("/") ? floor : "\(floor)/F")
-                let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                let baseTitle = prefix.isEmpty ? String(localized: "停車點") : "\(prefix)" + String(localized: "停車點")
+                let baseLabel = p.isAutomotive ? String(localized: "停車點") : String(localized: "停留點")
+                if p.isAutomotive {
+                    let floor = p.displayFloor ?? String(localized: "未知")
+                    let suffix = (floor == String(localized: "未知")) ? String(localized: "未知") : (floor.contains("/") ? floor : "\(floor)/F")
+                    let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    let baseTitle = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
+                    anno.title = "\(baseTitle) \(suffix)"
+                } else {
+                    let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+                    anno.title = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
+                }
                 anno.title = "\(baseTitle) \(suffix)"
                 anno.subtitle = p.address.isEmpty ? nil : p.address
                 next[p.id] = anno
@@ -1467,8 +1478,13 @@ struct MapView: UIViewRepresentable {
                 let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MKMarkerAnnotationView) ?? MKMarkerAnnotationView(annotation: parking, reuseIdentifier: reuseID)
                 view.annotation = parking
                 view.canShowCallout = false
-                view.markerTintColor = UIColor.systemOrange
-                view.glyphText = "P"
+                if parking.isAutomotive {
+                    view.markerTintColor = UIColor.systemOrange
+                    view.glyphText = "P"
+                } else {
+                    view.markerTintColor = UIColor.systemTeal
+                    view.glyphText = "S"
+                }
                 view.titleVisibility = .visible
                 view.subtitleVisibility = .visible
                 view.isDraggable = false
