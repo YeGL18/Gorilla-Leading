@@ -4,19 +4,19 @@ import SwiftUI
 // MARK: - Activity State
 
 /// The four live states shown in the Dynamic Island & Lock Screen.
-/// Mirrors the app's visitStatus: 已停留 / 已泊車 / 已開車 / 已停留(非開車).
+/// Mirrors the app's visitStatus: 已停留 / 已泊車 / 已開車 / 已逗留(非開車).
 enum GorillaActivityState: String, Codable, Hashable {
     case stationary          // 停留中（開車期間靜止）— yellow, pause icon
     case parking             // 泊車中（開車到達）— teal, P icon
     case driving             // 開車中 — blue, car icon
-    case nonAutomotiveParking // 停留中（非開車到達）— orange, mappin icon
+    case nonAutomotiveParking // 逗留中（非開車到達）— orange, mappin icon
 
     var label: String {
         switch self {
         case .stationary:          return "停留中"
         case .parking:             return "泊車中"
         case .driving:             return "開車中"
-        case .nonAutomotiveParking: return "停留中"
+        case .nonAutomotiveParking: return "逗留中"
         }
     }
 

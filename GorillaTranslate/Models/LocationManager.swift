@@ -103,8 +103,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     // MARK: - CMMotionActivity 交通模式偵測
     private let motionActivityManager = CMMotionActivityManager()
     @Published var currentMotionActivity: CMMotionActivity?
-    /// 最後一次偵測到 automotive 活動的時間
+    /// 最後一次偵測到各種交通模式的時間
     @Published var lastAutomotiveTime: Date?
+    @Published var lastWalkingTime: Date?
+    @Published var lastRunningTime: Date?
+    @Published var lastCyclingTime: Date?
 
     enum GPSQuality {
         case good
@@ -222,8 +225,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         motionActivityManager.startActivityUpdates(to: .main) { [weak self] activity in
             guard let activity else { return }
             self?.currentMotionActivity = activity
+            let now = Date()
             if activity.automotive {
-                self?.lastAutomotiveTime = Date()
+                self?.lastAutomotiveTime = now
+            }
+            if activity.walking {
+                self?.lastWalkingTime = now
+            }
+            if activity.running {
+                self?.lastRunningTime = now
+            }
+            if activity.cycling {
+                self?.lastCyclingTime = now
             }
         }
     }
@@ -232,6 +245,24 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     func wasAutomotive(around date: Date, within interval: TimeInterval = 300) -> Bool {
         guard let lastAuto = lastAutomotiveTime else { return false }
         return abs(lastAuto.timeIntervalSince(date)) < interval
+    }
+
+    /// 判斷某個時間點前後的交通模式（回傳最接近的模式）
+    func transportMode(around date: Date, within interval: TimeInterval = 300) -> GorillaActivityState {
+        // 優先級：開車 > 騎車 > 跑步 > 步行（速度越快越優先）
+        if let t = lastAutomotiveTime, abs(t.timeIntervalSince(date)) < interval {
+            return .driving
+        }
+        if let t = lastCyclingTime, abs(t.timeIntervalSince(date)) < interval {
+            return .nonAutomotiveParking  // 騎車到達 → 停留
+        }
+        if let t = lastRunningTime, abs(t.timeIntervalSince(date)) < interval {
+            return .nonAutomotiveParking  // 跑步到達 → 停留
+        }
+        if let t = lastWalkingTime, abs(t.timeIntervalSince(date)) < interval {
+            return .nonAutomotiveParking  // 步行到達 → 停留
+        }
+        return .nonAutomotiveParking  // 沒有記錄 → 預設停留
     }
 
     private func quality(from accuracy: CLLocationAccuracy) -> GPSQuality {

@@ -496,8 +496,8 @@ struct ContentView: View {
                     // 系統自動偵測到離開 — 推送通知
                     let content = UNMutableNotificationContent()
                     if isNonAutomotiveArrival {
-                        content.title = String(localized: "Gorilla 停留記憶")
-                        content.body = String(localized: "停留已退出")
+                        content.title = String(localized: "Gorilla 逗留記憶")
+                        content.body = String(localized: "逗留已退出")
                     } else {
                         content.title = String(localized: "Gorilla 泊車記憶")
                         content.body = String(localized: "泊車已退出")
@@ -547,8 +547,8 @@ struct ContentView: View {
                         content.title = String(localized: "Gorilla 泊車記憶")
                         content.body = String(localized: "泊車已開啟")
                     } else {
-                        content.title = String(localized: "Gorilla 停留記憶")
-                        content.body = String(localized: "停留已開啟")
+                        content.title = String(localized: "Gorilla 逗留記憶")
+                        content.body = String(localized: "逗留已開啟")
                     }
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
@@ -2277,7 +2277,7 @@ struct ContentView: View {
                             startPersistentTimer()
                         }
                     }) {
-                        Label(isNonAutomotiveArrival ? String(localized: "停留記憶") : String(localized: "泊車記憶"), systemImage: isNonAutomotiveArrival ? "mappin.and.ellipse" : "car.fill")
+                        Label(isNonAutomotiveArrival ? String(localized: "逗留記憶") : String(localized: "泊車記憶"), systemImage: isNonAutomotiveArrival ? "mappin.and.ellipse" : "car.fill")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -2473,7 +2473,7 @@ struct ContentView: View {
                                 .font(.system(size: 28))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                         }
-                        Text(isNonAutomotiveArrival ? String(localized: "停留記憶") : String(localized: "泊車記憶"))
+                        Text(isNonAutomotiveArrival ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                         Spacer()
@@ -2704,7 +2704,7 @@ struct ContentView: View {
                             .font(.system(size: 32))
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                     }
-                    Text(isNonAutomotiveArrival ? String(localized: "停留記憶") : String(localized: "泊車記憶"))
+                    Text(isNonAutomotiveArrival ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(adaptiveTextColor())
                     Spacer()
@@ -2961,7 +2961,7 @@ struct ContentView: View {
 
     private var compactStatusTitle: String {
         if !hasDeparted {
-            if isNonAutomotiveArrival { return String(localized: "已停留") }
+            if isNonAutomotiveArrival { return String(localized: "已逗留") }
             return String(localized: "已泊車")
         }
         if visitStatus == "已停留" { return String(localized: "已停留") }

@@ -1382,7 +1382,7 @@ struct MapView: UIViewRepresentable {
                     mapView.addAnnotation(anno)
                 }
                 anno.coordinate = gcj02
-                let baseLabel = p.isAutomotive ? String(localized: "停車點") : String(localized: "停留點")
+                let baseLabel = p.isAutomotive ? String(localized: "停車點") : String(localized: "逗留點")
                 if p.isAutomotive {
                     let floor = p.displayFloor ?? String(localized: "未知")
                     let suffix = (floor == String(localized: "未知")) ? String(localized: "未知") : (floor.contains("/") ? floor : "\(floor)/F")
