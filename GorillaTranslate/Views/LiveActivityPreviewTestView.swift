@@ -4,7 +4,7 @@ import SwiftUI
 // Ported 1:1 from design/live-activities-preview.html
 
 struct LiveActivityPreviewTestView: View {
-    private let states: [GorillaActivityState] = [.parking, .driving, .stationary, .nonAutomotiveParking]
+    private let states: [GorillaActivityState] = [.parking, .driving, .stationary, .nonAutomotiveParking, .walking, .cycling]
     private let anchor = Date(timeIntervalSinceNow: -3723) // 01:02:03 ago
 
     // MARK: Design tokens (from live-activities-preview.html)
@@ -272,6 +272,30 @@ struct LiveActivityPreviewTestView: View {
             }
             .font(.system(size: 16))
             .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .walking:
+            // road + eta
+            HStack(alignment: .firstTextBaseline, spacing: 20) {
+                Text("Sai Sha Rd 599")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                valueUnit("15", "mins")
+            }
+
+        case .cycling:
+            // speed + road + eta
+            HStack(alignment: .firstTextBaseline) {
+                valueUnit("15", "km/h")
+                Spacer()
+                Text("Tolo Highway")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                Spacer()
+                valueUnit("8", "mins")
+            }
         }
     }
 

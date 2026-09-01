@@ -3,13 +3,15 @@ import SwiftUI
 
 // MARK: - Activity State
 
-/// The four live states shown in the Dynamic Island & Lock Screen.
-/// Mirrors the app's visitStatus: 已停留 / 已泊車 / 已開車 / 已逗留(非開車).
+/// The six live states shown in the Dynamic Island & Lock Screen.
+/// Mirrors the app's visitStatus: 已停留 / 已泊車 / 已開車 / 已逗留 / 已步行 / 已騎車.
 enum GorillaActivityState: String, Codable, Hashable {
     case stationary          // 停留中（開車期間靜止）— yellow, pause icon
     case parking             // 泊車中（開車到達）— teal, P icon
     case driving             // 開車中 — blue, car icon
     case nonAutomotiveParking // 逗留中（非開車到達）— orange, mappin icon
+    case walking             // 步行中 — green, figure.walk icon
+    case cycling             // 騎車中 — green, bicycle icon
 
     var label: String {
         switch self {
@@ -17,6 +19,8 @@ enum GorillaActivityState: String, Codable, Hashable {
         case .parking:             return "泊車中"
         case .driving:             return "開車中"
         case .nonAutomotiveParking: return "逗留中"
+        case .walking:             return "步行中"
+        case .cycling:             return "騎車中"
         }
     }
 
@@ -30,6 +34,8 @@ enum GorillaActivityState: String, Codable, Hashable {
             return Self.colorFromHex(hex) ?? Color(red: 0.275, green: 0.678, blue: 0.722)
         case .driving:             return Color(red: 0.0,   green: 0.596, blue: 1.0)   // #0098FF
         case .nonAutomotiveParking: return Color(red: 1.0,   green: 0.584, blue: 0.0)   // #FF9500
+        case .walking:             return Color(red: 0.18,  green: 0.82,  blue: 0.35)   // #2ED177
+        case .cycling:             return Color(red: 0.18,  green: 0.82,  blue: 0.35)   // #2ED177
         }
     }
 
@@ -50,6 +56,8 @@ enum GorillaActivityState: String, Codable, Hashable {
         case .parking:             return "parkingsign"
         case .driving:             return "car.fill"
         case .nonAutomotiveParking: return "mappin.and.ellipse"
+        case .walking:             return "figure.walk"
+        case .cycling:             return "bicycle"
         }
     }
 }

@@ -257,6 +257,31 @@ struct GorillaInfoRow: View {
                 valueUnit(state.etaMinutes.map(String.init), "mins")
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .walking:
+            // road name + eta — same layout as driving but no speed
+            HStack(alignment: .firstTextBaseline, spacing: 20) {
+                Text(state.road ?? "-")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                valueUnit(state.etaMinutes.map(String.init), "mins")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+        case .cycling:
+            // speed + road name + eta — same as driving
+            HStack(alignment: .firstTextBaseline, spacing: 20) {
+                valueUnit(state.speedKmh.map(String.init), "km/h")
+                Text(state.road ?? "-")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundStyle(.white)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+                valueUnit(state.etaMinutes.map(String.init), "mins")
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -299,6 +324,12 @@ private let stationaryPreview = GorillaActivityAttributes.ContentState(
 private let nonAutomotivePreview = GorillaActivityAttributes.ContentState(
     state: .nonAutomotiveParking, startDate: .now, location: "中央公園", area: "入口廣場"
 )
+private let walkingPreview = GorillaActivityAttributes.ContentState(
+    state: .walking, startDate: .now, road: "Sai Sha Rd 599", etaMinutes: 15
+)
+private let cyclingPreview = GorillaActivityAttributes.ContentState(
+    state: .cycling, startDate: .now, speedKmh: 15, road: "Tolo Highway", etaMinutes: 8
+)
 
 #Preview(as: .dynamicIsland(.compact), using: GorillaActivityAttributes()) {
     GorillaLiveActivity()
@@ -307,6 +338,8 @@ private let nonAutomotivePreview = GorillaActivityAttributes.ContentState(
     drivingPreview
     stationaryPreview
     nonAutomotivePreview
+    walkingPreview
+    cyclingPreview
 }
 
 #Preview(as: .dynamicIsland(.expanded), using: GorillaActivityAttributes()) {
@@ -316,6 +349,8 @@ private let nonAutomotivePreview = GorillaActivityAttributes.ContentState(
     drivingPreview
     stationaryPreview
     nonAutomotivePreview
+    walkingPreview
+    cyclingPreview
 }
 
 #Preview(as: .content, using: GorillaActivityAttributes()) {
@@ -325,4 +360,6 @@ private let nonAutomotivePreview = GorillaActivityAttributes.ContentState(
     drivingPreview
     stationaryPreview
     nonAutomotivePreview
+    walkingPreview
+    cyclingPreview
 }

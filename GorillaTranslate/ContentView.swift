@@ -4231,15 +4231,24 @@ struct ContentView: View {
                 desiredSecondary = String(localized: "已離場")
             }
             
-            // 离场后：根据GPS判断是"已开车"还是"已停留"
+            // 离场后：根据GPS+CMMotionActivity判断交通模式
             let speed = locationManager.speed
             let gpsLocationChanged = isGPSLocationChanged()
             let isMoving = speed > 8
-            
+            let motion = locationManager.currentMotionActivity
+
             if isMoving || (speed > 5 && gpsLocationChanged) {
-                // 在移动 → 已开车
+                // 在移动 → 已開車（GPS速度快）
                 visitStatus = "已開車"
                 lastMovementTime = Date()  // 记录最后移动时间
+            } else if motion?.walking == true && speed > 1 {
+                // CMMotionActivity侦测到步行 + GPS有轻微移动 → 已步行
+                visitStatus = "已開車"  // 复用已開車，灵岛会根据 motion 切换图标
+                lastMovementTime = Date()
+            } else if motion?.cycling == true && speed > 3 {
+                // CMMotionActivity侦测到骑车 + GPS有移动 → 已骑车
+                visitStatus = "已開車"  // 复用已開車，灵岛会根据 motion 切换图标
+                lastMovementTime = Date()
             } else if let lastMove = lastMovementTime {
                 // 不在移动，检查是否已持续2分钟以上
                 let stationaryDuration = Date().timeIntervalSince(lastMove)
@@ -4326,7 +4335,15 @@ struct ContentView: View {
             activityState = isNonAutomotiveArrival ? .nonAutomotiveParking : .parking
             anchor = parkingStartTime
         case "已開車":
-            activityState = .driving
+            // 根據 CMMotionActivity 區分開車/步行/騎車
+            let motion = locationManager.currentMotionActivity
+            if motion?.walking == true {
+                activityState = .walking
+            } else if motion?.cycling == true {
+                activityState = .cycling
+            } else {
+                activityState = .driving
+            }
             anchor = departureTime ?? parkingStartTime
         default: // 已停留
             activityState = .stationary
@@ -4370,6 +4387,19 @@ struct ContentView: View {
             // Design row: 目的地 + distance | road | eta
             content.destinationName = destinationManager.selectedDestination?.name
             content.distanceText = drivingDistanceText
+            let road = locationManager.currentAddress
+            content.road = road.isEmpty ? nil : road
+            if let secs = drivingETASeconds {
+                content.etaMinutes = max(1, Int(secs / 60))
+            }
+        case .walking:
+            let road = locationManager.currentAddress
+            content.road = road.isEmpty ? nil : road
+            if let secs = drivingETASeconds {
+                content.etaMinutes = max(1, Int(secs / 60))
+            }
+        case .cycling:
+            content.speedKmh = Int(locationManager.speed)
             let road = locationManager.currentAddress
             content.road = road.isEmpty ? nil : road
             if let secs = drivingETASeconds {
