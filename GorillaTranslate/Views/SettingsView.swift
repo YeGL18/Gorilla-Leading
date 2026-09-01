@@ -2,6 +2,7 @@ import SwiftUI
 import CoreLocation
 import CoreMotion
 import MapKit
+import WidgetKit
 
 struct SettingsView: View {
     @State private var simSpeed: Double = 0
@@ -21,6 +22,8 @@ struct SettingsView: View {
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = false
+    @AppStorage("parkingTimerColorHex") var parkingTimerColorHex: String = "46ADB8"
+    @AppStorage("bestRouteColorHex") var bestRouteColorHex: String = "BCBA1E"
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
     @State private var isAutoPlaying = false
     @State private var autoPlayTimer: Timer?
@@ -28,12 +31,36 @@ struct SettingsView: View {
     @StateObject private var previewPhaseManager = TimePhaseManager()
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
-    
+
     @State private var showLanguagePicker = false
     @State private var showingDestinationPicker = false
     @State private var showingAddDestination = false
     @State private var showingEditDestination = false
     @State private var editingDestination: Destination?
+
+    // Color bindings
+    private var parkingColor: Binding<Color> {
+        Binding<Color>(
+            get: { Color(hex: parkingTimerColorHex) ?? Color(red: 0.275, green: 0.678, blue: 0.722) },
+            set: { newColor in
+                parkingTimerColorHex = newColor.hexString
+            }
+        )
+    }
+    private var routeColor: Binding<Color> {
+        Binding<Color>(
+            get: { Color(hex: bestRouteColorHex) ?? Color(hex: "BCBA1E") ?? .green },
+            set: { newColor in
+                bestRouteColorHex = newColor.hexString
+            }
+        )
+    }
+    private func resetParkingColor() {
+        parkingTimerColorHex = "46ADB8"
+    }
+    private func resetRouteColor() {
+        bestRouteColorHex = "BCBA1E"
+    }
 
     var body: some View {
         NavigationStack {
@@ -161,6 +188,41 @@ struct SettingsView: View {
                     }
                 } header: {
                     Label(String(localized: "外觀"), systemImage: "paintpalette")
+                }
+
+                // Custom Colors Section
+                Section {
+                    HStack {
+                        Text("泊車計顏色")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        ColorPicker("", selection: parkingColor, supportsOpacity: false)
+                            .labelsHidden()
+                        Button("預設") {
+                            resetParkingColor()
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+
+                    HStack {
+                        Text("最優路線顏色")
+                            .foregroundStyle(.primary)
+                        Spacer()
+                        ColorPicker("", selection: routeColor, supportsOpacity: false)
+                            .labelsHidden()
+                        Button("預設") {
+                            resetRouteColor()
+                        }
+                        .font(.caption)
+                        .foregroundStyle(.blue)
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.vertical, 4)
+                } header: {
+                    Label("自定義顏色", systemImage: "paintpalette.fill")
                 }
 
                 // Map Tracking Section
@@ -369,6 +431,18 @@ struct SettingsView: View {
                     object: nil,
                     userInfo: ["hour": newValue]
                 )
+            }
+            .onChange(of: parkingTimerColorHex) { _, newValue in
+                // Sync to App Group so widget extension can read it
+                let appGroup = UserDefaults(suiteName: "group.com.gorilla.translate")
+                appGroup?.set(newValue, forKey: "parkingTimerColorHex")
+                appGroup?.synchronize()
+                WidgetCenter.shared.reloadTimelines(ofKind: "GorillaLiveActivity")
+            }
+            .onChange(of: bestRouteColorHex) { _, newValue in
+                let appGroup = UserDefaults(suiteName: "group.com.gorilla.translate")
+                appGroup?.set(newValue, forKey: "bestRouteColorHex")
+                appGroup?.synchronize()
             }
         }
     }
@@ -2863,30 +2937,45 @@ struct PlaceManagementView: View {
                         .foregroundStyle(.secondary)
                 }
                 ForEach(parkingFloorStore.lots) { lot in
-                    NavigationLink {
-                        ParkingLotPointsView(lot: lot)
-                    } label: {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(lot.name ?? "未命名")
-                                    .font(.subheadline.weight(.semibold))
-                                Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
-                                    .font(.caption2.monospaced())
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Button {
-                                renamingKey = "lot:\(lot.id.uuidString)"
-                                renamingText = lot.name ?? ""
-                                showRenameAlert = true
-                            } label: {
-                                Image(systemName: "pencil")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.secondary)
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lot.name ?? "未命名")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            renamingKey = "lot:\(lot.id.uuidString)"
+                            renamingText = lot.name ?? ""
+                            showRenameAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        mapPreviewName = lot.name ?? "未命名停車場"
+                        mapPreviewCoordinate = CLLocationCoordinate2D(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        NavigationLink {
+                            ParkingLotPointsView(lot: lot)
+                        } label: {
+                            Label("詳情", systemImage: "info.circle")
+                        }
+                        .tint(.blue)
+                        Button(role: .destructive) {
+                            // 刪除停車場
+                            parkingFloorStore.deleteLot(lotID: lot.id)
+                        } label: {
+                            Label("刪除", systemImage: "trash")
                         }
                     }
                     .padding(.vertical, 2)
@@ -2973,36 +3062,51 @@ struct PlaceManagementView: View {
             }
 
             // ── Pattern 規則（只讀）──
-            Section("Pattern 規則（從 place 出發 → 下一站分布）") {
+            Section("排程規劃") {
                 if predictor.patterns.isEmpty {
                     Text("暫無 pattern，需要至少 2 次真實到訪 + 離開先會有第一條。")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(Array(predictor.patterns.values.sorted(by: { $0.updatedAt > $1.updatedAt }))) { rec in
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        // 路線標題：星期 + 時段
                         HStack {
-                            let fromKey = rec.key.fromKey ?? ""
-                            let fromPlace = predictor.placeCatalog[fromKey]
-                            Text(headerLabel(for: rec.key))
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
-                            if !fromKey.isEmpty && fromPlace != nil {
-                                Button {
-                                    renamingKey = fromKey
-                                    renamingText = fromPlace?.displayName ?? ""
-                                    showRenameAlert = true
-                                } label: {
-                                    Image(systemName: "pencil")
-                                        .font(.system(size: 10, weight: .semibold))
-                                        .foregroundStyle(.orange.opacity(0.7))
-                                }
-                                .buttonStyle(.plain)
-                            }
+                            let weekdayNames = ["", "日", "一", "二", "三", "四", "五", "六"]
+                            let wd = (1...7).contains(rec.key.weekday) ? weekdayNames[rec.key.weekday] : "?"
+                            Text("星期\(wd) \(rec.key.timeSlot.description)")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.primary)
                             Spacer()
-                            Text(rec.updatedAt, format: .dateTime.month().day().hour().minute())
-                                .font(.caption2)
+                            let prefix = rec.key.twoGramFromFromKey != nil ? "3-gram" : "2-gram"
+                            Text(prefix)
+                                .font(.caption2.monospaced())
                                 .foregroundStyle(.tertiary)
                         }
+
+                        // 路線流程
+                        let fromName = rec.key.fromKey.flatMap { predictor.placeCatalog[$0]?.displayName } ?? "（首次出發）"
+                        let extraName = rec.key.twoGramFromFromKey.flatMap { predictor.placeCatalog[$0]?.displayName }
+                        HStack(spacing: 6) {
+                            if let extra = extraName {
+                                Text(extra)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                Image(systemName: "arrow.right")
+                                    .font(.caption2)
+                                    .foregroundStyle(.tertiary)
+                            }
+                            Text(fromName)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "arrow.right")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                            Text("下一站")
+                                .font(.caption)
+                                .foregroundStyle(.blue)
+                        }
+
+                        // 候選目的地
                         let total = rec.candidates.values.reduce(0) { $0 + $1.hitCount }
                         let scored = rec.candidates.values
                             .map { (c: TripNextCandidate) -> (String, Int, Double, Double) in
@@ -3011,76 +3115,57 @@ struct PlaceManagementView: View {
                                 return (c.toPlaceKey, c.hitCount, conf, score)
                             }
                             .sorted { $0.2 > $1.2 }
-                        ForEach(Array(scored.enumerated()), id: \.offset) { _, item in
-                            let (key, hits, conf, score) = item
-                            let place = predictor.placeCatalog[key]
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
+
+                        VStack(spacing: 6) {
+                            ForEach(Array(scored.enumerated()), id: \.offset) { _, item in
+                                let (key, hits, conf, score) = item
+                                let place = predictor.placeCatalog[key]
+                                HStack {
+                                    // 目的地名稱
                                     Text(place?.displayName ?? key)
-                                        .font(.subheadline.weight(.semibold))
-                                    if let p = place {
-                                        Text(p.kind == .namedLot ? "Lot: \(p.lotID?.uuidString.suffix(6) ?? "?")" : String(format: "%.4f,%.4f", p.latitude, p.longitude))
-                                            .font(.caption2.monospaced())
-                                            .foregroundStyle(.tertiary)
-                                    }
-                                }
-                                Spacer()
-                                if place != nil {
-                                    Button {
-                                        renamingKey = key
-                                        renamingText = place?.displayName ?? ""
-                                        showRenameAlert = true
-                                    } label: {
-                                        Image(systemName: "pencil")
-                                            .font(.system(size: 12, weight: .semibold))
-                                            .foregroundStyle(.orange)
-                                            .frame(width: 28, height: 28)
-                                            .contentShape(Rectangle())
-                                    }
-                                    .buttonStyle(.plain)
-                                }
-                                VStack(alignment: .trailing, spacing: 2) {
-                                    HStack(spacing: 10) {
-                                        Text("\(hits) 次")
-                                            .font(.caption2.monospacedDigit())
+                                        .font(.subheadline)
+                                        .foregroundStyle(.primary)
+
+                                    Spacer()
+
+                                    // 統計信息
+                                    HStack(spacing: 12) {
+                                        Text("Score \(Int(score.rounded())) (\(hits)次)")
+                                            .font(.caption.monospacedDigit())
                                             .foregroundStyle(.secondary)
-                                        Text("score \(Int(score.rounded()))")
-                                            .font(.caption2.monospacedDigit())
-                                            .foregroundStyle(.tertiary)
+
                                         Text("\(Int(conf*100))%")
-                                            .font(.callout.monospacedDigit().weight(.bold))
+                                            .font(.subheadline.monospacedDigit().weight(.bold))
                                             .foregroundStyle(
                                                 conf >= 0.85 ? .green :
                                                     conf >= 0.6 ? .orange : .secondary
                                             )
                                     }
-                                    ProgressView(value: conf)
-                                        .progressViewStyle(.linear)
-                                        .tint(
-                                            conf >= 0.85 ? .green :
-                                                conf >= 0.6 ? .orange : .gray
-                                        )
-                                        .frame(width: 120)
                                 }
+                                .padding(.vertical, 4)
+                                .padding(.horizontal, 8)
+                                .background(Color(.systemGray6))
+                                .cornerRadius(6)
                             }
-                            .padding(.vertical, 2)
                         }
+
+                        // 否認記錄
                         if let deny = rec.candidates.values.first(where: { $0.denyCount > 0 }) {
                             HStack {
                                 Image(systemName: "hand.thumbsdown.fill")
                                     .foregroundStyle(.red)
-                                Text("用戶否認過 \(deny.denyCount) 次（該候選嘅 penalty 已生效）")
+                                Text("用戶否認過 \(deny.denyCount) 次")
                                     .font(.caption2)
                                     .foregroundStyle(.red)
                             }
                         }
                     }
-                    .padding(.vertical, 4)
+                    .padding(.vertical, 6)
                 }
             }
 
             // ── 最近到訪歷史 ──
-            Section("最近到訪歷史（2-gram / 3-gram 用）") {
+            Section("最近到訪歷史（用於2-gram/3-gram連續站預測）") {
                 if predictor.recentPlaceHistory.isEmpty {
                     Text("尚未有到訪記錄。")
                         .foregroundStyle(.secondary)
@@ -3148,18 +3233,6 @@ struct PlaceManagementView: View {
         )) { item in
             PlaceMapPreviewSheet(name: item.name, coordinate: item.coordinate)
         }
-    }
-
-    private func headerLabel(for k: TripPatternKey) -> String {
-        let weekdayNames = ["", "日", "一", "二", "三", "四", "五", "六"]
-        let wd = (1...7).contains(k.weekday) ? weekdayNames[k.weekday] : "?"
-        let fromName = k.fromKey.flatMap { predictor.placeCatalog[$0]?.displayName } ?? "（首次出發）"
-        let prefix = k.twoGramFromFromKey != nil ? "3-gram: " : "2-gram: "
-        let extra = k.twoGramFromFromKey.flatMap { predictor.placeCatalog[$0]?.displayName }
-        if let extra = extra {
-            return "\(prefix)\(extra) → \(fromName)  ·  星期\(wd)  \(k.timeSlot.description)"
-        }
-        return "\(prefix)from: \(fromName)  ·  星期\(wd)  \(k.timeSlot.description)"
     }
 }
 

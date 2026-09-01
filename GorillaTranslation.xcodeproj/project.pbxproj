@@ -27,6 +27,7 @@
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
+		C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A001HK0001 /* HKTaxiExamLocations.swift */; };
 		D10001 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20001 /* Destination.swift */; };
 		E10001 /* ParkingPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20001 /* ParkingPhoto.swift */; };
 		E14C057DE2641559B70A543F /* WeatherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759D5AC501F16B3C56606AE5 /* WeatherService.swift */; };
@@ -51,7 +52,6 @@
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
 		P10005 /* MetaballEffect.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10004 /* MetaballEffect.metal */; };
 		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
-		C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A001HK0001 /* HKTaxiExamLocations.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -95,6 +95,7 @@
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
 		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
 		C20001 /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
+		C2A001HK0001 /* HKTaxiExamLocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HKTaxiExamLocations.swift; sourceTree = "<group>"; };
 		D20001 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
 		E20001 /* ParkingPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingPhoto.swift; sourceTree = "<group>"; };
 		F20001 /* ParkingRecognitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingRecognitionService.swift; sourceTree = "<group>"; };
@@ -119,7 +120,6 @@
 		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
 		P10004 /* MetaballEffect.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = MetaballEffect.metal; sourceTree = "<group>"; };
 		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
-		C2A001HK0001 /* HKTaxiExamLocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HKTaxiExamLocations.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -409,7 +409,6 @@
 				F3A0C002B2C3D4E5F6071829 /* sfx_enter_stationary.mp3 in Resources */,
 				F3A0C010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 in Resources */,
 				F3A0C011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 in Resources */,
-				L10003 /* Localizable.strings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -21,9 +21,24 @@ enum GorillaActivityState: String, Codable, Hashable {
     var color: Color {
         switch self {
         case .stationary: return Color(red: 1.0,   green: 0.84,  blue: 0.04)  // #FFD60A
-        case .parking:    return Color(red: 0.275, green: 0.678, blue: 0.722) // #46ADB8
+        case .parking:
+            // Read from App Group (shared between host app and widget extension)
+            let defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
+            let hex = defaults.string(forKey: "parkingTimerColorHex") ?? "46ADB8"
+            return Self.colorFromHex(hex) ?? Color(red: 0.275, green: 0.678, blue: 0.722)
         case .driving:    return Color(red: 0.0,   green: 0.596, blue: 1.0)   // #0098FF
         }
+    }
+
+    private static func colorFromHex(_ hex: String) -> Color? {
+        let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
+        guard hex.count == 6 else { return nil }
+        var int: UInt64 = 0
+        Scanner(string: hex).scanHexInt64(&int)
+        let r = Double(int >> 16) / 255.0
+        let g = Double((int >> 8) & 0xFF) / 255.0
+        let b = Double(int & 0xFF) / 255.0
+        return Color(red: r, green: g, blue: b)
     }
 
     var symbol: String {

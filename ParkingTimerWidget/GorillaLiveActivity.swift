@@ -89,9 +89,8 @@ struct GorillaLiveActivity: Widget {
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
-                .padding(.leading, 2)
             } compactTrailing: {
-                // Timer: hours + minutes only (or just minutes if < 1 hour)
+                // Timer: live-updating via TimelineView (compact auto-refresh)
                 compactTimerText(context.state)
             } minimal: {
                 Image(systemName: context.state.state.symbol)
@@ -120,14 +119,15 @@ struct GorillaLiveActivity: Widget {
             .multilineTextAlignment(.trailing)
     }
 
-    /// Compact timer: hours + minutes only (or just minutes if < 1 hour).
+    /// Compact timer: lives in the compact trailing region.
+    /// Uses TimelineView to tick locally; host app pushes content state
+    /// every 60 seconds to keep it in sync.
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
-        TimelineView(.periodic(from: .now, by: 60)) { timeline in
-            let elapsed = Int(timeline.date.timeIntervalSince(state.startDate))
-            let hours = elapsed / 3600
-            let minutes = (elapsed % 3600) / 60
-            let text: String = hours > 0 ? "\(hours)時\(minutes)分" : "\(minutes)分"
-            Text(text)
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            let elapsed = context.date.timeIntervalSince(state.startDate)
+            let hours = Int(elapsed) / 3600
+            let minutes = (Int(elapsed) % 3600) / 60
+            Text(hours > 0 ? "\(hours)時\(minutes)分" : "\(minutes)分")
                 .font(.system(size: 14, weight: .bold, design: .monospaced))
                 .monospacedDigit()
                 .foregroundStyle(state.state.color)

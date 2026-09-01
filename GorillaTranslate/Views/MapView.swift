@@ -360,6 +360,12 @@ struct MapView: UIViewRepresentable {
         var lastHkDetailMode = false
         private var hkAnnotations: [MKPointAnnotation] = []
 
+        // Custom route color from settings
+        private var routeColor: UIColor {
+            let hex = UserDefaults.standard.string(forKey: "bestRouteColorHex") ?? "BCBA1E"
+            return UIColor(hex: hex)
+        }
+
         // 运动检测相关
         private var speedObserver: AnyCancellable?
         private var locationObserver: AnyCancellable?
@@ -444,7 +450,7 @@ struct MapView: UIViewRepresentable {
                 animRouteAlpha = 0
             }
             if let renderer = routeFullRenderer {
-                renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(fullRouteAlpha)
+                renderer.strokeColor = routeColor.withAlphaComponent(fullRouteAlpha)
                 renderer.setNeedsDisplay()
             }
             pendingRouteDrawAnimation = shouldAnimate
@@ -457,10 +463,10 @@ struct MapView: UIViewRepresentable {
             routeDrawTimer = nil
             routeDrawRenderer = renderer
             renderer.progress = 0
-            renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(animRouteAlpha)
+            renderer.strokeColor = routeColor.withAlphaComponent(animRouteAlpha)
             renderer.setNeedsDisplay()
             if let renderer = routeFullRenderer {
-                renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(fullRouteAlpha)
+                renderer.strokeColor = routeColor.withAlphaComponent(fullRouteAlpha)
                 renderer.setNeedsDisplay()
             }
             let duration: TimeInterval = 1.6
@@ -499,11 +505,11 @@ struct MapView: UIViewRepresentable {
                 self.fullRouteAlpha = ease
                 self.animRouteAlpha = 1 - ease
                 if let renderer = self.routeFullRenderer {
-                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(self.fullRouteAlpha)
+                    renderer.strokeColor = self.routeColor.withAlphaComponent(self.fullRouteAlpha)
                     renderer.setNeedsDisplay()
                 }
                 if let renderer = self.routeDrawRenderer {
-                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(self.animRouteAlpha)
+                    renderer.strokeColor = self.routeColor.withAlphaComponent(self.animRouteAlpha)
                     renderer.setNeedsDisplay()
                 }
                 if t >= 1 {
@@ -1522,7 +1528,7 @@ struct MapView: UIViewRepresentable {
             if let polyline = overlay as? MKPolyline {
                 if polyline === currentRouteOverlay {
                     let renderer = MKPolylineRenderer(polyline: polyline)
-                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(fullRouteAlpha)
+                    renderer.strokeColor = routeColor.withAlphaComponent(fullRouteAlpha)
                     renderer.lineWidth = 5
                     renderer.lineCap = .round
                     renderer.lineJoin = .round
@@ -1531,7 +1537,7 @@ struct MapView: UIViewRepresentable {
                 }
                 if polyline === currentRouteAnimationOverlay {
                     let renderer = AnimatedPolylineRenderer(polyline: polyline)
-                    renderer.strokeColor = UIColor(hex: "007AFF").withAlphaComponent(animRouteAlpha)
+                    renderer.strokeColor = routeColor.withAlphaComponent(animRouteAlpha)
                     renderer.lineWidth = 5
                     renderer.lineCap = .round
                     renderer.lineJoin = .round
@@ -1539,7 +1545,7 @@ struct MapView: UIViewRepresentable {
                     return renderer
                 }
                 let renderer = MKPolylineRenderer(polyline: polyline)
-                renderer.strokeColor = UIColor(hex: "007AFF")
+                renderer.strokeColor = routeColor
                 renderer.lineWidth = 5
                 renderer.lineCap = .round
                 renderer.lineJoin = .round

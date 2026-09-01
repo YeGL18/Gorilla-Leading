@@ -143,6 +143,7 @@ struct ContentView: View {
     @State private var parkingDeparted = false
     @State private var hasDeparted = false
     @State private var parkingStartTime: Date = Date()
+    @State private var activitySyncTimer: Timer?
     @State private var capsuleDuration: TimeInterval = 0
     @State private var lastKnownArrivalDate: Date?
     @State private var timerRunning = false
@@ -292,6 +293,8 @@ struct ContentView: View {
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
+    @AppStorage("parkingTimerColorHex") private var parkingTimerColorHex: String = "46ADB8"
+    @AppStorage("bestRouteColorHex") private var bestRouteColorHex: String = "BCBA1E"
 
     // Trip Predictor UI state
     @State private var showDemoAnimation = false
@@ -433,6 +436,10 @@ struct ContentView: View {
                     // forceRefresh bumps the render nonce so the payload is
                     // guaranteed to differ from the archived render.
                     syncLiveActivity(forceRefresh: true)
+                    // 重新啟動樓層探測（背景回來後 timer 可能已被系統回收）
+                    startFloorCurveDetection()
+                    // 啟動 60 秒定期同步 compact trailing 計時器
+                    startActivitySyncTimer()
                 }
             }
         }
@@ -539,7 +546,11 @@ struct ContentView: View {
                     parkingFloorStore.objectWillChange.send()
                     // Show parking info on new arrival
                     parkingInfoDisplayMode = true
-                    clearParkingContributions()
+                    // 只有在用戶尚未手動拍照識別時才清除（避免覆蓋已有的泊車資訊）
+                    let hasExistingData = llmSpotNumber != nil || llmAreaCode != nil || llmFloorText != nil || llmFloorIndex != nil
+                    if !hasExistingData {
+                        clearParkingContributions()
+                    }
                 }
             }
         }
@@ -1060,10 +1071,6 @@ struct ContentView: View {
                     Spacer()
                 }
                 .padding(18)
-                .background(
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(Color.white.opacity(0.06))
-                )
 
                 VStack(spacing: 10) {
                     HStack {
@@ -1160,7 +1167,7 @@ struct ContentView: View {
 
     // MARK: - Floor Confirmation Card
     private func floorConfirmCard(floorIndex: Int, floorText: String) -> some View {
-        let tintColor = Color(hex: "46ADB8") ?? .teal
+        let tintColor = Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8") ?? .teal
         return VStack(alignment: .leading, spacing: 20) {
             VStack(alignment: .leading, spacing: 6) {
                 Text(String(localized: "樓層識別"))
@@ -1188,10 +1195,6 @@ struct ContentView: View {
                     Spacer()
                 }
                 .padding(18)
-                .background(
-                    RoundedRectangle(cornerRadius: 22)
-                        .fill(Color.white.opacity(0.06))
-                )
             }
 
             VStack(spacing: 12) {
@@ -2268,7 +2271,7 @@ struct ContentView: View {
                             .frame(width: 126, height: 54)
                             .glassEffect(.regular, in: .capsule)
                             .background(
-                                Color(hex: "46ADB8").opacity(
+                                (Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")).opacity(
                                     timerRunning
                                         ? (colorScheme == .dark ? 0.68 : 0.78)
                                         : (colorScheme == .dark ? 0.32 : 0.26)
@@ -2352,7 +2355,7 @@ struct ContentView: View {
                             .frame(width: 126, height: 54)
                             .glassEffect(.regular, in: .capsule)
                             .background(
-                                Color(hex: "BCBA1E").opacity(
+                                (Color(hex: bestRouteColorHex) ?? Color(hex: "BCBA1E")).opacity(
                                     showingRoute
                                         ? (colorScheme == .dark ? 0.68 : 0.78)
                                         : (colorScheme == .dark ? 0.32 : 0.26)
@@ -2574,7 +2577,7 @@ struct ContentView: View {
                                     let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
                                     // Normal colors
                                     Circle()
-                                        .fill(Color(hex: "46ADB8").opacity(threeColorOp))
+                                        .fill((Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")).opacity(threeColorOp))
                                         .blur(radius: 16)
                                         .frame(width: 100, height: 100)
                                         .offset(
@@ -2810,7 +2813,7 @@ struct ContentView: View {
                                 let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
                                 // Normal colors
                                 Circle()
-                                    .fill(Color(hex: "46ADB8").opacity(threeColorOp))
+                                    .fill((Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")).opacity(threeColorOp))
                                     .blur(radius: 16)
                                     .frame(width: 120, height: 120)
                                     .offset(
@@ -4276,6 +4279,14 @@ struct ContentView: View {
     }
 
     // MARK: - Live Activity sync
+
+    /// 60 秒定時器：定期 push content state，讓 compact trailing 計時器自動更新
+    private func startActivitySyncTimer() {
+        activitySyncTimer?.invalidate()
+        activitySyncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            syncLiveActivity()
+        }
+    }
 
     /// Pushes the current visit state into the system Live Activity.
     private func syncLiveActivity(forceRefresh: Bool = false) {

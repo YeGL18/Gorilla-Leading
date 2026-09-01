@@ -24,6 +24,16 @@ extension Color {
             opacity: Double(a) / 255
         )
     }
+
+    var hexString: String {
+        let uiColor = UIColor(self)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        uiColor.getRed(&r, green: &g, blue: &b, alpha: &a)
+        let ri = Int(r * 255)
+        let gi = Int(g * 255)
+        let bi = Int(b * 255)
+        return String(format: "%02X%02X%02X", ri, gi, bi)
+    }
 }
 
 extension UIColor {
