@@ -120,19 +120,13 @@ struct GorillaLiveActivity: Widget {
     }
 
     /// Compact timer: lives in the compact trailing region.
-    /// Uses TimelineView to tick locally; host app pushes content state
-    /// every 60 seconds to keep it in sync.
+    /// Uses native .timer style for auto-updating (same as Expanded).
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
-        TimelineView(.periodic(from: .now, by: 60)) { context in
-            let elapsed = context.date.timeIntervalSince(state.startDate)
-            let hours = Int(elapsed) / 3600
-            let minutes = (Int(elapsed) % 3600) / 60
-            Text(hours > 0 ? "\(hours)時\(minutes)分" : "\(minutes)分")
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(state.state.color)
-                .lineLimit(1)
-        }
+        Text(state.startDate, style: .timer)
+            .font(.system(size: 14, weight: .bold, design: .monospaced))
+            .monospacedDigit()
+            .foregroundStyle(state.state.color)
+            .lineLimit(1)
     }
 }
 
