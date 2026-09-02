@@ -120,18 +120,13 @@ struct GorillaLiveActivity: Widget {
     }
 
     /// Compact timer: lives in the compact trailing region.
-    /// Uses native .timer for reliable auto-update, clips seconds with overlay.
+    /// Uses native .timer for reliable auto-update.
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
         Text(state.startDate, style: .timer)
             .font(.system(size: 14, weight: .bold, design: .monospaced))
             .monospacedDigit()
             .foregroundStyle(state.state.color)
             .lineLimit(1)
-            .overlay(alignment: .trailing) {
-                // 黑色遮罩蓋住秒數部分 ":XX"
-                Color.black
-                    .frame(width: 22, height: 20)
-            }
     }
 }
 
