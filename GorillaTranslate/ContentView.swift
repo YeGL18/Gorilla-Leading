@@ -2020,6 +2020,15 @@ struct ContentView: View {
                         return
                     }
 
+                    // 展開態上滑：進入樓層探測態
+                    if isCapsuleExpanded && (dy < -threshold || predictedDY < -threshold) {
+                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                            isCapsuleExpanded = false
+                        }
+                        triggerFloorCurvePopup()
+                        return
+                    }
+
                     let shouldExpand = (!isCapsuleExpanded) && (dy < -threshold || predictedDY < -threshold)
                     let shouldCollapse = isCapsuleExpanded && (dy > threshold || predictedDY > threshold)
                     let targetExpanded: Bool = shouldExpand ? true : (shouldCollapse ? false : isCapsuleExpanded)
