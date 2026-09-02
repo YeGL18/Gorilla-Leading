@@ -120,13 +120,18 @@ struct GorillaLiveActivity: Widget {
     }
 
     /// Compact timer: lives in the compact trailing region.
-    /// Uses native .timer style for auto-updating (same as Expanded).
+    /// Shows HH:MM only (no seconds), auto-updates via TimelineView.
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
-        Text(state.startDate, style: .timer)
-            .font(.system(size: 14, weight: .bold, design: .monospaced))
-            .monospacedDigit()
-            .foregroundStyle(state.state.color)
-            .lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let elapsed = context.date.timeIntervalSince(state.startDate)
+            let hours = Int(elapsed) / 3600
+            let minutes = (Int(elapsed) % 3600) / 60
+            Text(hours > 0 ? "\(hours):\(String(format: "%02d", minutes))" : "\(minutes)分")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(state.state.color)
+                .lineLimit(1)
+        }
     }
 }
 
