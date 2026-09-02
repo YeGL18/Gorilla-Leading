@@ -4246,33 +4246,36 @@ struct ContentView: View {
                 desiredSecondary = String(localized: "已離場")
             }
             
-            // 离场后：根据GPS+CMMotionActivity判断交通模式
+            // 离场后：CMMotionActivity 优先，GPS 速度辅助
             let speed = locationManager.speed
             let gpsLocationChanged = isGPSLocationChanged()
-            let isMoving = speed > 8
             let motion = locationManager.currentMotionActivity
 
-            if isMoving || (speed > 5 && gpsLocationChanged) {
-                // 在移动 → 已開車（GPS速度快）
-                visitStatus = "已開車"
-                lastMovementTime = Date()  // 记录最后移动时间
-            } else if motion?.walking == true && speed > 1 {
-                // CMMotionActivity侦测到步行 + GPS有轻微移动 → 已步行
+            // CMMotionActivity 是硬體感測器，比 GPS 速度更可靠
+            if motion?.walking == true && speed > 1 {
+                // 步行中：CMMotionActivity 說步行 + GPS 有移動 → 已步行
                 visitStatus = "已步行"
                 lastMovementTime = Date()
             } else if motion?.cycling == true && speed > 3 {
-                // CMMotionActivity侦测到骑车 + GPS有移动 → 已骑车
+                // 騎車中：CMMotionActivity 說騎車 + GPS 有移動 → 已騎車
                 visitStatus = "已騎車"
+                lastMovementTime = Date()
+            } else if speed > 8 || (speed > 5 && gpsLocationChanged) {
+                // 開車中：GPS 速度快（CMMotionActivity 沒說步行/騎車才走這裡）
+                visitStatus = "已開車"
                 lastMovementTime = Date()
             } else if let lastMove = lastMovementTime {
                 // 不在移动，检查是否已持续2分钟以上
                 let stationaryDuration = Date().timeIntervalSince(lastMove)
                 if stationaryDuration >= 120 {
-                    // 静止超过2分钟 → 已停留
                     visitStatus = "已停留"
                 } else {
-                    // 静止不到2分钟，保持"已开车"
-                    visitStatus = "已開車"
+                    // 保持之前的移动状态
+                    if motion?.walking == true || motion?.cycling == true {
+                        // CMMotionActivity 仍偵測到移動，保持原狀態
+                    } else {
+                        visitStatus = "已開車"
+                    }
                 }
             } else {
                 if let dep = departureTime {
