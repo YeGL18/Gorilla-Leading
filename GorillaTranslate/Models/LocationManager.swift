@@ -256,26 +256,37 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     /// 判斷某個時間點前後是否在開車（用於 CLVisit 到達時判斷交通模式）
     func wasAutomotive(around date: Date, within interval: TimeInterval = 300) -> Bool {
-        guard let lastAuto = lastAutomotiveTime else { return false }
-        return abs(lastAuto.timeIntervalSince(date)) < interval
+        // 用「最後一個模式」判斷，而非「有沒有開車記錄」
+        // 例如：開車 20 分鐘 → 步行 10 分鐘 → 到達 → 應該是步行到達
+        let mode = lastTransportMode(around: date, within: interval)
+        return mode == .driving
     }
 
-    /// 判斷某個時間點前後的交通模式（回傳最接近的模式）
-    func transportMode(around date: Date, within interval: TimeInterval = 300) -> GorillaActivityState {
-        // 優先級：開車 > 騎車 > 跑步 > 步行（速度越快越優先）
+    /// 判斷某個時間點前後的交通模式（回傳最接近到達時間的模式）
+    /// 關鍵邏輯：看最後一個交通模式，而非優先級
+    func lastTransportMode(around date: Date, within interval: TimeInterval = 300) -> GorillaActivityState {
+        // 收集所有在時間範圍內的模式，按時間排序，取最近的
+        var candidates: [(time: Date, mode: GorillaActivityState)] = []
+
         if let t = lastAutomotiveTime, abs(t.timeIntervalSince(date)) < interval {
-            return .driving
+            candidates.append((t, .driving))
         }
         if let t = lastCyclingTime, abs(t.timeIntervalSince(date)) < interval {
-            return .nonAutomotiveParking  // 騎車到達 → 停留
+            candidates.append((t, .nonAutomotiveParking))  // 騎車到達 → 逗留
         }
         if let t = lastRunningTime, abs(t.timeIntervalSince(date)) < interval {
-            return .nonAutomotiveParking  // 跑步到達 → 停留
+            candidates.append((t, .nonAutomotiveParking))  // 跑步到達 → 逗留
         }
         if let t = lastWalkingTime, abs(t.timeIntervalSince(date)) < interval {
-            return .nonAutomotiveParking  // 步行到達 → 停留
+            candidates.append((t, .nonAutomotiveParking))  // 步行到達 → 逗留
         }
-        return .nonAutomotiveParking  // 沒有記錄 → 預設停留
+
+        // 取最接近到達時間的模式
+        if let closest = candidates.min(by: { abs($0.time.timeIntervalSince(date)) < abs($1.time.timeIntervalSince(date)) }) {
+            return closest.mode
+        }
+
+        return .nonAutomotiveParking  // 沒有記錄 → 預設逗留
     }
 
     private func quality(from accuracy: CLLocationAccuracy) -> GPSQuality {

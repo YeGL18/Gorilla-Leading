@@ -2079,6 +2079,10 @@ struct ContentView: View {
                 sfxPlayer.playEnterStationary()
             } else if newStatus == "已開車", oldStatus != "已開車" {
                 sfxPlayer.playEnterDriving()
+            } else if newStatus == "已步行", oldStatus != "已步行" {
+                sfxPlayer.playEnterDriving()  // 步行也用開車音效（移動狀態切換）
+            } else if newStatus == "已騎車", oldStatus != "已騎車" {
+                sfxPlayer.playEnterDriving()  // 騎車也用開車音效（移動狀態切換）
             }
             guard hasDeparted else {
                 stopStationaryTimer()
@@ -2966,6 +2970,8 @@ struct ContentView: View {
         }
         if visitStatus == "已停留" { return String(localized: "已停留") }
         if visitStatus == "已開車" { return String(localized: "已開車") }
+        if visitStatus == "已步行" { return String(localized: "已步行") }
+        if visitStatus == "已騎車" { return String(localized: "已騎車") }
         if visitStatus == "已開車（未離場）" { return String(localized: "已開車（未離場）") }
         return visitStatus
     }
@@ -4243,11 +4249,11 @@ struct ContentView: View {
                 lastMovementTime = Date()  // 记录最后移动时间
             } else if motion?.walking == true && speed > 1 {
                 // CMMotionActivity侦测到步行 + GPS有轻微移动 → 已步行
-                visitStatus = "已開車"  // 复用已開車，灵岛会根据 motion 切换图标
+                visitStatus = "已步行"
                 lastMovementTime = Date()
             } else if motion?.cycling == true && speed > 3 {
                 // CMMotionActivity侦测到骑车 + GPS有移动 → 已骑车
-                visitStatus = "已開車"  // 复用已開車，灵岛会根据 motion 切换图标
+                visitStatus = "已騎車"
                 lastMovementTime = Date()
             } else if let lastMove = lastMovementTime {
                 // 不在移动，检查是否已持续2分钟以上
@@ -4335,15 +4341,13 @@ struct ContentView: View {
             activityState = isNonAutomotiveArrival ? .nonAutomotiveParking : .parking
             anchor = parkingStartTime
         case "已開車":
-            // 根據 CMMotionActivity 區分開車/步行/騎車
-            let motion = locationManager.currentMotionActivity
-            if motion?.walking == true {
-                activityState = .walking
-            } else if motion?.cycling == true {
-                activityState = .cycling
-            } else {
-                activityState = .driving
-            }
+            activityState = .driving
+            anchor = departureTime ?? parkingStartTime
+        case "已步行":
+            activityState = .walking
+            anchor = departureTime ?? parkingStartTime
+        case "已騎車":
+            activityState = .cycling
             anchor = departureTime ?? parkingStartTime
         default: // 已停留
             activityState = .stationary
