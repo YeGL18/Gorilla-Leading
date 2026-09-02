@@ -132,6 +132,19 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             case id, address, latitude, longitude, arrivalDate, departureDate, transportType, isAutomotive
         }
 
+        init(id: UUID, address: String, latitude: Double, longitude: Double,
+             arrivalDate: Date, departureDate: Date? = nil, transportType: String,
+             isAutomotive: Bool = true) {
+            self.id = id
+            self.address = address
+            self.latitude = latitude
+            self.longitude = longitude
+            self.arrivalDate = arrivalDate
+            self.departureDate = departureDate
+            self.transportType = transportType
+            self.isAutomotive = isAutomotive
+        }
+
         init(from decoder: Decoder) throws {
             let c = try decoder.container(keyedBy: CodingKeys.self)
             id = try c.decode(UUID.self, forKey: .id)
@@ -576,6 +589,35 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         case isAutomotive
     }
 
+    init(
+        id: UUID, address: String, latitude: Double, longitude: Double, createdAt: Date,
+        predictedFloorIndex: Int? = nil, manualFloorIndex: Int? = nil, confidence: Double? = nil,
+        barometerAltitudeDeltaMeters: Double? = nil, barometerSampleCount: Int? = nil,
+        barometerReferenceAltitude: Double? = nil, barometerFinalAltitude: Double? = nil,
+        barometerPressureKPa: Double? = nil, predictedFromLotLearned: Bool? = nil,
+        llmSpotNumber: String? = nil, llmAreaCode: String? = nil, llmFloorText: String? = nil,
+        isAutomotive: Bool = true
+    ) {
+        self.id = id
+        self.address = address
+        self.latitude = latitude
+        self.longitude = longitude
+        self.createdAt = createdAt
+        self.predictedFloorIndex = predictedFloorIndex
+        self.manualFloorIndex = manualFloorIndex
+        self.confidence = confidence
+        self.barometerAltitudeDeltaMeters = barometerAltitudeDeltaMeters
+        self.barometerSampleCount = barometerSampleCount
+        self.barometerReferenceAltitude = barometerReferenceAltitude
+        self.barometerFinalAltitude = barometerFinalAltitude
+        self.barometerPressureKPa = barometerPressureKPa
+        self.predictedFromLotLearned = predictedFromLotLearned
+        self.llmSpotNumber = llmSpotNumber
+        self.llmAreaCode = llmAreaCode
+        self.llmFloorText = llmFloorText
+        self.isAutomotive = isAutomotive
+    }
+
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(UUID.self, forKey: .id)
@@ -891,38 +933,54 @@ final class ParkingFloorStore: ObservableObject {
             return
         }
 
-        // 方案 A：用「停留瞬間海拔」做基準（最準確）
+        // 樓層偵測：優先用到達時間附近的氣壓樣本（避免用戶已離開車位後才取樣）
         var altitudeDelta: Double? = nil
         var referenceAlt: Double? = nil
         var finalAlt: Double? = nil
         var sampleCount: Int? = nil
         var pressure: Double? = nil
 
-        if let statAlt = barometer.stationaryAltitude, barometer.samples.count >= 3 {
-            // 用最近 10 秒嘅平滑海拔做 final
-            let recent = barometer.samples.suffix(10)
-            let smoothedFinal = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
-            altitudeDelta = smoothedFinal - statAlt
-            referenceAlt = statAlt
-            finalAlt = smoothedFinal
-            sampleCount = recent.count
-            pressure = barometer.samples.last?.pressure
+        // 方案 A：用到達時間窗口計算（取泊車瞬間前後的海拔變化）
+        var window = barometer.altitudeWindow(around: visit.arrivalDate,
+                                              before: 4 * 60,
+                                              after: 1 * 60)
+        if window == nil || (window?.samples ?? 0) < 3 {
+            // 方案 B：用停留時的海拔做基準 + 到達時間附近的樣本做 final
+            if let statAlt = barometer.stationaryAltitude, barometer.samples.count >= 3 {
+                // 關鍵修復：用到達時間 ±2 分鐘內的樣本，不是最近的樣本
+                // 避免用戶停車後上樓，取到樓上的海拔
+                let arrivalSamples = barometer.samples.filter {
+                    abs($0.timestamp.timeIntervalSince(visit.arrivalDate)) <= 2 * 60
+                }
+                let finalSamples = arrivalSamples.count >= 3
+                    ? arrivalSamples
+                    : Array(barometer.samples.suffix(10))  // fallback：最近樣本
+                let smoothedFinal = finalSamples.map { $0.relativeAltitude }.reduce(0, +) / Double(finalSamples.count)
+                altitudeDelta = smoothedFinal - statAlt
+                referenceAlt = statAlt
+                finalAlt = smoothedFinal
+                sampleCount = finalSamples.count
+                pressure = finalSamples.last?.pressure
+            }
         } else {
-            // 方案 B fallback：窗口計算（原有邏輯）
-            var window = barometer.altitudeWindow(around: visit.arrivalDate,
-                                                  before: 4 * 60,
-                                                  after: 1 * 60)
-            if window == nil || (window?.samples ?? 0) < 3 {
-                window = barometer.stationaryRecentWindow(seconds: 2 * 60)
-            }
-            if window == nil || (window?.samples ?? 0) < 3 {
-                window = barometer.recentWindow(seconds: 2 * 60)
-            }
             altitudeDelta = window?.deltaMeters
             referenceAlt = window?.referenceAlt
             finalAlt = window?.finalAlt
             sampleCount = window?.samples
             pressure = window?.finalPressure
+        }
+
+        // 方案 C：最後 fallback — 用最近 2 分鐘的低速樣本
+        if altitudeDelta == nil {
+            var fallback = barometer.stationaryRecentWindow(seconds: 2 * 60)
+            if fallback == nil || (fallback?.samples ?? 0) < 3 {
+                fallback = barometer.recentWindow(seconds: 2 * 60)
+            }
+            altitudeDelta = fallback?.deltaMeters
+            referenceAlt = fallback?.referenceAlt
+            finalAlt = fallback?.finalAlt
+            sampleCount = fallback?.samples
+            pressure = fallback?.finalPressure
         }
 
         let predicted = predictFloor(

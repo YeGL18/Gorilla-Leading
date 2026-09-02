@@ -1393,7 +1393,6 @@ struct MapView: UIViewRepresentable {
                     let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     anno.title = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
                 }
-                anno.title = "\(baseTitle) \(suffix)"
                 anno.subtitle = p.address.isEmpty ? nil : p.address
                 next[p.id] = anno
             }
