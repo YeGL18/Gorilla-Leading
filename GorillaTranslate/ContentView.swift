@@ -1321,10 +1321,10 @@ struct ContentView: View {
         guard !isFloorCurveInCapsule else { return }
 
         let barometer = parkingFloorStore.barometer
-        guard barometer.samples.count >= 5 else { return }
+        guard barometer.samples.count >= 3 else { return }  // 3 個樣本即可開始（~3 秒）
 
-        // 取最近 5 個樣本
-        let recent = Array(barometer.samples.suffix(5))
+        // 取最近 3 個樣本（減少延遲）
+        let recent = Array(barometer.samples.suffix(3))
         let speeds = recent.map { $0.speedKmh }
 
         // 全部都要低速（< 20 km/h）
@@ -1342,9 +1342,9 @@ struct ContentView: View {
         } else {
             // 模式 B（速度 + 海拔）：需要偵測到海拔變化
             let alts = recent.map { $0.relativeAltitude }
-            // 檢查海拔是否有明顯變化（總變化 > 0.3m）
+            // 檢查海拔是否有明顯變化（總變化 > 0.15m，更敏感）
             let altChange = (alts.max() ?? 0) - (alts.min() ?? 0)
-            if altChange > 0.3 {
+            if altChange > 0.15 {
                 floorCurveDescendingCount += 1
                 // 連續 2 次檢測到變化才觸發
                 if floorCurveDescendingCount >= 2 {
