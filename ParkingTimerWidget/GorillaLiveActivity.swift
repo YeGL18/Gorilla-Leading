@@ -119,14 +119,19 @@ struct GorillaLiveActivity: Widget {
             .multilineTextAlignment(.trailing)
     }
 
-    /// Compact timer: lives in the compact trailing region.
-    /// Uses native .timer for reliable auto-update.
+    /// Compact timer: shows "X分:Y" format, auto-updates every second.
+    /// More compact than HH:MM:SS, still shows live seconds.
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
-        Text(state.startDate, style: .timer)
-            .font(.system(size: 14, weight: .bold, design: .monospaced))
-            .monospacedDigit()
-            .foregroundStyle(state.state.color)
-            .lineLimit(1)
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let elapsed = Int(context.date.timeIntervalSince(state.startDate))
+            let minutes = elapsed / 60
+            let seconds = elapsed % 60
+            Text("\(minutes)分:\(String(format: "%02d", seconds))")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .monospacedDigit()
+                .foregroundStyle(state.state.color)
+                .lineLimit(1)
+        }
     }
 }
 
