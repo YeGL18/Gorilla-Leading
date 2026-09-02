@@ -119,22 +119,14 @@ struct GorillaLiveActivity: Widget {
             .multilineTextAlignment(.trailing)
     }
 
-    /// Compact timer: shows "M:SS" or "H:MM:SS" format, auto-updates every second.
+    /// Compact timer: uses native .timer style (pure numbers "1:02:30").
+    /// This is the ONLY reliable auto-updating mechanism in Widget extensions.
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
-        TimelineView(.periodic(from: .now, by: 1)) { context in
-            let elapsed = Int(context.date.timeIntervalSince(state.startDate))
-            let hours = elapsed / 3600
-            let minutes = (elapsed % 3600) / 60
-            let seconds = elapsed % 60
-            let display = hours > 0
-                ? "\(hours):\(String(format: "%02d", minutes)):\(String(format: "%02d", seconds))"
-                : "\(minutes):\(String(format: "%02d", seconds))"
-            Text(display)
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
-                .monospacedDigit()
-                .foregroundStyle(state.state.color)
-                .lineLimit(1)
-        }
+        Text(state.startDate, style: .timer)
+            .font(.system(size: 14, weight: .bold, design: .monospaced))
+            .monospacedDigit()
+            .foregroundStyle(state.state.color)
+            .lineLimit(1)
     }
 }
 
