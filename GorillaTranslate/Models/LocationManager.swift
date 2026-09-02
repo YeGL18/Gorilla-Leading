@@ -1487,21 +1487,47 @@ final class ParkingFloorStore: ObservableObject {
         return nil
     }
     
+    // MARK: - 文件備份路徑（Documents/parking_lots_backup.json）
+    private var backupFileURL: URL? {
+        guard let docs = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return nil }
+        return docs.appendingPathComponent("parking_lots_backup.json")
+    }
+
     private func persist() {
         do {
             let data = try JSONEncoder().encode(lots)
+            // 1. UserDefaults（主存儲）
             defaults.set(data, forKey: storeKey)
             defaults.synchronize()
+            // 2. 文件備份（防止異常關機丟失）
+            if let url = backupFileURL {
+                try data.write(to: url, options: .atomic)
+            }
         } catch {
-            // encode 失敗時唔好刪數據，保留上一次成功嘅版本
-            print("[ParkingFloorStore] persist encode error: \(error)")
+            print("[ParkingFloorStore] persist error: \(error)")
         }
     }
-    
+
     private func load() {
-        guard let data = defaults.data(forKey: storeKey) else { return }
-        guard let decoded = try? JSONDecoder().decode([ParkingLotRecord].self, from: data) else { return }
+        var data: Data? = defaults.data(forKey: storeKey)
+        var source = "UserDefaults"
+        // 如果 UserDefaults 為空，嘗試從文件備份恢復
+        if data == nil, let url = backupFileURL, FileManager.default.fileExists(atPath: url.path) {
+            data = try? Data(contentsOf: url)
+            source = "file backup"
+        }
+        guard let data else { return }
+        guard let decoded = try? JSONDecoder().decode([ParkingLotRecord].self, from: data) else {
+            print("[ParkingFloorStore] load decode failed from \(source)")
+            return
+        }
+        print("[ParkingFloorStore] loaded \(decoded.count) lots from \(source)")
         lots = decoded.map { rerunPredictions(lot: $0) }.sorted { $0.updatedAt > $1.updatedAt }
+        // 如果是從備份恢復的，同步回 UserDefaults
+        if source == "file backup" {
+            defaults.set(data, forKey: storeKey)
+            defaults.synchronize()
+        }
     }
     
     static func formatFloor(_ idx: Int) -> String {
