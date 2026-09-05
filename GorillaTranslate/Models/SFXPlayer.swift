@@ -165,6 +165,21 @@ final class SFXPlayer: ObservableObject {
         p.prepareToPlay()
         p.play()
     }
+
+    private func playOnceWithFadeIn(_ player: inout AVAudioPlayer?, fallbackName: String, volumeMultiplier: Float = 1.0, fadeDuration: TimeInterval = 0.3) {
+        configureAudioSession()
+        let vol = baseVolume * volumeMultiplier
+        if player == nil {
+            player = loadPlayer(name: fallbackName, volume: 0)
+        }
+        guard let p = player else { return }
+        p.stop()
+        p.currentTime = 0
+        p.volume = 0
+        p.prepareToPlay()
+        p.play()
+        p.setVolume(vol, fadeDuration: fadeDuration)
+    }
     
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
@@ -201,11 +216,11 @@ final class SFXPlayer: ObservableObject {
     private var floorCurveLockedPlayer: AVAudioPlayer?
 
     func playFloorCurveAppear() {
-        playOnce(&floorCurveAppearPlayer, fallbackName: "sfx_floor_curve_appear", volumeMultiplier: 1.0)
+        playOnceWithFadeIn(&floorCurveAppearPlayer, fallbackName: "sfx_floor_curve_appear", volumeMultiplier: 1.0, fadeDuration: 0.3)
     }
 
     func playFloorCurveLocked() {
-        playOnce(&floorCurveLockedPlayer, fallbackName: "sfx_floor_curve_locked", volumeMultiplier: 1.0)
+        playOnceWithFadeIn(&floorCurveLockedPlayer, fallbackName: "sfx_floor_curve_locked", volumeMultiplier: 1.0, fadeDuration: 0.4)
     }
 
     // MARK: - VLM 識別音效

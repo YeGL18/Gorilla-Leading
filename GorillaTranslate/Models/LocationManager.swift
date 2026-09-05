@@ -540,7 +540,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
     }
 
-    private func saveVisits() {
+    func saveVisits() {
         if let data = try? JSONEncoder().encode(visits) {
             UserDefaults.standard.set(data, forKey: visitsKey)
             UserDefaults.standard.synchronize()
@@ -903,7 +903,22 @@ final class ParkingFloorStore: ObservableObject {
         lots = []
         persist()
     }
-    
+
+    /// 更新最接近某個時間的停車點的 isAutomotive 標記
+    func updateAutomotiveFlag(createdAt: Date, isAutomotive: Bool) {
+        for i in lots.indices {
+            for j in lots[i].points.indices {
+                let point = lots[i].points[j]
+                if abs(point.createdAt.timeIntervalSince(createdAt)) < 60 {
+                    lots[i].points[j].isAutomotive = isAutomotive
+                    objectWillChange.send()
+                    persist()
+                    return
+                }
+            }
+        }
+    }
+
     func recordParkingPoint(from visit: LocationManager.VisitRecord) {
         // 確保氣壓計正在運行
         barometer.startIfAuthorized()
@@ -1531,9 +1546,37 @@ final class ParkingFloorStore: ObservableObject {
     }
     
     static func formatFloor(_ idx: Int) -> String {
-        if idx == 0 { return "G" }
-        if idx < 0 { return "B\(abs(idx))" }
-        return "\(idx)"
+        let convention = UserDefaults.standard.integer(forKey: "floorConvention")  // 0=香港, 1=內地, 2=自動
+        let useMainland: Bool
+        if convention == 2 {
+            // 自動偵測：根據當前位置判斷（香港/澳門用香港標準，其他用內地標準）
+            useMainland = !isHongKongRegion()
+        } else {
+            useMainland = convention == 1
+        }
+
+        if useMainland {
+            // 內地：地面=1樓，B1=-1→B1，0→1，1→2
+            if idx < 0 { return "B\(abs(idx))" }
+            return "\(idx + 1)"
+        } else {
+            // 香港：地面=G，B1=-1→B1，0→G，1→1
+            if idx == 0 { return "G" }
+            if idx < 0 { return "B\(abs(idx))" }
+            return "\(idx)"
+        }
+    }
+
+    /// 判斷當前位置是否在香港/澳門（自動偵測樓層慣例用）
+    private static func isHongKongRegion() -> Bool {
+        // 用 UserDefaults 緩存的經緯度判斷
+        let lat = UserDefaults.standard.double(forKey: "lastKnownLatitude")
+        let lon = UserDefaults.standard.double(forKey: "lastKnownLongitude")
+        if lat == 0 && lon == 0 { return true }  // 預設香港
+        // 香港大致範圍：22.15-22.56°N, 113.84-114.40°E
+        // 澳門大致範圍：22.10-22.22°N, 113.52-113.60°E
+        let isHK = lat >= 22.10 && lat <= 22.56 && lon >= 113.52 && lon <= 114.40
+        return isHK
     }
 }
 

@@ -110,9 +110,9 @@ struct DotMatrixWebView: UIViewRepresentable {
         }
 
         function gen(){
-            dots=[];var gap=13,cols=Math.floor(cx*2/gap),rows=Math.floor(cy*2/gap),w=cx*2,h=cy*2;
-            for(var r=0;r<rows;r++)for(var c=0;c<cols;c++){
-                var bx=c*gap+gap/2,by=r*gap+gap/2;
+            dots=[];var gap=13,cols=Math.ceil(cx*2/gap)+2,rows=Math.ceil(cy*2/gap)+2,w=cx*2,h=cy*2;
+            for(var r=-1;r<rows;r++)for(var c=-1;c<cols;c++){
+                var bx=(c+0.5)*gap,by=(r+0.5)*gap;
                 var dx=bx-cx,dy=by-cy,nr=Math.sqrt(dx*dx+dy*dy)/Math.max(1,mr);
                 dots.push({bx,by,dx,dy,nr,gx:bx/w,gy:by/h});
             }

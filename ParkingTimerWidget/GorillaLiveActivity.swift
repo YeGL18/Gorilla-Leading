@@ -66,20 +66,13 @@ struct GorillaLiveActivity: Widget {
                 // stays layout-affecting so the island keeps its full height
                 // (camera cutout lands on the gorilla's eye — intentional).
                 DynamicIslandExpandedRegion(.bottom) {
-                    ZStack(alignment: .topTrailing) {
-                        Image("GorillaWatermark")
-                            .resizable()
-                            .scaledToFill()
-                            .frame(width: 148, height: 160)
-                            .opacity(0.14)
-                        GorillaInfoRow(state: context.state)
-                            .padding(.horizontal, 20)
-                            .padding(.bottom, 4)
-                            .frame(height: 160, alignment: .bottom)
-                    }
+                    GorillaInfoRow(state: context.state)
+                        .padding(.horizontal, 20)
+                        .padding(.bottom, 4)
+                        .frame(height: 160, alignment: .bottom)
                 }
             } compactLeading: {
-                // P icon + "泊車中" text
+                // Icon + state label
                 HStack(spacing: 4) {
                     Image(systemName: context.state.state.symbol)
                         .font(.system(size: 12, weight: .bold))
@@ -110,23 +103,45 @@ struct GorillaLiveActivity: Widget {
             .background(state.color, in: RoundedRectangle(cornerRadius: size * 9 / 34, style: .continuous))
     }
 
-    /// Live-updating monospaced timer (HH:MM:SS style).
+    /// Live-updating monospaced timer — native .timer with English locale (pure numbers, no 時/分/秒).
     private func timerText(_ state: GorillaActivityAttributes.ContentState, size: CGFloat, color: Color) -> some View {
         Text(state.startDate, style: .timer)
             .font(.system(size: size, weight: .bold, design: .monospaced))
             .monospacedDigit()
             .foregroundStyle(color)
             .multilineTextAlignment(.trailing)
+            .environment(\.locale, Locale(identifier: "en"))
     }
 
-    /// Compact timer: uses native .timer style (pure numbers "1:02:30").
-    /// This is the ONLY reliable auto-updating mechanism in Widget extensions.
+    /// Compact timer — native .timer with English locale (pure numbers, no 時/分/秒).
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
         Text(state.startDate, style: .timer)
             .font(.system(size: 14, weight: .bold, design: .monospaced))
             .monospacedDigit()
             .foregroundStyle(state.state.color)
             .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .frame(maxWidth: 60, alignment: .trailing)
+            .environment(\.locale, Locale(identifier: "en"))
+    }
+}
+
+// MARK: - Shared timer text (native .timer, English locale — pure numbers, no 時/分/秒)
+
+struct GorillaTimerText: View {
+    let startDate: Date
+    let size: CGFloat
+    let color: Color
+
+    var body: some View {
+        Text(startDate, style: .timer)
+            .font(.system(size: size, weight: .bold, design: .monospaced))
+            .monospacedDigit()
+            .foregroundStyle(color)
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
+            .multilineTextAlignment(.trailing)
+            .environment(\.locale, Locale(identifier: "en"))
     }
 }
 
@@ -152,12 +167,7 @@ struct GorillaLockScreenView: View {
                         .minimumScaleFactor(0.8)
                 }
                 Spacer()
-                Text(state.startDate, style: .timer)
-                    .font(.system(size: 28, weight: .bold, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(GorillaLADesign.timerColor)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.7)
+                GorillaTimerText(startDate: state.startDate, size: 28, color: GorillaLADesign.timerColor)
             }
 
             Spacer()

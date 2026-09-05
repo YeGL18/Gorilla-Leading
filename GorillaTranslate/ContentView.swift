@@ -95,6 +95,12 @@ struct ContentView: View {
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     
     @State private var selectedTab: Int = 1
+    @State private var showAvatarMode: Bool = false
+    @State private var isMuted: Bool = false
+    @State private var showVehiclePicker: Bool = false
+    @State private var selectedVehicleBrand: String = "BMW"
+    @State private var selectedVehicleModel: String = "X5"
+    @State private var selectedVehicleColor: Color = .blue
     @State private var hasPlayedEntrance = false
     @State private var revealedCount = 0
     @State private var sparklePhase = false
@@ -111,6 +117,9 @@ struct ContentView: View {
     @State private var lastRerouteRequestAt: Date?
     @State private var offRouteStrikeCount: Int = 0
     @State private var isCapsuleExpanded = false
+    @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 0  // 0 = default, 1 = lift-scale
+    @State private var capsuleDragOffsetY: CGFloat = 0  // for lift-scale animation
+    @State private var capsuleDragScale: CGFloat = 1.0  // for lift-scale animation
     @State private var isParkingMemoryExpanded = false
     @State private var etaText: String?
     @State private var isLandscape = false
@@ -119,6 +128,10 @@ struct ContentView: View {
     @State private var capsuleOnRight: Bool = false
     @State private var orbOpacity: Double = 1.0
     @GestureState private var capsuleDragState: CapsuleDragState = CapsuleDragState()
+    @State private var lastDragOffset: CGFloat = 0  // 當前拖動位置（跟手增減）
+    @State private var peakDragOffset: CGFloat = 0  // 拖動到的最高點（只增不減）
+    @State private var lastGestureMode: Int = 0  // 0=無, -1=上滑, 1=下滑
+    @State private var smoothDragHeight: CGFloat = 44  // 彈簧追蹤的高度值（無極調節）
     @State private var capsuleSettleHeight: CGFloat? = nil
     @State private var capsuleSettleWorkItem: DispatchWorkItem?
     @State private var capsuleAppeared = false
@@ -147,6 +160,10 @@ struct ContentView: View {
     @State private var capsuleDuration: TimeInterval = 0
     @State private var lastKnownArrivalDate: Date?
     @State private var timerRunning = false
+    @State private var parkingReminderTimer: Timer?
+    @State private var lastReminderMinute: Int = -1  // 追蹤上次通知的分鐘數
+    @State private var frozenParkingElapsed: TimeInterval? = nil  // 拖動時凍結的計時值
+    @State private var frozenCompactStatus: String? = nil  // 拖動時凍結的緊湊態文字
     @State private var animatingPhotoID: UUID?
     @State private var animatingPhotoImage: UIImage?
     @State private var animatingPhotoPhase: Int = 0  // 0 = full size, 1 = shrunk to thumbnail
@@ -244,6 +261,7 @@ struct ContentView: View {
     @State private var llmSpotNumber: String? = nil
     @State private var llmAreaCode: String? = nil
     @State private var llmFloorText: String? = nil
+    @State private var hasParkingSpotData: Bool = true  // 默認「泊車記憶」，非純開車時變為「逗留記憶」
     @State private var llmFloorIndex: Int? = nil
     @State private var llmRawResult: String? = nil
     @State private var llmError: String? = nil
@@ -325,6 +343,15 @@ struct ContentView: View {
                 _parkingElapsed = State(initialValue: Date().timeIntervalSince(savedTime))
                 _timerRunning = State(initialValue: false)
                 _lastKnownArrivalDate = State(initialValue: defaults.object(forKey: "lastKnownArrivalDate") as? Date)
+                let savedNonAuto = defaults.bool(forKey: "isNonAutomotiveArrival")
+                // 糾錯：正在泊車時不應該是逗留（之前誤判的記錄）
+                let isParking = !defaults.bool(forKey: "hasDeparted")
+                let correctedNonAuto = isParking ? false : savedNonAuto
+                _isNonAutomotiveArrival = State(initialValue: correctedNonAuto)
+                _visitStatus = State(initialValue: "已泊車")
+                if correctedNonAuto != savedNonAuto {
+                    defaults.set(false, forKey: "isNonAutomotiveArrival")
+                }
                 // Load persisted parking photo contributions
                 var loadedContributions: [UUID: [String: String]] = [:]
                 if let data = defaults.data(forKey: "parkingPhotoContributions"),
@@ -375,7 +402,7 @@ struct ContentView: View {
                     Label(String(localized: "Speed"), systemImage: "speedometer")
                 }
                 .tag(0)
-            
+
             NavigationStack {
                 homeContent
             }
@@ -387,7 +414,6 @@ struct ContentView: View {
                 animationClock.start()
                 guard !hasPlayedEntrance else { return }
                 hasPlayedEntrance = true
-                // triggerEntranceEffect() 調用 — 光球加速入場效果
                 triggerEntranceEffect()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
                     withAnimation(.easeOut(duration: 1.2)) {
@@ -395,7 +421,7 @@ struct ContentView: View {
                     }
                 }
             }
-            
+
             SettingsView()
                 .environment(\.colorScheme, effectiveColorScheme)
                 .tabItem {
@@ -486,6 +512,7 @@ struct ContentView: View {
                     timerRunning = false
                     parkingTimer?.invalidate()
                     parkingTimer = nil
+                    stopParkingReminder()
                     hasDeparted = true
                     departureTime = lastVisit.departureDate
                     showDepartedLabel = true
@@ -495,7 +522,7 @@ struct ContentView: View {
                     parkingFloorStore.lastStationaryCoordinate = nil
                     // 系統自動偵測到離開 — 推送通知
                     let content = UNMutableNotificationContent()
-                    if isNonAutomotiveArrival {
+                    if isNonAutomotiveArrival && !hasParkingSpotData {
                         content.title = String(localized: "Gorilla 逗留記憶")
                         content.body = String(localized: "逗留已退出")
                     } else {
@@ -543,12 +570,12 @@ struct ContentView: View {
                     startPersistentTimer()
                     // 系統自動偵測到泊車 — 推送通知
                     let content = UNMutableNotificationContent()
-                    if lastVisit.isAutomotive {
-                        content.title = String(localized: "Gorilla 泊車記憶")
-                        content.body = String(localized: "泊車已開啟")
-                    } else {
+                    if isNonAutomotiveArrival && !hasParkingSpotData {
                         content.title = String(localized: "Gorilla 逗留記憶")
                         content.body = String(localized: "逗留已開啟")
+                    } else {
+                        content.title = String(localized: "Gorilla 泊車記憶")
+                        content.body = String(localized: "泊車已開啟")
                     }
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
@@ -867,6 +894,7 @@ struct ContentView: View {
                             .padding(.leading, 16)
                             .padding(.bottom, 72)
                             .offset(y: buttonOffset + landscapeButtonOffset)
+                            .animation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.5), value: buttonOffset)
                         }
 
                         Spacer()
@@ -1392,6 +1420,8 @@ struct ContentView: View {
                 guard self.isFloorCurveInCapsule, !self.floorCurveLocked else { return }
                 let barometer = self.parkingFloorStore.barometer
                 guard let lastSample = barometer.samples.last else { return }
+                // 速度為0時不加新數據點，但保持現有曲線不動
+                guard barometer.currentSpeedKmh > 0.5 else { return }
                 let relativeAlt = lastSample.relativeAltitude - self.floorCurveBaseAltitude
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.floorCurveHistory.append(relativeAlt)
@@ -1402,6 +1432,8 @@ struct ContentView: View {
 
     /// 監聽停留偵測
     private func startStationaryMonitoring() {
+        var lastAltitudeSample: Double? = nil
+        var unchangedSeconds: Int = 0
         // 用 Timer 每秒檢查 stationaryAltitude 或速度 = 0
         Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
             DispatchQueue.main.async {
@@ -1409,10 +1441,31 @@ struct ContentView: View {
                     timer.invalidate()
                     return
                 }
-                // 樓層探測態出現後至少等 1 秒才能鎖定
-                guard let appearTime = self.floorCurveAppearTime,
-                      Date().timeIntervalSince(appearTime) >= 2.0 else { return }
                 let barometer = self.parkingFloorStore.barometer
+
+                // 檢查海拔是否有變化
+                let currentAlt = barometer.samples.last?.relativeAltitude
+                if let last = lastAltitudeSample, let cur = currentAlt {
+                    if abs(cur - last) < 0.05 {
+                        unchangedSeconds += 1
+                    } else {
+                        unchangedSeconds = 0
+                    }
+                }
+                lastAltitudeSample = currentAlt
+
+                // 海拔5秒無變化且速度為0，自動關閉
+                if unchangedSeconds >= 5 && barometer.currentSpeedKmh <= 0.5 {
+                    timer.invalidate()
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                        self.dismissFloorCurve()
+                    }
+                    return
+                }
+
+                // 樓層探測態出現後至少等 10 秒才能鎖定
+                guard let appearTime = self.floorCurveAppearTime,
+                      Date().timeIntervalSince(appearTime) >= 10.0 else { return }
 
                 // 條件 1：stationaryAltitude 已計算（10 秒低速）
                 if let statAlt = barometer.stationaryAltitude {
@@ -1468,8 +1521,13 @@ struct ContentView: View {
         floorCurveLockedFloor = Int(raw.rounded(.toNearestOrAwayFromZero))
 
         // Bug 3b 修復：保存鎖定樓層到 ParkingFloorStore
+        // 但如果已有照片識別的樓層，或已泊車狀態，不要覆蓋
         let lockedFloor = floorCurveLockedFloor
-        parkingFloorStore.updateActivePointFromFloorCurve(lockedFloor: lockedFloor, coordinate: currentCoord)
+        let hasPhotoFloor = llmFloorIndex != nil || llmFloorText != nil
+        let alreadyParked = !hasDeparted && parkingFloorStore.allPoints.contains(where: { $0.predictedFloorIndex != nil || $0.manualFloorIndex != nil })
+        if !hasPhotoFloor && !alreadyParked {
+            parkingFloorStore.updateActivePointFromFloorCurve(lockedFloor: lockedFloor, coordinate: currentCoord)
+        }
 
         // 5 秒後自動關閉
         floorCurveDismissTimer?.invalidate()
@@ -1477,6 +1535,14 @@ struct ContentView: View {
             DispatchQueue.main.async {
                 self.dismissFloorCurve()
             }
+        }
+    }
+
+    /// 重置 lift-scale 拖動狀態
+    private func resetLiftScaleDrag() {
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.75)) {
+            capsuleDragOffsetY = 0
+            capsuleDragScale = 1.0
         }
     }
 
@@ -1488,6 +1554,8 @@ struct ContentView: View {
         floorCurveSampleTimer = nil
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             isFloorCurveInCapsule = false
+            isCapsuleExpanded = true
+            orbOpacity = 0.5
         }
         // 重置
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
@@ -1506,7 +1574,7 @@ struct ContentView: View {
         let currentAlt = barometer.samples.last?.relativeAltitude ?? 0
         let relativeAlt = currentAlt - floorCurveBaseAltitude
 
-        return VStack(spacing: 10) {
+        return VStack(spacing: 4) {
             // 頂部：返回 + 樓層探測 + 車 icon + 樓層 + 方向
             HStack {
                 Button(action: {
@@ -1552,7 +1620,7 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 14)
+            .padding(.top, 30)
 
             // 曲線區域
             GeometryReader { geo in
@@ -1586,6 +1654,33 @@ struct ContentView: View {
             .background(accentColor.opacity(0.1))
             .cornerRadius(12)
             .padding(.horizontal, 12)
+
+            // 速度 + 地址 + 剩餘時間（同擴展態佈局）
+            HStack(alignment: .lastTextBaseline) {
+                Text("\(Int(locationManager.smoothedSpeed)) km/h")
+                    .font(.body.bold())
+                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                    .contentTransition(.numericText())
+                    .monospacedDigit()
+                    .padding(.leading, 5)
+                Spacer()
+                if !locationManager.currentAddress.isEmpty {
+                    Text(locationManager.currentAddress)
+                        .font(.body.bold())
+                        .foregroundStyle(adaptiveTextColor())
+                        .lineLimit(1)
+                }
+                Spacer()
+                if let eta = drivingETASeconds {
+                    Text(formatCompactETA(eta))
+                        .font(.body.bold())
+                        .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                        .contentTransition(.numericText())
+                        .padding(.trailing, 5)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 10)
 
             // 鎖定後顯示確認訊息（固定佔位，用 opacity 控制可見性）
             HStack(spacing: 8) {
@@ -1846,12 +1941,16 @@ struct ContentView: View {
             }
             let raw: CGFloat
             if capsuleDragState.active {
-                if capsuleDragState.mode == -1 {
-                    raw = 44 + min(capsuleDragState.offset, 138)
-                } else if capsuleDragState.mode == 1 {
-                    raw = 182 - min(capsuleDragState.offset, 138)
+                if capsuleAnimationStyle == 1 {
+                    raw = smoothDragHeight
                 } else {
-                    raw = baseHeight
+                    if capsuleDragState.mode == -1 {
+                        raw = 44 + min(capsuleDragState.offset, 138)
+                    } else if capsuleDragState.mode == 1 {
+                        raw = 182 - min(capsuleDragState.offset, 138)
+                    } else {
+                        raw = baseHeight
+                    }
                 }
             } else if let settleHeight = capsuleSettleHeight {
                 raw = settleHeight
@@ -1900,11 +1999,12 @@ struct ContentView: View {
             } else if isFloorCurveInCapsule {
                 floorCurveCapsuleContent
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(.opacity)
+                    .transition(AnyTransition.blurFade)
             } else if isCapsuleExpanded {
                 expandedContent
                     .id(parkingStartTime)
-                    .transition(.opacity)
+                    .transition(AnyTransition.blurFade)
+                    .allowsHitTesting(!capsuleDragState.active)
             } else {
                 let addressReveal = locationManager.currentAddress.isEmpty ? 0 : addressRevealProgress
                 ZStack {
@@ -1922,11 +2022,14 @@ struct ContentView: View {
                                 Text(compactStatusTitle)
                                     .font(.body.bold())
                                     .foregroundStyle(adaptiveTextColor(opacity: 0.85))
-                                Text(compactStatusDuration)
+                                Text(frozenCompactStatus ?? compactStatusDuration)
                                     .font(.body.bold())
                                     .foregroundStyle(adaptiveTextColor())
                                     .contentTransition(.numericText())
-                                    .animation(.easeInOut(duration: 0.15), value: compactStatusTickValue)
+                                    .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: compactStatusTickValue)
+                                    .monospacedDigit()
+                                    .blur(radius: capsuleDragState.active ? 6 : 0)
+                                    .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                             }
                             .transition(.blurReplace())
                         } else if showSpeedInfo {
@@ -1935,6 +2038,7 @@ struct ContentView: View {
                                     .font(.body.bold())
                                     .foregroundStyle(adaptiveTextColor())
                                     .contentTransition(.numericText())
+                                    .monospacedDigit()
                                     .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                                 if let eta = drivingETASeconds {
                                     Text(formatCompactETA(eta))
@@ -1958,6 +2062,7 @@ struct ContentView: View {
                     .animation(.easeInOut(duration: 0.3), value: showSpeedInfo)
                     .animation(.easeInOut(duration: 0.3), value: compactModeShowStatus)
                 }
+                .transition(AnyTransition.blurFade)
             }
         }
         .frame(width: capsuleWidth)
@@ -1968,21 +2073,35 @@ struct ContentView: View {
         .glassEffect(.regular, in: .rect(cornerRadius: 34))
         .clipShape(.rect(cornerRadius: 34))
         .contentShape(Rectangle())
-        .scaleEffect(capsuleScale)
-        .animation(capsuleDragState.active ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isCapsuleExpanded)
-        .animation(capsuleDragState.active ? nil : .spring(response: 0.4, dampingFraction: 0.85), value: isParkingMemoryExpanded)
+        .scaleEffect(capsuleAnimationStyle == 1 ? capsuleDragScale : capsuleScale)
+        .offset(y: capsuleAnimationStyle == 1 ? capsuleDragOffsetY : 0)
+        .animation(capsuleDragState.active ? nil : .spring(response: 0.6, dampingFraction: 0.78), value: isCapsuleExpanded)
+        .animation(capsuleDragState.active ? nil : .spring(response: 0.6, dampingFraction: 0.78), value: isParkingMemoryExpanded)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isFloorCurveInCapsule)
         .animation(.easeInOut(duration: 0.4), value: orbOpacity)
-        .gesture(
-            DragGesture()
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 10)
                 .updating($capsuleDragState) { value, state, _ in
                     guard !isParkingMemoryExpanded else { return }
                     let dy = value.translation.height
                     if state.mode == 0 {
+                        peakDragOffset = 0
+                        // 凍結計時顯示
+                        frozenParkingElapsed = parkingElapsed
+                        frozenCompactStatus = compactStatusDuration
+                        // 從當前動畫位置接手，避免跳動
+                        if let settle = capsuleSettleHeight {
+                            smoothDragHeight = settle
+                        }
+                        capsuleSettleWorkItem?.cancel()
+                        capsuleSettleWorkItem = nil
+                        capsuleSettleHeight = nil
                         if !isCapsuleExpanded, dy < 0 {
                             state.mode = -1
+                            lastGestureMode = -1
                         } else if isCapsuleExpanded, dy > 0 {
                             state.mode = 1
+                            lastGestureMode = 1
                         } else {
                             state.active = false
                             state.offset = 0
@@ -1991,25 +2110,147 @@ struct ContentView: View {
                     }
                     state.active = state.mode != 0
                     if state.mode == -1 {
-                        let next = min(-dy, 138)
+                        let next = min(-dy, 120)
                         state.offset = max(state.offset, max(0, next))
                     } else if state.mode == 1 {
-                        let next = min(dy, 138)
+                        let next = min(dy, 120)
                         state.offset = max(state.offset, max(0, next))
                     } else {
                         state.offset = 0
                     }
                 }
-                .onChanged { _ in
+                .onChanged { value in
+                    guard !isParkingMemoryExpanded else { return }
                     capsuleSettleWorkItem?.cancel()
                     capsuleSettleWorkItem = nil
                     capsuleSettleHeight = nil
+                    // Lift-scale: 用彈簧追蹤目標，產生延遲跟手感
+                    if capsuleAnimationStyle == 1 {
+                        let dy = value.translation.height
+                        let maxDrag: CGFloat = 120
+                        if !isCapsuleExpanded, dy < 0 {
+                            let current = min(-dy, maxDrag)
+                            lastDragOffset = current
+                            peakDragOffset = max(peakDragOffset, current)
+                            let progress = current / maxDrag
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                                capsuleDragOffsetY = -progress * 30
+                                capsuleDragScale = 1.0 + progress * 0.12
+                                smoothDragHeight = 44 + current
+                            }
+                        } else if isCapsuleExpanded, dy > 0 {
+                            let current = min(dy, maxDrag)
+                            lastDragOffset = current
+                            peakDragOffset = max(peakDragOffset, current)
+                            let progress = current / maxDrag
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                                capsuleDragOffsetY = progress * 30
+                                capsuleDragScale = 1.0 - progress * 0.12
+                                smoothDragHeight = 182 - current
+                            }
+                        } else {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                                capsuleDragOffsetY = 0
+                                capsuleDragScale = 1.0
+                                smoothDragHeight = isCapsuleExpanded ? 182 : 44
+                            }
+                        }
+                    }
                 }
                 .onEnded { value in
+                    guard !isParkingMemoryExpanded else { return }
+                    // 解凍計時顯示
+                    frozenParkingElapsed = nil
+                    frozenCompactStatus = nil
                     let dy = value.translation.height
                     let predictedDY = value.predictedEndTranslation.height
+                    let velocity = value.predictedEndTranslation.height - value.translation.height
                     let threshold: CGFloat = 50
+                    // 快滑判定：速度超過 threshold/0.3s 就算快滑
+                    let isFastSwipe = abs(velocity) > threshold * 0.6
 
+                    // Lift-scale animation mode
+                    if capsuleAnimationStyle == 1 {
+                        // 樓層探測態：下滑縮回整修態
+                        if isFloorCurveInCapsule {
+                            if dy > threshold || predictedDY > threshold {
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                    dismissFloorCurve()
+                                }
+                            }
+                            resetLiftScaleDrag()
+                            return
+                        }
+
+                        // 展開態上滑：進入樓層探測（只有一開始就是上滑方向才觸發）
+                        if isCapsuleExpanded && lastGestureMode == -1 && (dy < -threshold || velocity < -threshold * 0.5) {
+                            // 先觸發樓層探測（設 isFloorCurveInCapsule = true），再收縮
+                            triggerFloorCurvePopup()
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                isCapsuleExpanded = false
+                            }
+                            resetLiftScaleDrag()
+                            return
+                        }
+
+                        // 判斷展開/收縮：距離或速度，其中一個夠就觸發
+                        let shouldExpand = !isCapsuleExpanded && (dy < -threshold || velocity < -threshold * 0.5)
+                        let shouldCollapse = isCapsuleExpanded && (dy > threshold || velocity > threshold * 0.5)
+                        let targetExpanded = shouldExpand ? true : (shouldCollapse ? false : isCapsuleExpanded)
+
+                        // 計算鬆手時的高度，用於平滑過渡
+                        let releasedHeight: CGFloat = {
+                            if !isCapsuleExpanded {
+                                return 44 + min(max(0, -dy), 120)
+                            } else {
+                                return 182 - min(max(0, dy), 120)
+                            }
+                        }()
+                        if targetExpanded && !isCapsuleExpanded {
+                            // 展開：高度 + offset + scale 一起動畫，用高 damping 避免 overshoot
+                            capsuleSettleHeight = smoothDragHeight
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.9)) {
+                                isCapsuleExpanded = true
+                                orbOpacity = 0.5
+                                capsuleSettleHeight = 182
+                                capsuleDragOffsetY = 0
+                                capsuleDragScale = 1.0
+                            }
+                            let workItem = DispatchWorkItem { capsuleSettleHeight = nil }
+                            capsuleSettleWorkItem = workItem
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: workItem)
+                            updateVisitStatus()
+                            refreshETA()
+                        } else if !targetExpanded && isCapsuleExpanded {
+                            // 收縮：高度 + offset + scale 一起動畫
+                            capsuleSettleHeight = releasedHeight
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                isCapsuleExpanded = false
+                                orbOpacity = 1.0
+                                capsuleOnRight = false
+                                capsuleSettleHeight = 44
+                                capsuleDragOffsetY = 0
+                                capsuleDragScale = 1.0
+                            }
+                            let workItem = DispatchWorkItem { capsuleSettleHeight = nil }
+                            capsuleSettleWorkItem = workItem
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: workItem)
+                        } else {
+                            // 不夠距離：用當前視覺高度做起點，慢慢回去
+                            capsuleSettleHeight = smoothDragHeight
+                            withAnimation(.timingCurve(0.25, 0.1, 0.25, 1.0, duration: 0.55)) {
+                                capsuleSettleHeight = isCapsuleExpanded ? 182 : 44
+                                capsuleDragOffsetY = 0
+                                capsuleDragScale = 1.0
+                            }
+                            let workItem = DispatchWorkItem { capsuleSettleHeight = nil }
+                            capsuleSettleWorkItem = workItem
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+                        }
+                        return
+                    }
+
+                    // Default animation mode
                     // 樓層探測態：下滑縮回整修態
                     if isFloorCurveInCapsule {
                         if dy > threshold || predictedDY > threshold {
@@ -2063,13 +2304,15 @@ struct ContentView: View {
         )
         .onTapGesture {
             guard !isCapsuleExpanded, !capsuleDragState.active, capsuleSettleHeight == nil else { return }
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                isCapsuleExpanded = true
-                isParkingMemoryExpanded = false
-                orbOpacity = 0.5
+            // 微微放大提示「這是可拖曳的」
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
+                capsuleDragScale = 1.08
             }
-            updateVisitStatus()
-            refreshETA()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.65)) {
+                    capsuleDragScale = 1.0
+                }
+            }
         }
         .onReceive(locationManager.$visits) { _ in
             if isCapsuleExpanded {
@@ -2239,22 +2482,28 @@ struct ContentView: View {
                             .font(.body.bold())
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                             .contentTransition(.opacity)
-                            .animation(.easeInOut(duration: 0.3), value: distanceLabel)
+                            .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: distanceLabel)
                         Text(drivingDistanceText ?? "--")
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                             .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.3), value: drivingDistanceText)
+                            .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: drivingDistanceText)
+                            .monospacedDigit()
+                            .blur(radius: capsuleDragState.active ? 6 : 0)
+                            .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     }
                     HStack(spacing: 4) {
-                        Text("\(visitStatus):")
+                        Text("\(compactStatusTitle):")
                             .font(.body.bold())
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                        Text(hasDeparted ? (visitStatus == "已停留" ? formatStationaryDuration() : formatDepartureDuration()) : formatParkingElapsed())
+                        Text(frozenCompactStatus ?? (hasDeparted ? (visitStatus == "已停留" ? formatStationaryDuration() : formatDepartureDuration()) : formatParkingElapsed()))
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                             .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.15), value: hasDeparted ? (visitStatus == "已停留" ? stationaryElapsed : departureElapsed) : parkingElapsed)
+                            .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: hasDeparted ? (visitStatus == "已停留" ? stationaryElapsed : departureElapsed) : parkingElapsed)
+                            .monospacedDigit()
+                            .blur(radius: capsuleDragState.active ? 6 : 0)
+                            .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     }
                     if let secondary = visitSecondaryStatus {
                         Text(secondary)
@@ -2270,6 +2519,7 @@ struct ContentView: View {
 
                 VStack(spacing: 8) {
                     Button(action: {
+                        guard !isFloorCurveInCapsule else { return }
                         let opening = !isParkingMemoryExpanded
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                             isParkingMemoryExpanded.toggle()
@@ -2290,7 +2540,7 @@ struct ContentView: View {
                             startPersistentTimer()
                         }
                     }) {
-                        Label(isNonAutomotiveArrival ? String(localized: "逗留記憶") : String(localized: "泊車記憶"), systemImage: isNonAutomotiveArrival ? "mappin.and.ellipse" : "car.fill")
+                        Label((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"), systemImage: (isNonAutomotiveArrival && !hasParkingSpotData) ? "mappin.and.ellipse" : "car.fill")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -2308,6 +2558,7 @@ struct ContentView: View {
                     .opacity(timerRunning ? 1.0 : 0.7)
 
                     Button(action: {
+                        guard !isFloorCurveInCapsule else { return }
                         if showingRoute {
                             withAnimation {
                                 showingRoute = false
@@ -2408,7 +2659,10 @@ struct ContentView: View {
                         .font(.body.bold())
                         .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                         .contentTransition(.numericText())
-                        .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
+                        .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
+                        .monospacedDigit()
+                        .blur(radius: capsuleDragState.active ? 6 : 0)
+                        .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     Text("km/h")
                         .font(.body.bold())
                         .foregroundStyle(adaptiveTextColor(opacity: 0.6))
@@ -2426,7 +2680,10 @@ struct ContentView: View {
                     .font(.body.bold())
                     .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                     .contentTransition(.numericText())
-                    .animation(.easeInOut(duration: 0.15), value: etaText ?? "--")
+                    .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: etaText ?? "--")
+                    .monospacedDigit()
+                    .blur(radius: capsuleDragState.active ? 6 : 0)
+                    .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 12)
@@ -2486,7 +2743,7 @@ struct ContentView: View {
                                 .font(.system(size: 28))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                         }
-                        Text(isNonAutomotiveArrival ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
+                        Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
                             .font(.system(size: 20, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
                         Spacer()
@@ -2717,7 +2974,7 @@ struct ContentView: View {
                             .font(.system(size: 32))
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                     }
-                    Text(isNonAutomotiveArrival ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
+                    Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundStyle(adaptiveTextColor())
                     Spacer()
@@ -2960,7 +3217,7 @@ struct ContentView: View {
     private func formatCompactETA(_ seconds: TimeInterval) -> String {
         let mins = Int(seconds / 60)
         if mins < 60 {
-            return "\(mins) min"
+            return "\(mins) mins"
         }
         let hrs = mins / 60
         let remainMins = mins % 60
@@ -2974,6 +3231,8 @@ struct ContentView: View {
 
     private var compactStatusTitle: String {
         if !hasDeparted {
+            // 有車位資訊時一律顯示「已泊車」
+            if hasParkingSpotData { return String(localized: "已泊車") }
             if isNonAutomotiveArrival { return String(localized: "已逗留") }
             return String(localized: "已泊車")
         }
@@ -3207,6 +3466,7 @@ struct ContentView: View {
     private func startPersistentTimer() {
         guard !timerRunning else { return }
         timerRunning = true
+        startParkingReminder()
         let d = Self.appGroupDefaults ?? .standard
         d.set(parkingStartTime, forKey: "parkingStartTime")
         d.set(hasDeparted, forKey: "hasDeparted")
@@ -3324,6 +3584,72 @@ struct ContentView: View {
     }
 
     @State private var adjustHideWorkItem: DispatchWorkItem?
+
+    // MARK: - 泊車時間提醒
+    /// 每30分鐘整點前5分鐘發送通知（25min, 55min, 1h25m...），超過3小時停止
+    /// 如果該地點習慣長時間停泊（>=3小時），則跳過提醒
+    private func startParkingReminder() {
+        stopParkingReminder()
+        lastReminderMinute = -1
+        parkingReminderTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
+            DispatchQueue.main.async {
+                guard !hasDeparted, timerRunning else { return }
+                let elapsed = parkingElapsed
+                let minutes = Int(elapsed / 60)
+                // 超過3小時停止
+                guard minutes < 180 else {
+                    self.stopParkingReminder()
+                    return
+                }
+                // 檢查該地點是否習慣長時間停泊
+                if self.isLongParkingHabit() { return }
+                // 計算下一個30分鐘整點
+                let nextHalfHour = ((minutes / 30) + 1) * 30
+                let minutesBefore = nextHalfHour - minutes
+                // 在整點前5分鐘發通知
+                if minutesBefore <= 5 && minutesBefore > 0 && minutes != self.lastReminderMinute {
+                    self.lastReminderMinute = minutes
+                    self.sendParkingReminder(minutes: minutes)
+                }
+            }
+        }
+    }
+
+    private func stopParkingReminder() {
+        parkingReminderTimer?.invalidate()
+        parkingReminderTimer = nil
+    }
+
+    /// 檢查當前停車地點是否習慣長時間停泊（>=3小時）
+    private func isLongParkingHabit() -> Bool {
+        guard let currentCoord = locationManager.lastLocation?.coordinate else { return false }
+        // 找最近的停車場
+        guard let lotIdx = parkingFloorStore.findLotIndex(near: currentCoord, radiusMeters: 200) else { return false }
+        let lot = parkingFloorStore.lots[lotIdx]
+        // 計算該地點的平均泊車時長
+        let durations = lot.points.compactMap { point -> TimeInterval? in
+            // 用 createdAt 作為到達時間，如果有多個記錄可以計算平均
+            return nil  // 暫時用簡單邏輯
+        }
+        // 如果有手動設定的長時間標記
+        if lot.points.contains(where: { $0.predictedFloorIndex != nil }) {
+            // 有樓層記錄的地點通常是有結構的停車場，可能是長時間
+            return false  // 暫時不跳過，後續可根據歷史數據判斷
+        }
+        return false
+    }
+
+    private func sendParkingReminder(minutes: Int) {
+        let content = UNMutableNotificationContent()
+        let hours = minutes / 60
+        let mins = minutes % 60
+        let timeStr = hours > 0 ? "\(hours)小時\(mins)分鐘" : "\(mins)分鐘"
+        content.title = String(localized: "泊車時間提醒")
+        content.body = String(localized: "你已經泊車\(timeStr)")
+        content.sound = .default
+        let req = UNNotificationRequest(identifier: "parking-reminder-\(minutes)", content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+    }
 
     private func startCapsuleUpdateTimer() {
         stopCapsuleUpdateTimer()
@@ -3859,16 +4185,19 @@ struct ContentView: View {
             // Extract spot number — simplified "车位号" / traditional "車位號"
             if let val = extractValue(from: trimmed, keywords: ["车位号", "車位號", "车位", "車位"]) {
                 llmSpotNumber = val
+                hasParkingSpotData = true
             }
 
             // Extract area code — simplified "区域号" / traditional "區域號"
             if let val = extractValue(from: trimmed, keywords: ["区域号", "區域號", "区域", "區域"]) {
                 llmAreaCode = val
+                hasParkingSpotData = true
             }
 
             // Extract floor — simplified "楼层" / traditional "樓層"
             if let floorStr = extractValue(from: trimmed, keywords: ["楼层", "樓層"]) {
                 llmFloorText = floorStr
+                hasParkingSpotData = true
                 if let index = Self.parseFloorIndex(floorStr) {
                     llmFloorIndex = index
                     // 與氣壓計預測比較，觸發確認彈窗
@@ -4102,6 +4431,9 @@ struct ContentView: View {
         llmFloorText = floor
         llmFloorIndex = floorIdx
         llmRawResult = parkingPhotoContributions.isEmpty ? nil : "multi-photo"
+        if spot != nil || area != nil || floor != nil {
+            hasParkingSpotData = true
+        }
 
         // 同步到 ParkingFloorStore（統一數據源）
         parkingFloorStore.updateLLMData(
@@ -4137,6 +4469,7 @@ struct ContentView: View {
         llmFloorIndex = nil
         llmRawResult = nil
         llmError = nil
+        hasParkingSpotData = false
         llmPollTimer?.invalidate()
         llmPollTimer = nil
         parkingInfoSwitchTimer?.invalidate()
@@ -4231,6 +4564,8 @@ struct ContentView: View {
         guard let lastVisit = locationManager.visits.first else {
             visitStatus = "已停留"
             isNonAutomotiveArrival = false
+            hasParkingSpotData = true
+            (Self.appGroupDefaults ?? .standard).set(false, forKey: "isNonAutomotiveArrival")
             if visitSecondaryStatus != nil {
                 withAnimation(.easeInOut(duration: 0.22)) {
                     visitSecondaryStatus = nil
@@ -4291,7 +4626,15 @@ struct ContentView: View {
             }
         } else if lastVisit.departureDate == nil {
             visitStatus = "已泊車"
-            isNonAutomotiveArrival = !lastVisit.isAutomotive
+            // 二次驗證：CMMotionActivity 可能誤判，用 GPS 速度輔助
+            var automotive = lastVisit.isAutomotive
+            if !automotive && locationManager.speed > 10 {
+                // GPS 顯示仍在開車，修正為開車到達
+                automotive = true
+            }
+            isNonAutomotiveArrival = !automotive
+            if isNonAutomotiveArrival { hasParkingSpotData = false }
+            (Self.appGroupDefaults ?? .standard).set(isNonAutomotiveArrival, forKey: "isNonAutomotiveArrival")
             
             let now = Date()
             let speed = locationManager.speed
@@ -4350,7 +4693,8 @@ struct ContentView: View {
 
         switch visitStatus {
         case "已泊車":
-            activityState = isNonAutomotiveArrival ? .nonAutomotiveParking : .parking
+            // 有車位資訊時強制顯示泊車
+            activityState = (isNonAutomotiveArrival && !hasParkingSpotData) ? .nonAutomotiveParking : .parking
             anchor = parkingStartTime
         case "已開車":
             activityState = .driving
@@ -5434,5 +5778,160 @@ extension AnyTransition {
         .modifier(active: BlurModifier(radius: 12), identity: BlurModifier(radius: 0))
             .combined(with: active)
             .combined(with: extra)
+    }
+
+    static var blurFade: AnyTransition {
+        .opacity.combined(with: .modifier(
+            active: BlurModifier(radius: 8),
+            identity: BlurModifier(radius: 0)
+        ))
+    }
+}
+
+// MARK: - Vehicle Data Model
+struct VehicleBrand: Identifiable, Hashable {
+    let id = UUID()
+    let name: String
+    let models: [String]
+    let color: Color
+    let iconName: String
+}
+
+struct VehiclePickerView: View {
+    @Binding var selectedBrand: String
+    @Binding var selectedModel: String
+    @Binding var selectedColor: Color
+    @Environment(\.dismiss) private var dismiss
+    @State private var selectedBrandIndex: Int = 0
+    @State private var selectedModelIndex: Int = 0
+
+    let brands: [VehicleBrand] = [
+        // 德系
+        VehicleBrand(name: "BMW", models: ["X1", "X3", "X5", "X7", "3 Series", "5 Series", "7 Series", "M3", "M4", "M5"], color: Color(red: 0.0, green: 0.4, blue: 0.8), iconName: "suv.side.fill"),
+        VehicleBrand(name: "Mercedes-Benz", models: ["A-Class", "C-Class", "E-Class", "S-Class", "GLC", "GLE", "GLS", "AMG GT", "EQS"], color: Color(red: 0.0, green: 0.2, blue: 0.4), iconName: "suv.side.fill"),
+        VehicleBrand(name: "Audi", models: ["A3", "A4", "A6", "A8", "Q3", "Q5", "Q7", "Q8", "e-tron", "RS6"], color: Color(red: 0.1, green: 0.1, blue: 0.1), iconName: "suv.side.fill"),
+
+        // 中國新勢力
+        VehicleBrand(name: "小米", models: ["SU7", "SU7 Pro", "SU7 Max", "YU7"], color: Color(red: 1.0, green: 0.4, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "蔚來", models: ["ET5", "ET7", "ES6", "ES7", "ES8", "EC6", "EC7", "EP9"], color: Color(red: 0.0, green: 0.6, blue: 0.9), iconName: "suv.side.fill"),
+        VehicleBrand(name: "小鵬", models: ["P7", "P7+", "G6", "G9", "X9", "MONA M03"], color: Color(red: 0.0, green: 0.8, blue: 0.4), iconName: "suv.side.fill"),
+        VehicleBrand(name: "理想", models: ["L6", "L7", "L8", "L9", "MEGA"], color: Color(red: 0.2, green: 0.6, blue: 1.0), iconName: "suv.side.fill"),
+
+        // 日系
+        VehicleBrand(name: "豐田", models: ["埃爾法", "威爾法", "Camry", "Corolla", "RAV4", "Land Cruiser", "Prius", "Supra", "86"], color: Color(red: 0.8, green: 0.0, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "本田", models: ["Accord", "Civic", "CR-V", "HR-V", "Pilot", "NSX", "Type R"], color: Color(red: 0.7, green: 0.0, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "日產", models: ["GT-R", "370Z", "Altima", "Maxima", "Pathfinder", "Patrol", "Ariya"], color: Color(red: 0.9, green: 0.0, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "馬自達", models: ["MX-5", "Mazda3", "Mazda6", "CX-5", "CX-30", "CX-50", "CX-90"], color: Color(red: 0.8, green: 0.2, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "斯巴魯", models: ["WRX", "BRZ", "Outback", "Forester", "Crosstrek", "Ascent"], color: Color(red: 0.0, green: 0.3, blue: 0.7), iconName: "suv.side.fill"),
+
+        // 英系
+        VehicleBrand(name: "Mini", models: ["Cooper", "Cooper S", "Clubman", "Countryman", "John Cooper Works", "Electric"], color: Color(red: 0.0, green: 0.5, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "Land Rover", models: ["Defender", "Discovery", "Range Rover", "Range Rover Sport", "Range Rover Evoque", "Velar"], color: Color(red: 0.0, green: 0.4, blue: 0.3), iconName: "suv.side.fill"),
+        VehicleBrand(name: "Jaguar", models: ["F-Type", "XF", "XJ", "F-Pace", "E-Pace", "I-Pace"], color: Color(red: 0.6, green: 0.0, blue: 0.0), iconName: "suv.side.fill"),
+
+        // 美系
+        VehicleBrand(name: "Ford", models: ["野馬 Mustang", "F-150", "Bronco", "Explorer", "Mach-E", "GT"], color: Color(red: 0.0, green: 0.3, blue: 0.8), iconName: "suv.side.fill"),
+        VehicleBrand(name: "Chevrolet", models: ["Corvette", "Camaro", "Silverado", "Tahoe", "Suburban", "Bolt"], color: Color(red: 0.8, green: 0.7, blue: 0.0), iconName: "suv.side.fill"),
+        VehicleBrand(name: "Tesla", models: ["Model 3", "Model Y", "Model S", "Model X", "Cybertruck", "Roadster"], color: Color(red: 0.8, green: 0.0, blue: 0.0), iconName: "suv.side.fill"),
+
+        // 中國傳統
+        VehicleBrand(name: "廣汽埃安", models: ["Aion S", "Aion S Plus", "Aion V", "Aion Y", "Aion LX", "Hyper SSR"], color: Color(red: 0.0, green: 0.6, blue: 0.8), iconName: "suv.side.fill"),
+        VehicleBrand(name: "比亞迪", models: ["漢", "唐", "宋", "秦", "海豚", "海鷗", "仰望 U8"], color: Color(red: 0.0, green: 0.4, blue: 0.6), iconName: "suv.side.fill"),
+
+        // 韓系
+        VehicleBrand(name: "現代", models: ["IONIQ 5", "IONIQ 6", "Tucson", "Santa Fe", "Palisade", "N"], color: Color(red: 0.0, green: 0.3, blue: 0.6), iconName: "suv.side.fill"),
+        VehicleBrand(name: "起亞", models: ["EV6", "EV9", "Sportage", "Sorento", "Telluride", "Stinger"], color: Color(red: 0.8, green: 0.0, blue: 0.2), iconName: "suv.side.fill"),
+    ]
+
+    var body: some View {
+        NavigationStack {
+            List {
+                // Brand selection
+                Section(header: Text("選擇品牌")) {
+                    ForEach(Array(brands.enumerated()), id: \.element.id) { index, brand in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedBrandIndex = index
+                                selectedModelIndex = 0
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Circle()
+                                    .fill(brand.color)
+                                    .frame(width: 32, height: 32)
+                                    .overlay(
+                                        Image(systemName: brand.iconName)
+                                            .font(.system(size: 16, weight: .medium))
+                                            .foregroundStyle(.white)
+                                    )
+                                Text(brand.name)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if selectedBrandIndex == index {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(brand.color)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                // Model selection
+                Section(header: Text("選擇型號")) {
+                    ForEach(Array(brands[selectedBrandIndex].models.enumerated()), id: \.element) { index, model in
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedModelIndex = index
+                            }
+                        } label: {
+                            HStack(spacing: 12) {
+                                Text(model)
+                                    .font(.system(size: 16, weight: .medium))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if selectedModelIndex == index {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(brands[selectedBrandIndex].color)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .navigationTitle("選擇車輛")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("確認") {
+                        selectedBrand = brands[selectedBrandIndex].name
+                        selectedModel = brands[selectedBrandIndex].models[selectedModelIndex]
+                        selectedColor = brands[selectedBrandIndex].color
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                // Set initial selection based on current values
+                if let brandIndex = brands.firstIndex(where: { $0.name == selectedBrand }) {
+                    selectedBrandIndex = brandIndex
+                    if let modelIndex = brands[brandIndex].models.firstIndex(of: selectedModel) {
+                        selectedModelIndex = modelIndex
+                    }
+                }
+            }
+        }
     }
 }

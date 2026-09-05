@@ -8,6 +8,7 @@ struct SettingsView: View {
     @State private var simSpeed: Double = 0
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
+    @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 0
     @AppStorage("highFrequencyTracking") var highFrequencyTracking: Bool = true
     @AppStorage("mapTrackingAnimation") var mapTrackingAnimation: Int = 0
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
@@ -21,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
+    @AppStorage("floorConvention") private var floorConvention: Int = 2  // 0=香港, 1=內地, 2=自動
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = false
     @AppStorage("parkingTimerColorHex") var parkingTimerColorHex: String = "46ADB8"
     @AppStorage("bestRouteColorHex") var bestRouteColorHex: String = "BCBA1E"
@@ -186,6 +188,11 @@ struct SettingsView: View {
                         Text(String(localized: "Default")).tag(0)
                         Text("27").tag(1)
                     }
+
+                    Picker(String(localized: "膠囊動畫"), selection: $capsuleAnimationStyle) {
+                        Text(String(localized: "預設")).tag(0)
+                        Text(String(localized: "提升縮放")).tag(1)
+                    }
                 } header: {
                     Label(String(localized: "外觀"), systemImage: "paintpalette")
                 }
@@ -299,6 +306,23 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } header: {
                     Label(String(localized: "樓層探測"), systemImage: "chart.line.uptrend.xyaxis")
+                }
+
+                Section {
+                    Picker(String(localized: "樓層慣例"), selection: $floorConvention) {
+                        Text(String(localized: "香港 (G, 1, 2…)")).tag(0)
+                        Text(String(localized: "內地 (1, 2, 3…)")).tag(1)
+                        Text(String(localized: "自動偵測")).tag(2)
+                    }
+                    Text(floorConvention == 0
+                        ? String(localized: "地面為 G 樓，上方為 1 樓、2 樓。")
+                        : floorConvention == 1
+                        ? String(localized: "地面為 1 樓，上方為 2 樓、3 樓。")
+                        : String(localized: "根據 GPS 位置自動判斷。"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } header: {
+                    Label(String(localized: "樓層慣例"), systemImage: "building.2")
                 }
 
                 // Orb Effects Section
@@ -2268,88 +2292,448 @@ private struct AltitudeChartView2: View {
 
 struct VisitRecordsTestView: View {
     @EnvironmentObject private var locationManager: LocationManager
-    
+    @State private var showEditSheet: Bool = false
+    @State private var editingVisitID: UUID? = nil
+    @State private var editTransportType: String = "Driving"
+    @State private var editIsAutomotive: Bool = true
+    @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
+    @State private var showMap: Bool = false
+
+    private let transportOptions = [
+        ("Driving", "car.fill", "開車", true),
+        ("Walking", "figure.walk", "步行", false),
+        ("Cycling", "bicycle", "騎行", false),
+        ("Running", "figure.run", "跑步", false),
+        ("Transit", "tram.fill", "公共交通", false),
+        ("Train", "train.side.front.car", "高鐵/火車", false),
+        ("Airplane", "airplane", "飛機", false),
+        ("Ferry", "ferry.fill", "渡輪", false),
+    ]
+
     var body: some View {
         List {
+            // 週曆選擇器
             Section {
-                if locationManager.visits.isEmpty {
-                    Text("未有到訪記錄")
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array(locationManager.visits.enumerated()), id: \.element.id) { _, visit in
-                        HStack(alignment: .top, spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(.secondary.opacity(0.12))
-                                    .frame(width: 44, height: 44)
-                                Image(systemName: transportIcon(visit.transportType))
-                                    .font(.system(size: 18))
-                                    .foregroundStyle(.orange)
-                            }
-                            
-                            VStack(alignment: .leading, spacing: 4) {
-                                HStack(spacing: 6) {
-                                    Circle()
-                                        .fill(.orange)
-                                        .frame(width: 8, height: 8)
-                                    Text(visit.address)
-                                        .font(.system(size: 17, weight: .bold))
-                                        .foregroundStyle(.primary)
-                                }
-                                
-                                HStack(spacing: 4) {
-                                    Text(visit.arrivalDate, format: .dateTime.hour().minute())
-                                        .font(.system(size: 15))
-                                        .foregroundStyle(.secondary)
-                                    Text("→")
-                                        .font(.system(size: 13))
-                                        .foregroundStyle(.secondary.opacity(0.7))
-                                    if let dep = visit.departureDate {
-                                        Text(dep, format: .dateTime.hour().minute())
-                                            .font(.system(size: 15))
-                                            .foregroundStyle(.secondary)
-                                    } else {
-                                        Text("Now")
-                                            .font(.system(size: 15))
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                            }
-                            
-                            Spacer()
-                            
-                            Text(visit.duration)
-                                .font(.system(size: 12, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(.secondary.opacity(0.12))
-                                .clipShape(Capsule())
-                        }
-                        .padding(.vertical, 6)
+                weekDatePicker
+            }
+
+            if filteredVisits.isEmpty {
+                Text("當日沒有到訪記錄")
+                    .foregroundStyle(.secondary)
+            } else {
+                let visits = filteredVisits
+                ForEach(Array(visits.enumerated()), id: \.element.id) { idx, visit in
+                    visitCard(visit)
+                    if idx < visits.count - 1 {
+                        tripRow(from: visit, to: visits[idx + 1])
                     }
                 }
-            } header: {
-                Label("到訪記錄", systemImage: "mappin.and.ellipse")
-            } footer: {
-                if !locationManager.visits.isEmpty {
-                    Button(role: .destructive) {
-                        locationManager.clearVisits()
+            }
+
+            // 底部操作按鈕
+            Section {
+                Button(role: .destructive) {
+                    clearExceptLatest()
+                } label: {
+                    Label("清除最新行程以外的記錄", systemImage: "trash")
+                }
+                Button(role: .destructive) {
+                    locationManager.clearVisits()
+                } label: {
+                    Label("清除所有到訪記錄", systemImage: "trash.fill")
+                }
+            }
+        }
+        .navigationTitle("到訪記錄")
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        showMap = true
                     } label: {
-                        Label("清除所有到訪記錄", systemImage: "trash")
+                        Label("在地圖上顯示", systemImage: "map")
+                    }
+                } label: {
+                    Image(systemName: "ellipsis.circle")
+                }
+            }
+        }
+        .sheet(isPresented: $showEditSheet) {
+            if let visitID = editingVisitID {
+                editSheet(visitID: visitID)
+            }
+        }
+        .sheet(isPresented: $showMap) {
+            dayMapView
+        }
+    }
+
+    // MARK: - 篩選後的記錄
+    private var filteredVisits: [LocationManager.VisitRecord] {
+        let calendar = Calendar.current
+        let startOfDay = selectedDate
+        let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
+        return locationManager.visits
+            .filter { $0.arrivalDate >= startOfDay && $0.arrivalDate < endOfDay }
+            .sorted { $0.arrivalDate < $1.arrivalDate }
+    }
+
+    // MARK: - 週曆選擇器
+    private var weekDatePicker: some View {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let weekDays = (-3...3).compactMap { offset -> Date? in
+            calendar.date(byAdding: .day, value: offset, to: today)
+        }
+
+        return ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 12) {
+                ForEach(weekDays, id: \.self) { date in
+                    let isSelected = calendar.isDate(date, inSameDayAs: selectedDate)
+                    let isToday = calendar.isDateInToday(date)
+                    let weekday = calendar.component(.weekday, from: date)
+                    let dayNum = calendar.component(.day, from: date)
+                    let weekdaySymbols = ["日", "一", "二", "三", "四", "五", "六"]
+
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            selectedDate = date
+                        }
+                    } label: {
+                        VStack(spacing: 4) {
+                            Text(weekdaySymbols[weekday - 1])
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundStyle(isSelected ? .white : .secondary)
+                            Text("\(dayNum)")
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(isSelected ? .white : .primary)
+                            if isToday {
+                                Circle()
+                                    .fill(isSelected ? .white : .blue)
+                                    .frame(width: 4, height: 4)
+                            }
+                        }
+                        .frame(width: 40, height: 60)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(isSelected ? .blue : .clear)
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+        }
+    }
+
+    // MARK: - 當天地圖
+    @ViewBuilder
+    private var dayMapView: some View {
+        NavigationStack {
+            Map(coordinateRegion: .constant(mapRegion), annotationItems: mapAnnotations) { item in
+                MapAnnotation(coordinate: item.coordinate) {
+                    VStack(spacing: 2) {
+                        Image(systemName: transportIcon(item.transportType))
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(6)
+                            .background(Circle().fill(item.isAutomotive ? Color.green : Color.orange))
+                        Text(item.time, format: .dateTime.hour().minute())
+                            .font(.system(size: 9, weight: .medium))
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+            .navigationTitle(dateTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") { showMap = false }
+                }
+            }
+        }
+    }
+
+    // MARK: - Map Annotation Items
+    private struct MapAnnotationItem: Identifiable {
+        let id: UUID
+        let coordinate: CLLocationCoordinate2D
+        let transportType: String
+        let isAutomotive: Bool
+        let time: Date
+    }
+
+    private var mapAnnotations: [MapAnnotationItem] {
+        filteredVisits.map { visit in
+            if let point = parkingFloorStore.allPoints.first(where: { abs($0.createdAt.timeIntervalSince(visit.arrivalDate)) < 60 }) {
+                return MapAnnotationItem(
+                    id: visit.id,
+                    coordinate: CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude),
+                    transportType: visit.transportType,
+                    isAutomotive: point.isAutomotive,
+                    time: visit.arrivalDate
+                )
+            }
+            return MapAnnotationItem(
+                id: visit.id,
+                coordinate: CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude),
+                transportType: visit.transportType,
+                isAutomotive: visit.isAutomotive,
+                time: visit.arrivalDate
+            )
+        }
+    }
+
+    private var mapRegion: MKCoordinateRegion {
+        let adjustedCoords = filteredVisits.map { visit -> CLLocationCoordinate2D in
+            if let point = parkingFloorStore.allPoints.first(where: { abs($0.createdAt.timeIntervalSince(visit.arrivalDate)) < 60 }) {
+                return CLLocationCoordinate2D(latitude: point.latitude, longitude: point.longitude)
+            }
+            return CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
+        }
+        guard let first = adjustedCoords.first else {
+            return MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 22.3, longitude: 114.2), span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05))
+        }
+        let minLat = adjustedCoords.map(\.latitude).min() ?? first.latitude
+        let maxLat = adjustedCoords.map(\.latitude).max() ?? first.latitude
+        let minLon = adjustedCoords.map(\.longitude).min() ?? first.longitude
+        let maxLon = adjustedCoords.map(\.longitude).max() ?? first.longitude
+        let center = CLLocationCoordinate2D(latitude: (minLat + maxLat) / 2, longitude: (minLon + maxLon) / 2)
+        let span = MKCoordinateSpan(latitudeDelta: max(0.01, (maxLat - minLat) * 1.5), longitudeDelta: max(0.01, (maxLon - minLon) * 1.5))
+        return MKCoordinateRegion(center: center, span: span)
+    }
+
+    private var dateTitle: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M月d日 EEEE"
+        formatter.locale = Locale(identifier: "zh_Hant")
+        return formatter.string(from: selectedDate)
+    }
+
+    // MARK: - 清除最新行程以外
+    private func clearExceptLatest() {
+        guard let latest = locationManager.visits.sorted(by: { $0.arrivalDate > $1.arrivalDate }).first else { return }
+        locationManager.visits = [latest]
+        locationManager.saveVisits()
+    }
+
+    // MARK: - 到訪記錄卡片
+    @ViewBuilder
+    private func visitCard(_ visit: LocationManager.VisitRecord) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .top) {
+                // 左側：交通方式圖標
+                ZStack {
+                    Circle()
+                        .fill(visit.isAutomotive ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+                        .frame(width: 36, height: 36)
+                    Image(systemName: transportIcon(visit.transportType))
+                        .font(.system(size: 16))
+                        .foregroundStyle(visit.isAutomotive ? .green : .orange)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    // 地點名
+                    Text(visit.address.isEmpty ? "未知地點" : visit.address)
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+
+                    // 時間範圍
+                    HStack(spacing: 4) {
+                        Text(visit.arrivalDate, format: .dateTime.hour().minute())
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
+                        Text("→")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.secondary.opacity(0.5))
+                        if let dep = visit.departureDate {
+                            Text(dep, format: .dateTime.hour().minute())
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("至今")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.blue)
+                        }
+                    }
+
+                    // 判定結果
+                    HStack(spacing: 4) {
+                        Circle()
+                            .fill(visit.isAutomotive ? .green : .red)
+                            .frame(width: 6, height: 6)
+                        Text(visit.isAutomotive ? "開車到達" : "非開車到達")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(visit.isAutomotive ? .green : .red)
+                    }
+                }
+
+                Spacer()
+
+                // 右側：停留時長
+                VStack(alignment: .trailing, spacing: 4) {
+                    Text(visit.duration)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 3)
+                        .background(.secondary.opacity(0.1))
+                        .clipShape(Capsule())
+
+                    // 編輯按鈕
+                    Button {
+                        editTransportType = visit.transportType
+                        editIsAutomotive = visit.isAutomotive
+                        editingVisitID = visit.id
+                        showEditSheet = true
+                    } label: {
+                        Image(systemName: "pencil.circle")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.blue)
                     }
                 }
             }
         }
-        .navigationTitle("到訪記錄測試")
-        .navigationBarTitleDisplayMode(.inline)
+        .padding(.vertical, 4)
     }
-    
+
+    // MARK: - 行程記錄（兩個到訪之間）
+    @ViewBuilder
+    private func tripRow(from: LocationManager.VisitRecord, to: LocationManager.VisitRecord) -> some View {
+        let depDate = from.departureDate ?? to.arrivalDate
+        let tripDuration = to.arrivalDate.timeIntervalSince(depDate)
+        let tripMinutes = Int(tripDuration / 60)
+        let tripHours = tripMinutes / 60
+        let tripMins = tripMinutes % 60
+        let tripText: String = {
+            if tripHours > 0 { return "\(tripHours)h\(tripMins)m" }
+            return "\(tripMins)m"
+        }()
+
+        HStack(spacing: 10) {
+            // 左側連接線
+            VStack(spacing: 0) {
+                Rectangle()
+                    .fill(.secondary.opacity(0.2))
+                    .frame(width: 2, height: 12)
+                Image(systemName: transportIcon(to.transportType))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                Rectangle()
+                    .fill(.secondary.opacity(0.2))
+                    .frame(width: 2, height: 12)
+            }
+
+            Text("行程 \(tripText)")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+
+            Spacer()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 2)
+    }
+
+    // MARK: - 編輯 Sheet
+    @ViewBuilder
+    private func editSheet(visitID: UUID) -> some View {
+        NavigationStack {
+            List {
+                Section(header: Text("交通方式")) {
+                    ForEach(transportOptions, id: \.0) { option in
+                        Button {
+                            editTransportType = option.0
+                            editIsAutomotive = option.3
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: option.1)
+                                    .font(.system(size: 18))
+                                    .foregroundStyle(editTransportType == option.0 ? .blue : .secondary)
+                                    .frame(width: 28)
+                                Text(option.2)
+                                    .font(.system(size: 16))
+                                    .foregroundStyle(.primary)
+                                Spacer()
+                                if editTransportType == option.0 {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .font(.system(size: 20))
+                                        .foregroundStyle(.blue)
+                                }
+                            }
+                            .padding(.vertical, 4)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+
+                Section {
+                    HStack {
+                        Text("判定結果")
+                        Spacer()
+                        Text(editIsAutomotive ? "開車到達" : "非開車到達")
+                            .foregroundStyle(editIsAutomotive ? .green : .red)
+                            .fontWeight(.semibold)
+                    }
+                }
+            }
+            .navigationTitle("修改交通方式")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        showEditSheet = false
+                        editingVisitID = nil
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("確認") {
+                        saveTransportChange(visitID: visitID)
+                        showEditSheet = false
+                        editingVisitID = nil
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    // MARK: - 保存修改
+    @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
+
+    private func saveTransportChange(visitID: UUID) {
+        guard let idx = locationManager.visits.firstIndex(where: { $0.id == visitID }) else { return }
+        let visit = locationManager.visits[idx]
+        // 更新 transportType 和 isAutomotive
+        locationManager.visits[idx] = LocationManager.VisitRecord(
+            id: visit.id,
+            address: visit.address,
+            latitude: visit.latitude,
+            longitude: visit.longitude,
+            arrivalDate: visit.arrivalDate,
+            departureDate: visit.departureDate,
+            transportType: editTransportType,
+            isAutomotive: editIsAutomotive
+        )
+        locationManager.saveVisits()
+        // 同步更新地圖標記的 isAutomotive
+        parkingFloorStore.updateAutomotiveFlag(createdAt: visit.arrivalDate, isAutomotive: editIsAutomotive)
+    }
+
+    // MARK: - Helpers
     private func transportIcon(_ type: String) -> String {
         switch type {
-        case "Walking": return "figure.walk"
         case "Driving": return "car.fill"
+        case "Walking": return "figure.walk"
+        case "Cycling": return "bicycle"
+        case "Running": return "figure.run"
         case "Transit": return "tram.fill"
+        case "Train": return "train.side.front.car"
+        case "Airplane": return "airplane"
+        case "Ferry": return "ferry.fill"
         case "Passing": return "arrow.triangle.swap"
         default: return "mappin.circle.fill"
         }
@@ -2718,14 +3102,10 @@ class SearchCompleterDelegate: NSObject, MKLocalSearchCompleterDelegate {
 // 地图选择视图
 struct MapSelectionView: View {
     @Binding var selectedCoordinate: CLLocationCoordinate2D?
-    @State private var region = MKCoordinateRegion(
-        center: CLLocationCoordinate2D(latitude: 37.7749, longitude: -122.4194),
-        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-    )
     @EnvironmentObject private var locationManager: LocationManager
-    
+
     var body: some View {
-        MapViewWrapper(region: $region, selectedCoordinate: $selectedCoordinate)
+        MapViewWrapper(initialCenter: initialCenter, selectedCoordinate: $selectedCoordinate)
             .edgesIgnoringSafeArea(.bottom)
             .overlay(
                 VStack {
@@ -2749,57 +3129,61 @@ struct MapSelectionView: View {
                     }
                 }
             )
-            .onAppear {
-                if let location = locationManager.manager.location {
-                    region = MKCoordinateRegion(
-                        // GPS is WGS-84; centre the map in GCJ-02 so the user
-                        // starts over the correct road in mainland China
-                        // (no-op outside China).
-                        center: location.coordinate.wgs84ToGCJ02,
-                        span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05)
-                    )
-                }
-            }
+    }
+
+    private var initialCenter: CLLocationCoordinate2D {
+        if let location = locationManager.manager.location {
+            return location.coordinate.wgs84ToGCJ02
+        }
+        return CLLocationCoordinate2D(latitude: 22.3, longitude: 114.2)  // 香港默認
     }
 }
 
 // 地图包装器
 struct MapViewWrapper: UIViewRepresentable {
-    @Binding var region: MKCoordinateRegion
+    var initialCenter: CLLocationCoordinate2D
     @Binding var selectedCoordinate: CLLocationCoordinate2D?
-    
+
     func makeUIView(context: Context) -> MKMapView {
         let mapView = MKMapView()
-        mapView.region = region
         mapView.delegate = context.coordinator
-        
+        mapView.showsUserLocation = true
+
+        // 首次定位：用 GPS 位置居中
+        let region = MKCoordinateRegion(center: initialCenter, span: MKCoordinateSpan(latitudeDelta: 0.05, longitudeDelta: 0.05))
+        mapView.setRegion(region, animated: false)
+
         let longPress = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(context.coordinator.handleLongPress(_:)))
         mapView.addGestureRecognizer(longPress)
-        
+
         return mapView
     }
-    
-    func updateUIView(_ uiView: MKMapView, context: Context) {
-        uiView.region = region
 
-        uiView.removeAnnotations(uiView.annotations)
-        if let coordinate = selectedCoordinate {
-            let annotation = MKPointAnnotation()
-            // selectedCoordinate is stored as WGS-84; display it in GCJ-02 so
-            // the pin lands exactly where the user tapped / the search result
-            // is on the China tiles (no-op outside China).
-            annotation.coordinate = coordinate.wgs84ToGCJ02
-            uiView.addAnnotation(annotation)
+    func updateUIView(_ uiView: MKMapView, context: Context) {
+        // 更新標記（不重設 region，讓用戶自由移動）
+        let currentIDs = Set(uiView.annotations.compactMap { ($0 as? MKPointAnnotation)?.title })
+        let newCoord = selectedCoordinate
+        if let coordinate = newCoord {
+            let title = "\(coordinate.latitude),\(coordinate.longitude)"
+            if !currentIDs.contains(title) {
+                uiView.removeAnnotations(uiView.annotations)
+                let annotation = MKPointAnnotation()
+                annotation.title = title
+                annotation.coordinate = coordinate.wgs84ToGCJ02
+                uiView.addAnnotation(annotation)
+            }
+        } else if !uiView.annotations.isEmpty {
+            uiView.removeAnnotations(uiView.annotations)
         }
     }
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(self)
     }
-    
+
     class Coordinator: NSObject, MKMapViewDelegate {
         var parent: MapViewWrapper
-        
+
         init(_ parent: MapViewWrapper) {
             self.parent = parent
         }
@@ -2820,9 +3204,7 @@ struct MapViewWrapper: UIViewRepresentable {
         }
         
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
-            DispatchQueue.main.async { [self] in
-                parent.region = mapView.region
-            }
+            // region 由 initialCenter 決定，不再回寫
         }
     }
 }
