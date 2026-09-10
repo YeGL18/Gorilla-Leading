@@ -154,6 +154,8 @@ struct BorderBeamModifier: ViewModifier {
     var cornerRadius: CGFloat
     var enableRotate: Bool = true
     var enablePulse: Bool = true
+    /// When false, the surfaceTint fill is hidden — only the animated beam/stroke remains.
+    var showSurface: Bool = true
     @State private var phase: CGFloat = 0
     @State private var breathe: CGFloat = 0
     @State private var pulse: CGFloat = 0
@@ -163,8 +165,10 @@ struct BorderBeamModifier: ViewModifier {
         let effectiveDuration = duration ?? size.duration
 
         ZStack {
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(palette.surfaceTint)
+            if showSurface {
+                RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+                    .fill(palette.surfaceTint)
+            }
 
             RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .strokeBorder(palette.hairlineColor, lineWidth: 0.6)
@@ -325,7 +329,8 @@ extension View {
         duration: Double? = nil,
         cornerRadius: CGFloat,
         enableRotate: Bool = true,
-        enablePulse: Bool = true
+        enablePulse: Bool = true,
+        showSurface: Bool = true
     ) -> some View {
         modifier(BorderBeamModifier(size: size,
                                     palette: palette,
@@ -333,7 +338,8 @@ extension View {
                                     duration: duration,
                                     cornerRadius: cornerRadius,
                                     enableRotate: enableRotate,
-                                    enablePulse: enablePulse))
+                                    enablePulse: enablePulse,
+                                    showSurface: showSurface))
     }
 
     @ViewBuilder

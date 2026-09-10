@@ -66,7 +66,9 @@ struct MapView: UIViewRepresentable {
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
+    var showSatellite: Bool = false
     var centerOffsetX: CGFloat = 0
+    var hideCompass: Bool = false
     /// Called when the user taps an empty (annotation-free) area of the map.
     /// Used to collapse the expanded capsule without blocking map pan/zoom.
     var onMapBlankTap: (() -> Void)? = nil
@@ -88,12 +90,25 @@ struct MapView: UIViewRepresentable {
         mapView.showsCompass = false
         mapView.pointOfInterestFilter = .excludingAll
         mapView.overrideUserInterfaceStyle = colorScheme == .dark ? .dark : .light
-        mapView.mapType = .standard
-        if #available(iOS 16.0, *), mapStyleIndex == 1 {
-            let config = MKStandardMapConfiguration()
-            config.emphasisStyle = .muted
-            config.elevationStyle = .realistic
-            mapView.preferredConfiguration = config
+        if showSatellite {
+            // 衛星3D模式：hybrid flyover
+            if #available(iOS 16.0, *) {
+                let config = MKHybridMapConfiguration()
+                config.elevationStyle = .realistic
+                mapView.preferredConfiguration = config
+            } else {
+                mapView.mapType = .hybridFlyover
+            }
+        } else if mapStyleIndex == 1 {
+            mapView.mapType = .standard
+            if #available(iOS 16.0, *) {
+                let config = MKStandardMapConfiguration()
+                config.emphasisStyle = .muted
+                config.elevationStyle = .realistic
+                mapView.preferredConfiguration = config
+            }
+        } else {
+            mapView.mapType = .standard
         }
         mapView.delegate = context.coordinator
         context.coordinator.mapView = mapView
@@ -131,7 +146,7 @@ struct MapView: UIViewRepresentable {
         mapView.addGestureRecognizer(parkingDrag)
 
         let compassButton = MKCompassButton(mapView: mapView)
-        compassButton.compassVisibility = .visible
+        compassButton.compassVisibility = self.hideCompass ? .hidden : .visible
         compassButton.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(compassButton)
         let top = compassButton.topAnchor.constraint(equalTo: container.safeAreaLayoutGuide.topAnchor, constant: 70)
@@ -151,6 +166,38 @@ struct MapView: UIViewRepresentable {
     func updateUIView(_ container: UIView, context: Context) {
         context.coordinator.parent = self
         guard let mapView = context.coordinator.mapView else { return }
+
+        // 更新指南針可見性
+        if let compass = context.coordinator.compassButton {
+            compass.compassVisibility = hideCompass ? .hidden : .visible
+        }
+
+        // 地圖模式切換（衛星3D）
+        if showSatellite != context.coordinator.showSatellite {
+            context.coordinator.showSatellite = showSatellite
+            if showSatellite {
+                if #available(iOS 16.0, *) {
+                    let config = MKHybridMapConfiguration()
+                    config.elevationStyle = .realistic
+                    mapView.preferredConfiguration = config
+                } else {
+                    mapView.mapType = .hybridFlyover
+                }
+            } else {
+                if #available(iOS 16.0, *), mapStyleIndex == 1 {
+                    let config = MKStandardMapConfiguration()
+                    config.emphasisStyle = .muted
+                    config.elevationStyle = .realistic
+                    mapView.preferredConfiguration = config
+                } else if #available(iOS 16.0, *) {
+                    let config = MKStandardMapConfiguration()
+                    mapView.preferredConfiguration = config
+                } else {
+                    mapView.mapType = .standard
+                }
+            }
+        }
+
         if context.coordinator.lastNorthOverrideTrackingToken != northOverrideTrackingToken {
             context.coordinator.lastNorthOverrideTrackingToken = northOverrideTrackingToken
             context.coordinator.northOverrideArmed = true
@@ -184,6 +231,8 @@ struct MapView: UIViewRepresentable {
         }
 
         if landscapeChanged {
+            // Update headingOrientation so heading tracks screen top in new orientation
+            context.coordinator.parent.locationManager.manager.headingOrientation = LocationManager.currentDeviceOrientation()
             mapView.allowCameraChange = false
             context.coordinator.autoZoomTimer?.invalidate()
             context.coordinator.autoZoomTimer = nil
@@ -349,6 +398,7 @@ struct MapView: UIViewRepresentable {
         weak var container: UIView?
         var lastFlyTrigger = 0
         var isLandscape = false
+        var showSatellite = false
         var autoZoomTimer: Timer?
         var flyTimer: Timer?
         var isFlying = false
@@ -380,7 +430,7 @@ struct MapView: UIViewRepresentable {
         
         // 驾驶速度阈值（km/h）
         private let drivingSpeedThreshold: Double = 15
-        fileprivate let drivingTrackingDistance: CLLocationDistance = 1200
+        fileprivate let drivingTrackingDistance: CLLocationDistance = 1800
         fileprivate let idleTrackingDistance: CLLocationDistance = 800
         fileprivate let drivingPitch: CGFloat = 20  // 駕駛時輕微 3D 傾斜
         fileprivate let idlePitch: CGFloat = 0      // 靜止追蹤平面視角
@@ -528,17 +578,10 @@ struct MapView: UIViewRepresentable {
             }
         }
         
-        /// 將 LocationManager 的 heading 修正為地圖座標系的 heading（橫屏時 ±90°）
+        /// LocationManager 已設 headingOrientation 跟隨裝置方向，
+        /// 所以 heading 直接就係螢幕座標系嘅方向，唔使再手動修正。
         private var correctedHeading: CLLocationDirection {
-            var h = parent.locationManager.heading
-            if let windowScene = mapView?.window?.windowScene {
-                switch windowScene.interfaceOrientation {
-                case .landscapeLeft:  h -= 90
-                case .landscapeRight: h += 90
-                default: break
-                }
-            }
-            return h
+            parent.locationManager.heading
         }
 
         func startContinuousHeading() {
@@ -1708,7 +1751,9 @@ struct VignetteMapView: View {
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
+    var showSatellite: Bool = false
     var centerOffsetX: CGFloat = 0
+    var hideCompass: Bool = false
     var onMapBlankTap: (() -> Void)? = nil
     var onSelectHKLocation: ((String, CLLocationCoordinate2D)?) -> Void = { _ in }
     @EnvironmentObject private var locationManager: LocationManager
@@ -1718,7 +1763,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: centerOffsetX, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, hideCompass: hideCompass, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

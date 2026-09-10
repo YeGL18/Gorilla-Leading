@@ -88,7 +88,7 @@ enum TimePhase: Int, CaseIterable {
         case .preDawn: return 4
         case .sunrise: return 5
         case .morning: return 7
-        case .afternoon: return 12
+        case .afternoon: return 16
         case .postSunset: return 17
         case .sunset: return 18
         }
@@ -163,67 +163,32 @@ struct SunPosition {
     let blur: CGFloat
     
     static func calculate(hour: Double) -> SunPosition {
-        // 太阳轨迹：左下 → 左上 → 右上 → 右下
-        // 5:00-7:00: 左下升起
-        // 7:00-12:00: 左上到右上
-        // 12:00-17:00: 右上到右下
-        // 17:00-19:00: 右下落下
-        
-        let visible: Bool
-        let x: CGFloat
-        let y: CGFloat
-        let scale: CGFloat
-        let blur: CGFloat
-        
-        if hour < 5 {
-            // 深夜，太阳不可见
-            visible = false
-            x = 0.2
-            y = 1.2
-            scale = 0.5
-            blur = 120
-        } else if hour < 7 {
-            // 日出：从左下升起
-            visible = true
-            let t = (hour - 5) / 2.0  // 0-1
-            x = 0.15
-            y = 1.0 - t * 0.6  // 1.0 → 0.4
-            scale = 0.6 + t * 0.4
-            blur = 80 - t * 20
-        } else if hour < 12 {
-            // 上午：左上到右上
-            visible = true
-            let t = (hour - 7) / 5.0  // 0-1
-            x = 0.15 + t * 0.7  // 0.15 → 0.85
-            y = 0.4 - t * 0.25  // 0.4 → 0.15
-            scale = 1.0
-            blur = 60
-        } else if hour < 17 {
-            // 下午：右上
-            visible = true
-            let t = (hour - 12) / 5.0  // 0-1
-            x = 0.85 - t * 0.1  // 0.85 → 0.75
-            y = 0.15 + t * 0.15  // 0.15 → 0.3
-            scale = 1.0 - t * 0.1
-            blur = 60 + t * 10
-        } else if hour < 19 {
-            // 日落：右下
-            visible = true
-            let t = (hour - 17) / 2.0  // 0-1
-            x = 0.75 + t * 0.1  // 0.75 → 0.85
-            y = 0.3 + t * 0.7  // 0.3 → 1.0
-            scale = 0.9 - t * 0.4
-            blur = 70 + t * 30
-        } else {
-            // 黄昏后，太阳不可见
-            visible = false
-            x = 0.85
-            y = 1.2
-            scale = 0.5
-            blur = 120
+        // 太陽軌跡：平滑拋物線，左邊升起 → 頂部中央 → 右邊落下
+        // 可見時間：5:00 ~ 19:00（14 小時）
+
+        guard hour >= 5, hour <= 19 else {
+            return SunPosition(x: hour < 12 ? 0.1 : 0.9, y: 1.2, visible: false, scale: 0.5, blur: 120)
         }
-        
-        return SunPosition(x: x, y: y, visible: visible, scale: scale, blur: blur)
+
+        // t: 0 = 日出 (5:00), 1 = 日落 (19:00)
+        let t = (hour - 5.0) / 14.0
+
+        // x: 線性左→右
+        let x: CGFloat = 0.1 + 0.8 * t
+
+        // y: 拋物線，頂部在 t=0.5（正午 12:00），y=0.15
+        // y = 2.8 * (t - 0.5)² + 0.15
+        // t=0 → y=0.85, t=0.5 → y=0.15, t=1 → y=0.85
+        let y: CGFloat = 2.8 * (t - 0.5) * (t - 0.5) + 0.15
+
+        // scale: 正午最大，日出日落最小
+        let noonFactor = 1.0 - 4.0 * (t - 0.5) * (t - 0.5)  // 0 at edges, 1 at noon
+        let scale: CGFloat = 0.6 + 0.4 * noonFactor
+
+        // blur: 正午最清晰，日出日落最模糊
+        let blur: CGFloat = 60 + 20 * (1.0 - noonFactor)
+
+        return SunPosition(x: x, y: y, visible: true, scale: scale, blur: blur)
     }
 }
 
@@ -278,6 +243,84 @@ class TimePhaseManager: ObservableObject {
         displayLink?.add(to: .main, forMode: .common)
         update()
     }
+
+    /// 啟動時先顯示上一個階段，再用非線性動畫轉變到當前階段（顏色 + 太陽位置）
+    func startWithEntranceAnimation() {
+        // 先正常計算當前目標（唔啟動 displayLink）
+        let savedPreview = previewHour
+        update()
+        let targetColors = blendedColors
+        let targetPhase = currentPhase
+        let targetProgress = phaseTransitionProgress
+        let targetSun = sunPosition
+        previewHour = savedPreview
+
+        // 計算上一個階段嘅顏色同太陽位置
+        let phases = TimePhase.allCases
+        let prevIndex = (targetPhase.rawValue - 1 + phases.count) % phases.count
+        let prevPhase = phases[prevIndex]
+        // 上一個階段嘅太陽位置：用上一個階段嘅起始小時計算
+        let prevSunHour = dynamicStartHours.isEmpty ? prevPhase.startHour : dynamicStartHours[prevIndex]
+        let prevSun = SunPosition.calculate(hour: prevSunHour)
+
+        // 瞬間切到上一個階段
+        isEntranceAnimating = true
+        blendedColors = BlendedPhaseColors(
+            background1: prevPhase.colors.background1,
+            background2: prevPhase.colors.background2,
+            background3: prevPhase.colors.background3,
+            sunColor: prevPhase.colors.sunColor,
+            sunOpacity: prevPhase.colors.sunIndex >= 0 ? 1 : 0,
+            sunIndex: prevPhase.colors.sunIndex
+        )
+        sunPosition = prevSun
+
+        // 用非線性動畫（easeOut cubic）過渡到當前階段
+        // 時長 5 秒：前 4 秒被 blur 蓋住，最後 1 秒 blur 淡入時見到漸變尾段
+        let duration: TimeInterval = 5.0
+        let startTime = Date()
+
+        entranceTimer?.invalidate()
+        entranceTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            let elapsed = Date().timeIntervalSince(startTime)
+            let rawT = min(elapsed / duration, 1.0)
+            // easeOut cubic: 1 - (1 - t)^3
+            let t = 1.0 - pow(1.0 - rawT, 3.0)
+
+            // 顏色漸變
+            let fromColors = prevPhase.colors
+            let toColors = targetPhase.colors
+            self.blendedColors = BlendedPhaseColors.blend(from: fromColors, to: toColors, progress: t)
+
+            // 太陽位置漸變（x, y, scale, blur）
+            self.sunPosition = SunPosition(
+                x: prevSun.x + (targetSun.x - prevSun.x) * t,
+                y: prevSun.y + (targetSun.y - prevSun.y) * t,
+                visible: prevSun.visible || targetSun.visible,
+                scale: prevSun.scale + (targetSun.scale - prevSun.scale) * t,
+                blur: prevSun.blur + (targetSun.blur - prevSun.blur) * t
+            )
+
+            if rawT >= 1.0 {
+                timer.invalidate()
+                self.entranceTimer = nil
+                self.isEntranceAnimating = false
+                self.blendedColors = targetColors
+                self.sunPosition = targetSun
+                self.currentPhase = targetPhase
+                self.phaseTransitionProgress = targetProgress
+                // 入場動畫完成後啟動 displayLink 保持實時更新
+                self.displayLink?.invalidate()
+                self.displayLink = CADisplayLink(target: self, selector: #selector(self.tick))
+                self.displayLink?.add(to: .main, forMode: .common)
+            }
+        }
+        RunLoop.main.add(entranceTimer!, forMode: .common)
+    }
+
+    private var entranceTimer: Timer?
+    private var isEntranceAnimating = false
     
     func fetchSunTimes(for location: CLLocationCoordinate2D) {
         weatherService.fetchSunTimes(for: location) { [weak self] _ in
@@ -299,6 +342,16 @@ class TimePhaseManager: ObservableObject {
         previewHour = nil
         update()
     }
+
+    /// 當前小時（預覽模式用預覽值，否則用真實時間）
+    var currentHour: Double {
+        if let preview = previewHour {
+            return preview
+        }
+        let calendar = Calendar.current
+        let components = calendar.dateComponents([.hour, .minute], from: Date())
+        return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60.0
+    }
     
     @objc private func tick(_ link: CADisplayLink) {
         update()
@@ -313,23 +366,25 @@ class TimePhaseManager: ObservableObject {
         let preDawn = deepNightEnd                          // 黎明前（微亮）
         let sunrise = sunTimes.sunriseHour - 0.15          // 日出略為提前進入
         let sunriseEnd = sunrise + 2.0                      // 日出后（日出后2小時）
-        let noon = 12.0                                     // 中午（固定）
+        let afternoon = 16.5                                   // 下午 4:30 才切換（拉長日出後藍天）
         let sunsetStart = sunTimes.sunsetHour - 0.5
         let sunset = sunTimes.sunsetHour
-        let nightStart = min(sunset + 0.5, 20.0)           // 日落後 0.5h 即入深夜（之前係 1.0h）
+        let nightStart = 20.0                                   // 深夜 8 點才開始（拉長傍晚）
         
         dynamicStartHours = [
             nightStart,     // 0 深夜（日落後0.5h開始，拉長深夜）
             preDawn,        // 1 黎明前（dawn+45min，之前係 dawn）
             sunrise,        // 2 日出
             sunriseEnd,     // 3 日出后（藍天）
-            noon,           // 4 接近下午
+            afternoon,      // 4 接近下午（15:00）
             sunsetStart,    // 5 黃昏後
             sunset          // 6 日落時分
         ]
     }
     
     private func update() {
+        // 入場動畫期間唔更新，避免覆蓋漸變
+        guard !isEntranceAnimating else { return }
         let hour: Double
         if let preview = previewHour {
             hour = preview
@@ -342,7 +397,7 @@ class TimePhaseManager: ObservableObject {
         // 如果动态时间还没准备好，使用默认值
         if dynamicStartHours.isEmpty {
             // 默认值：日落18:00，深夜從18:30開始，preDawn 4:45，日出 4:51
-            dynamicStartHours = [18.5, 4.75, 4.85, 6.85, 12, 17, 18]
+            dynamicStartHours = [20.0, 4.75, 4.85, 6.85, 16.5, 17, 18]
         }
         
         // 找到当前和下一个阶段
@@ -368,9 +423,13 @@ class TimePhaseManager: ObservableObject {
                     // - 其他（下午/日落等）：保留 80/20
                     let (holdFraction, _): (Double, Double) = {
                         switch i {
-                        case 0: return (0.92, 0.08)
-                        case 1: return (0.88, 0.12)
-                        case 2: return (0.65, 0.35)
+                        case 0: return (0.85, 0.15)  // 深夜 → 黎明前
+                        case 1: return (0.80, 0.20)  // 黎明前 → 日出
+                        case 2: return (0.60, 0.40)  // 日出 → 日出後
+                        case 3: return (0.70, 0.30)  // 日出後 → 下午
+                        case 4: return (0.65, 0.35)  // 下午 → 傍晚
+                        case 5: return (0.60, 0.40)  // 傍晚 → 日落
+                        case 6: return (0.65, 0.35)  // 日落 → 深夜
                         default: return (0.80, 0.20)
                         }
                     }()

@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import CoreLocation
 import CoreMotion
 
@@ -186,12 +187,33 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     @Published var speed: Double = 0
     @Published var smoothedSpeed: Double = 0
+
+    func resetSpeedFilter() {
+        speedKalmanFilter.reset()
+        smoothedSpeed = 0
+        speed = 0
+    }
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var gpsQuality: GPSQuality = .unknown
     @Published var currentAddress: String = ""
+    @Published var currentPOIName: String = ""  // POI 名稱（用於輪播顯示）
+    @Published var currentLocality: String = ""  // 當前城市/地區
     @Published var visits: [VisitRecord] = []
     @Published var lastLocation: CLLocation?
     @Published var heading: Double = 0
+
+    /// Convert current UI interface orientation to CLDeviceOrientation
+    /// so CLLocationManager reports heading relative to the screen top.
+    static func currentDeviceOrientation() -> CLDeviceOrientation {
+        guard let scene = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene }).first else { return .portrait }
+        switch scene.interfaceOrientation {
+        case .landscapeLeft:  return .landscapeLeft
+        case .landscapeRight: return .landscapeRight
+        case .portraitUpsideDown: return .portraitUpsideDown
+        default: return .portrait
+        }
+    }
     @Published var hasLoadedVisits: Bool = false
 
     private let visitsKey = "visit_records"
@@ -223,6 +245,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.startUpdatingLocation()
         manager.startMonitoringVisits()
         if CLLocationManager.headingAvailable() {
+            manager.headingOrientation = Self.currentDeviceOrientation()
             manager.startUpdatingHeading()
         }
         // 啟動氣壓計持續採集，用於泊車樓層預測
@@ -410,13 +433,51 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
             guard let placemark = placemarks?.first, error == nil else { return }
             DispatchQueue.main.async {
+                // 優先級：POI名 > 地區名 > 街道名
                 var parts: [String] = []
-                if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
-                    parts.append("\(street) \(number)")
-                } else if let street = placemark.thoroughfare {
-                    parts.append(street)
+                var poiName = ""
+
+                // 1. POI 名稱（例如某某醫院、商場）
+                if let aoi = placemark.areasOfInterest?.first, !aoi.isEmpty {
+                    parts.append(aoi)
+                    poiName = aoi
+                } else if let name = placemark.name, !name.isEmpty {
+                    // name 同 thoroughfare 唔一樣就當 POI
+                    if name != placemark.thoroughfare {
+                        parts.append(name)
+                        poiName = name
+                    }
                 }
-                self?.currentAddress = parts.joined(separator: " ")
+
+                // 2. 地區名（subLocality, locality）
+                if parts.isEmpty {
+                    if let sub = placemark.subLocality, !sub.isEmpty {
+                        parts.append(sub)
+                    }
+                    if let locality = placemark.locality, !locality.isEmpty,
+                       locality != placemark.subLocality {
+                        parts.append(locality)
+                    }
+                }
+
+                // 3. 街道名（最後選擇）
+                if parts.isEmpty {
+                    if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
+                        parts.append("\(street) \(number)")
+                    } else if let street = placemark.thoroughfare {
+                        parts.append(street)
+                    }
+                }
+
+                // 如果 POI 名同地址一樣，清空 POI（唔輪播）
+                let finalAddress = parts.joined(separator: " ")
+                if poiName == finalAddress {
+                    poiName = ""
+                }
+
+                self?.currentAddress = finalAddress
+                self?.currentPOIName = poiName
+                self?.currentLocality = placemark.locality ?? ""
             }
         }
     }
@@ -534,6 +595,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didUpdateHeading newHeading: CLHeading) {
+        // Keep headingOrientation in sync with actual device orientation
+        let desired = Self.currentDeviceOrientation()
+        if manager.headingOrientation != desired {
+            manager.headingOrientation = desired
+        }
         let h = newHeading.magneticHeading
         DispatchQueue.main.async {
             self.heading = h
@@ -771,6 +837,7 @@ struct ParkingLotRecord: Identifiable, Codable, Hashable {
     var radiusMeters: Double
     var createdAt: Date
     var updatedAt: Date
+    var locality: String?  // 城市/地區名（用於篩選）
     var points: [ParkingPointRecord]
     var learnedMetersPerFloor: Double?
     var learnedOffsetMeters: Double?
@@ -1197,6 +1264,7 @@ final class ParkingFloorStore: ObservableObject {
                 radiusMeters: Self.defaultRadiusMeters,
                 createdAt: now,
                 updatedAt: now,
+                locality: nil,  // 稍後由反向地理編碼填充
                 points: [inserting],
                 learnedMetersPerFloor: nil,
                 learnedOffsetMeters: nil,
@@ -1440,6 +1508,27 @@ final class ParkingFloorStore: ObservableObject {
                 newName: newName
             )
         }
+    }
+
+    /// 更新停車場嘅城市信息
+    func setLotLocality(lotID: UUID, locality: String) {
+        guard let idx = lots.firstIndex(where: { $0.id == lotID }) else { return }
+        guard lots[idx].locality == nil || lots[idx].locality?.isEmpty == true else { return }
+        lots[idx].locality = locality
+        persist()
+    }
+
+    /// 為所有冇城市信息嘅停車場批量更新
+    func updateMissingLocalities(currentLocality: String) {
+        guard !currentLocality.isEmpty else { return }
+        var changed = false
+        for i in 0..<lots.count {
+            if lots[i].locality == nil || lots[i].locality?.isEmpty == true {
+                lots[i].locality = currentLocality
+                changed = true
+            }
+        }
+        if changed { persist() }
     }
 
     /// 同步停車場名稱：搵到同一位置嘅 lot 並更新名稱（由地址叢集改名觸發）

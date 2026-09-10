@@ -32,7 +32,7 @@ final class SFXPlayer: ObservableObject {
             configureAudioSession()
             stationaryPlayer = loadPlayer(name: "sfx_enter_stationary", volume: baseVolume)
             drivingPlayer = loadPlayer(name: "sfx_enter_driving", volume: baseVolume)
-            accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: min(1.0, baseVolume * 0.95))
+            accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: min(1.0, baseVolume * 1.5))
         }
     }
     
@@ -70,7 +70,7 @@ final class SFXPlayer: ObservableObject {
         configureAudioSession()
         
         if accelerationPlayer == nil {
-            accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: min(1.0, baseVolume * 0.95))
+            accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: baseVolume * 1.5)
         }
         
         guard let player = accelerationPlayer else { return }
@@ -86,7 +86,7 @@ final class SFXPlayer: ObservableObject {
         
         player.stop()
         player.currentTime = 0
-        let targetVolume = min(1.0, baseVolume * 0.95)
+        let targetVolume = min(1.0, baseVolume * 1.5)
         player.volume = fadeInDuration > 0 ? 0 : targetVolume
         player.prepareToPlay()
         player.play()
@@ -145,7 +145,7 @@ final class SFXPlayer: ObservableObject {
             guard let self = self else { return }
             player.stop()
             player.currentTime = 0
-            player.volume = min(1.0, self.baseVolume * 0.95)
+            player.volume = min(1.0, self.baseVolume * 1.5)
             self.accelerationStopWork = nil
         }
         accelerationStopWork = stopWork
@@ -216,11 +216,11 @@ final class SFXPlayer: ObservableObject {
     private var floorCurveLockedPlayer: AVAudioPlayer?
 
     func playFloorCurveAppear() {
-        playOnceWithFadeIn(&floorCurveAppearPlayer, fallbackName: "sfx_floor_curve_appear", volumeMultiplier: 1.0, fadeDuration: 0.3)
+        playOnceWithFadeIn(&floorCurveAppearPlayer, fallbackName: "sfx_floor_curve_appear", volumeMultiplier: 1.5, fadeDuration: 0.3)
     }
 
     func playFloorCurveLocked() {
-        playOnceWithFadeIn(&floorCurveLockedPlayer, fallbackName: "sfx_floor_curve_locked", volumeMultiplier: 1.0, fadeDuration: 0.4)
+        playOnceWithFadeIn(&floorCurveLockedPlayer, fallbackName: "sfx_floor_curve_locked", volumeMultiplier: 1.5, fadeDuration: 0.4)
     }
 
     // MARK: - VLM 識別音效

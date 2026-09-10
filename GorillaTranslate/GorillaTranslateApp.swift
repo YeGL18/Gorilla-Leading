@@ -38,8 +38,18 @@ struct GorillaTranslateApp: App {
                         guard !bootstrapped else { return }
                         bootstrapped = true
 
+                        // 配置高德 SDK
+                        AMapConfig.shared.configure()
+
                         // 套用語言設定
                         LanguageManager.shared.applyLanguage()
+
+                        // 啟動動畫開關
+                        let launchAnimEnabled = UserDefaults.standard.object(forKey: "launchAnimationEnabled") as? Bool ?? true
+                        if !launchAnimEnabled {
+                            splashDone = true
+                            showSplash = false
+                        }
 
                         // 通知權限 + 前台 delegate
                         let center = UNUserNotificationCenter.current()

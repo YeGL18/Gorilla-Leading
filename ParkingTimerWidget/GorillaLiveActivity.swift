@@ -178,16 +178,6 @@ struct GorillaLockScreenView: View {
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
         .frame(height: 160)
-        .background(alignment: .topTrailing) {
-            // Soft dark halo keeps the white silhouette legible on light
-            // wallpapers behind the transparent glass.
-            Image("GorillaWatermark")
-                .resizable()
-                .scaledToFill()
-                .frame(width: 148, height: 160)
-                .opacity(0.25)
-                .shadow(color: .black.opacity(0.35), radius: 2)
-        }
     }
 }
 

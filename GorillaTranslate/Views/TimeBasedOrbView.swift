@@ -33,6 +33,30 @@ struct TimeBasedOrbView: View {
         }
     }
 
+    // 計算漸變中間色嘅位置（藍色佔比）
+    // 早上 7-9 點：0.5（藍色佔 50%）
+    // 9-11 點：0.5 → 0.9（藍色逐漸擴大到 90%）
+    // 11-14 點：0.9（藍色佔 90%）
+    // 14-16:30：0.9 → 0.5（回歸 50%）
+    private var gradientMidPoint: CGFloat {
+        let hour = phaseManager.currentHour
+
+        guard hour >= 7 && hour < 16.5 else { return 0.5 }
+
+        switch hour {
+        case 7..<9:
+            return 0.5
+        case 9..<11:
+            return 0.5 + (hour - 9) / 2 * 0.4
+        case 11..<14:
+            return 0.9
+        case 14..<16.5:
+            return 0.9 - (hour - 14) / 2.5 * 0.4
+        default:
+            return 0.5
+        }
+    }
+
     var body: some View {
         GeometryReader { geometry in
             let w = geometry.size.width
@@ -41,14 +65,15 @@ struct TimeBasedOrbView: View {
             let colors = phaseManager.blendedColors
             let sun = phaseManager.sunPosition
             let starNight = starNightIntensity
+            let midStop = gradientMidPoint
 
             ZStack {
-                // 渐变背景
+                // 渐变背景（動態調整藍色佔比）
                 LinearGradient(
-                    gradient: Gradient(colors: [
-                        colors.background1,
-                        colors.background2,
-                        colors.background3
+                    gradient: Gradient(stops: [
+                        .init(color: colors.background1, location: 0),
+                        .init(color: colors.background2, location: midStop),
+                        .init(color: colors.background3, location: 1)
                     ]),
                     startPoint: .top,
                     endPoint: .bottom

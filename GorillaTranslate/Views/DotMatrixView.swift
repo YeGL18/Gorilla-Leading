@@ -3,11 +3,24 @@ import WebKit
 
 struct DotMatrixView: View {
     @Binding var speed: Double
+    var accentColor: Color = Color.yellow
+    /// 黑武士模式下時速超過 100 時嘅動態顏色
+    var dynamicColorHex: String = "#ffd700"
+
+    private var resolvedAccentColor: Color {
+        let gold = Color(hex: "FFC46D") ?? .yellow
+        let red = Color(hex: "FF4500") ?? .red
+        if dynamicColorHex != "#ffd700" && speed > 100 {
+            let t = min(1.0, (speed - 100) / 100)
+            return Color.blend(from: gold, to: red, amount: t)
+        }
+        return accentColor
+    }
 
     var body: some View {
         VStack(spacing: 12) {
             ZStack {
-                DotMatrixWebView(speed: $speed)
+                DotMatrixWebView(speed: $speed, dynamicColorHex: dynamicColorHex)
                     .clipShape(.rect(cornerRadius: 16))
 
                 VStack(spacing: 0) {
@@ -32,7 +45,7 @@ struct DotMatrixView: View {
                 Text("\(Int(speed))")
                     .font(.system(size: 28, weight: .bold, design: .rounded))
                     .foregroundStyle(
-                        LinearGradient(colors: [.yellow, .orange], startPoint: .leading, endPoint: .trailing)
+                        LinearGradient(colors: [resolvedAccentColor, .orange], startPoint: .leading, endPoint: .trailing)
                     )
                     .contentTransition(.numericText())
                 Text("km/h")
@@ -42,7 +55,7 @@ struct DotMatrixView: View {
             }
 
             Slider(value: $speed, in: 0...240, step: 1)
-                .tint(.yellow)
+                .tint(resolvedAccentColor)
         }
     }
 }
@@ -52,6 +65,8 @@ struct DotMatrixWebView: UIViewRepresentable {
     /// canvas 嘅 CSS 縮放。時速頁傳 1.0（靠超大 canvas＋更多圓點鋪滿，
     /// 唔放大圓點）；demo 頁維持原本嘅 1.15。
     var canvasScale: CGFloat = 1.15
+    /// 黑武士模式下的動態顏色（hex string，例如 "#ffd700"）
+    var dynamicColorHex: String = "#ffd700"
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -67,16 +82,25 @@ struct DotMatrixWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        // SwiftUI re-renders this view many times per second (tilt parallax,
-        // speed changes…) — only push a new target into JS when it changed.
         let target = Int(speed)
-        guard context.coordinator.lastSentTarget != target else { return }
-        context.coordinator.lastSentTarget = target
-        webView.evaluateJavaScript("target=\(target)")
+        let colorChanged = context.coordinator.lastColor != dynamicColorHex
+        let speedChanged = context.coordinator.lastSentTarget != target
+
+        guard speedChanged || colorChanged else { return }
+
+        if speedChanged {
+            context.coordinator.lastSentTarget = target
+            webView.evaluateJavaScript("target=\(target)")
+        }
+        if colorChanged {
+            context.coordinator.lastColor = dynamicColorHex
+            webView.evaluateJavaScript("updateColor('\(dynamicColorHex)')")
+        }
     }
 
     final class Coordinator {
         var lastSentTarget: Int?
+        var lastColor: String = "#ffd700"
     }
 
     private var htmlContent: String {
@@ -102,6 +126,14 @@ struct DotMatrixWebView: UIViewRepresentable {
         var blurCanvas=document.getElementById('blur'),bCtx=blurCanvas.getContext('2d');
         var dots=[],cx,cy,mr,target=0,display=0,raf=null,lastTs=0,accumPhase=0;
         var dpr=Math.min(2,window.devicePixelRatio||1);
+        var activeColor='#ffd700', idleColor='#b8860b';
+
+        function updateColor(hex){
+            activeColor=hex;
+            // 計算較暗嘅版本作為 idle 顏色
+            var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
+            idleColor='rgb('+Math.floor(r*0.7)+','+Math.floor(g*0.7)+','+Math.floor(b*0.7)+')';
+        }
 
         function resize(){
             canvas.width=canvas.clientWidth*dpr;canvas.height=canvas.clientHeight*dpr;
@@ -110,8 +142,8 @@ struct DotMatrixWebView: UIViewRepresentable {
         }
 
         function gen(){
-            dots=[];var gap=13,cols=Math.ceil(cx*2/gap)+2,rows=Math.ceil(cy*2/gap)+2,w=cx*2,h=cy*2;
-            for(var r=-1;r<rows;r++)for(var c=-1;c<cols;c++){
+            dots=[];var gap=13,extra=4,cols=Math.ceil(cx*2/gap)+extra,rows=Math.ceil(cy*2/gap)+extra,w=cx*2,h=cy*2;
+            for(var r=-extra/2;r<rows;r++)for(var c=-extra/2;c<cols;c++){
                 var bx=(c+0.5)*gap,by=(r+0.5)*gap;
                 var dx=bx-cx,dy=by-cy,nr=Math.sqrt(dx*dx+dy*dy)/Math.max(1,mr);
                 dots.push({bx,by,dx,dy,nr,gx:bx/w,gy:by/h});
@@ -159,7 +191,7 @@ struct DotMatrixWebView: UIViewRepresentable {
             if(norm<0.01){
                 for(var i=0;i<dots.length;i++){
                     var d=dots[i];var p=distort(d,norm,w,h);
-                    ctx.globalAlpha=0.35;ctx.fillStyle='#b8860b';
+                    ctx.globalAlpha=0.35;ctx.fillStyle=idleColor;
                     ctx.beginPath();ctx.arc(p.px,p.py,0.8,0,Math.PI*2);ctx.fill();
                 }
                 ctx.restore();return;
@@ -200,7 +232,7 @@ struct DotMatrixWebView: UIViewRepresentable {
                     bCtx.translate(r.px+ox,r.py+oy);
                     bCtx.rotate(angle);
                     bCtx.globalAlpha=r.rip*0.8;
-                    bCtx.fillStyle='#ffd700';
+                    bCtx.fillStyle=activeColor;
                     bCtx.beginPath();
                     bCtx.ellipse(0,0,tl,1.0,0,0,Math.PI*2);
                     bCtx.fill();
@@ -212,10 +244,10 @@ struct DotMatrixWebView: UIViewRepresentable {
             for(var i=0;i<rd.length;i++){
                 var r=rd[i];
                 if(r.glow>0){
-                    ctx.globalAlpha=r.glow*0.006*r.dm;ctx.fillStyle='#ffd700';
+                    ctx.globalAlpha=r.glow*0.006*r.dm;ctx.fillStyle=activeColor;
                     ctx.beginPath();ctx.arc(r.px,r.py,r.rad+r.glow*0.06,0,Math.PI*2);ctx.fill();
                 }
-                ctx.globalAlpha=r.op;ctx.fillStyle=r.rip>0.08?'#ffd700':'#b8860b';
+                ctx.globalAlpha=r.op;ctx.fillStyle=r.rip>0.08?activeColor:idleColor;
                 ctx.beginPath();ctx.arc(r.px,r.py,r.rad,0,Math.PI*2);ctx.fill();
             }
             ctx.restore();

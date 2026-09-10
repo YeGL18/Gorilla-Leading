@@ -34,6 +34,7 @@ struct SpeedView: View {
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
+    @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @Environment(\.colorScheme) private var colorScheme
     
@@ -43,7 +44,7 @@ struct SpeedView: View {
     @State private var accelerationCooldownUntil: Date = .distantPast
 
     /// GPS 失聯時保留最後已知時速
-    @State private var lastKnownSpeed: Int = 0
+    @State private var lastKnownSpeed: Double = 0
     /// GPS 失聯動畫狀態（用於透明度漸變）
     @State private var gpsLostAnim: Bool = false
 
@@ -95,6 +96,8 @@ struct SpeedView: View {
                     }
                     .allowsHitTesting(false)
                 }
+            } else if darkKnightMode {
+                Color.black.ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()
@@ -121,7 +124,7 @@ struct SpeedView: View {
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
                 let textColor: Color = colorScheme == .dark ? .white : .black
-                let speedText = "\(lastKnownSpeed)"
+                let speedText = "\(Int(lastKnownSpeed))"
                 let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
                 ZStack {
                     // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
@@ -142,7 +145,7 @@ struct SpeedView: View {
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .blur(radius: adjustedBlur)
-                        .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier)
+                        .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier + (showParallaxToggle ? -10 : 0))
                     }
                     // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大。G 值模式效果更強。
                     VStack(spacing: 4) {
@@ -151,7 +154,7 @@ struct SpeedView: View {
                             .font(.system(size: 96, weight: .heavy, design: .rounded))
                             .foregroundColor(textColor.opacity(0.6 * speedOpacity))
                             .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.15), value: lastKnownSpeed)
+                            .animation(.easeInOut(duration: 0.25), value: Int(lastKnownSpeed))
                         Text("km/h")
                             .font(.title3)
                             .foregroundColor(textColor.opacity(0.6 * speedOpacity))
@@ -231,16 +234,20 @@ struct SpeedView: View {
         .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
         .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
         .onChange(of: locationManager.smoothedSpeed) { _, newSpeed in
-            // GPS 正常時持續更新最後已知時速
+            // GPS 正常時持續更新最後已知時速（用 Double 驅動平滑漸變）
             let gpsLost = locationManager.gpsQuality == .bad || locationManager.gpsQuality == .unknown
             if !gpsLost {
-                lastKnownSpeed = max(0, Int(newSpeed))
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    lastKnownSpeed = max(0, newSpeed)
+                }
             }
         }
         .onChange(of: locationManager.gpsQuality) { _, newQuality in
             let gpsLost = newQuality == .bad || newQuality == .unknown
             if !gpsLost {
-                lastKnownSpeed = max(0, Int(locationManager.smoothedSpeed))
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    lastKnownSpeed = max(0, locationManager.smoothedSpeed)
+                }
             }
             // GPS 狀態切換時播放透明度漸變動畫
             withAnimation(.easeInOut(duration: 0.5)) {
@@ -545,9 +552,9 @@ final class GForceParallaxMotion: ObservableObject {
     /// 靈敏度：約 0.5g = 滿幅（激烈煞車／急轉彎）
     private let gain: Double = 2.0
     /// 每幀 lerp 比例（以 60Hz 為基準）
-    private let smoothing: Double = 0.12
+    private let smoothing: Double = 0.08
     /// 死區：低於此值嘅微小震動忽略
-    private let deadband: Double = 0.03
+    private let deadband: Double = 0.06
 
     func start() {
         guard motion.isDeviceMotionAvailable else { return }

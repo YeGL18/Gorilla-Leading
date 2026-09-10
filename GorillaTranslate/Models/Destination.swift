@@ -8,24 +8,26 @@ struct Destination: Identifiable, Codable, Equatable {
     var name: String
     let coordinate: CLLocationCoordinate2D
     var colorHex: String
-    
+    var locality: String?  // 城市/地區名（用於篩選）
+
     // 路线相关信息
     var drivingDistance: Double? // 米
     var drivingTime: Double? // 秒
-    
+
     static func == (lhs: Destination, rhs: Destination) -> Bool {
         lhs.id == rhs.id
     }
-    
+
     enum CodingKeys: String, CodingKey {
-        case id, name, latitude, longitude, colorHex, drivingDistance, drivingTime
+        case id, name, latitude, longitude, colorHex, locality, drivingDistance, drivingTime
     }
-    
-    init(id: UUID = UUID(), name: String, coordinate: CLLocationCoordinate2D, colorHex: String) {
+
+    init(id: UUID = UUID(), name: String, coordinate: CLLocationCoordinate2D, colorHex: String, locality: String? = nil) {
         self.id = id
         self.name = name
         self.coordinate = coordinate
         self.colorHex = colorHex
+        self.locality = locality
     }
     
     init(from decoder: Decoder) throws {

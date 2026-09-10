@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 70;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -12,6 +12,7 @@
 		05B1C5EE301837BC00589328 /* ParkingTimerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		110F68C8F30F7220369D4617 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */; };
 		157F6325A2902DAE2BD0FCFA /* SpeedSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */; };
+		41C57E1A8C339168DC763715 /* Pods_GorillaTranslate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B8595F45FC31A08180F0BDB4 /* Pods_GorillaTranslate.framework */; };
 		712AB096BC3B75DE0BA4E278 /* RoseFourView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */; };
 		A10001 /* GorillaTranslateApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20001 /* GorillaTranslateApp.swift */; };
 		A10002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20002 /* ContentView.swift */; };
@@ -52,6 +53,14 @@
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
 		P10005 /* MetaballEffect.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10004 /* MetaballEffect.metal */; };
 		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
+		AM10001 /* AMapConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20001 /* AMapConfig.swift */; };
+		AM10002 /* AmapNaviManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20002 /* AmapNaviManager.swift */; };
+		AM10003 /* FloatingLaneGuidanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20003 /* FloatingLaneGuidanceView.swift */; };
+		AM10005 /* LaneNavigationTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20005 /* LaneNavigationTestView.swift */; };
+		AM10006 /* AmapNaviTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20006 /* AmapNaviTestView.swift */; };
+		AM10007 /* CapsuleLightEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20007 /* CapsuleLightEffect.swift */; };
+		AM10008 /* LightDistortion.metal in Sources */ = {isa = PBXBuildFile; fileRef = AM20008 /* LightDistortion.metal */; };
+		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -69,12 +78,14 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		00B56AD3AD702332D6DFC29E /* Pods-GorillaTranslate.release.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GorillaTranslate.release.xcconfig"; path = "Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate.release.xcconfig"; sourceTree = "<group>"; };
 		05B1C5D33018374D00589328 /* GorillaTranslate.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GorillaTranslate.entitlements; sourceTree = "<group>"; };
 		05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ParkingTimerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		05B1C5DA301837BB00589328 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		05B1C5DC301837BB00589328 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		05B1C5F4301837EA00589328 /* ParkingTimerWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ParkingTimerWidgetExtension.entitlements; sourceTree = "<group>"; };
 		186CBC60988AE080898F728D /* TimeBasedOrbView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeBasedOrbView.swift; sourceTree = "<group>"; };
+		466C90E74591632D7D4EF408 /* Pods-GorillaTranslate.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GorillaTranslate.debug.xcconfig"; path = "Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate.debug.xcconfig"; sourceTree = "<group>"; };
 		65605E6361F50510E915CAAA /* MorphingText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MorphingText.swift; path = GorillaTranslate/Views/MorphingText.swift; sourceTree = "<group>"; };
 		759D5AC501F16B3C56606AE5 /* WeatherService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = WeatherService.swift; sourceTree = "<group>"; };
 		7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SpeedSimulationView.swift; sourceTree = "<group>"; };
@@ -94,6 +105,7 @@
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
 		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
+		B8595F45FC31A08180F0BDB4 /* Pods_GorillaTranslate.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = Pods_GorillaTranslate.framework; sourceTree = BUILT_PRODUCTS_DIR; };
 		C20001 /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
 		C2A001HK0001 /* HKTaxiExamLocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HKTaxiExamLocations.swift; sourceTree = "<group>"; };
 		D20001 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
@@ -120,10 +132,18 @@
 		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
 		P10004 /* MetaballEffect.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = MetaballEffect.metal; sourceTree = "<group>"; };
 		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
+		AM20001 /* AMapConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMapConfig.swift; sourceTree = "<group>"; };
+		AM20002 /* AmapNaviManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviManager.swift; sourceTree = "<group>"; };
+		AM20003 /* FloatingLaneGuidanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLaneGuidanceView.swift; sourceTree = "<group>"; };
+		AM20005 /* LaneNavigationTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneNavigationTestView.swift; sourceTree = "<group>"; };
+		AM20006 /* AmapNaviTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviTestView.swift; sourceTree = "<group>"; };
+		AM20007 /* CapsuleLightEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapsuleLightEffect.swift; sourceTree = "<group>"; };
+		AM20008 /* LightDistortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = LightDistortion.metal; path = GorillaTranslate/Shaders/LightDistortion.metal; sourceTree = "<group>"; };
+		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -133,8 +153,29 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ParkingTimerWidget; sourceTree = "<group>"; };
-		SH2001 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
+		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = ParkingTimerWidget;
+			sourceTree = "<group>";
+		};
+		SH2001 /* Shared */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -151,6 +192,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				41C57E1A8C339168DC763715 /* Pods_GorillaTranslate.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -162,8 +204,19 @@
 			children = (
 				05B1C5DA301837BB00589328 /* WidgetKit.framework */,
 				05B1C5DC301837BB00589328 /* SwiftUI.framework */,
+				B8595F45FC31A08180F0BDB4 /* Pods_GorillaTranslate.framework */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		97520130FC61B9649E283D23 /* Pods */ = {
+			isa = PBXGroup;
+			children = (
+				466C90E74591632D7D4EF408 /* Pods-GorillaTranslate.debug.xcconfig */,
+				00B56AD3AD702332D6DFC29E /* Pods-GorillaTranslate.release.xcconfig */,
+			);
+			name = Pods;
+			path = Pods;
 			sourceTree = "<group>";
 		};
 		A40001 = {
@@ -176,6 +229,7 @@
 				05B1C5D9301837BB00589328 /* Frameworks */,
 				A40005 /* Products */,
 				65605E6361F50510E915CAAA /* MorphingText.swift */,
+				97520130FC61B9649E283D23 /* Pods */,
 			);
 			sourceTree = "<group>";
 		};
@@ -212,6 +266,8 @@
 				759D5AC501F16B3C56606AE5 /* WeatherService.swift */,
 				F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */,
 				LA20002 /* GorillaActivityManager.swift */,
+				AM20001 /* AMapConfig.swift */,
+				AM20002 /* AmapNaviManager.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -231,6 +287,11 @@
 				F3A0A007B2C3D4E5F6071829 /* LiquidGlassCapsuleDemo.swift */,
 				P10006 /* LaunchAnimationView.swift */,
 				LA20003 /* LiveActivityPreviewTestView.swift */,
+				AM20003 /* FloatingLaneGuidanceView.swift */,
+				AM20005 /* LaneNavigationTestView.swift */,
+				AM20006 /* AmapNaviTestView.swift */,
+				AM20007 /* CapsuleLightEffect.swift */,
+				AM20009 /* PredictionTestView.swift */,
 			);
 			path = Views;
 			sourceTree = "<group>";
@@ -331,10 +392,12 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = A70001 /* Build configuration list for PBXNativeTarget "GorillaTranslate" */;
 			buildPhases = (
+				F517111FE672AAA01EAA9C80 /* [CP] Check Pods Manifest.lock */,
 				A60001 /* Sources */,
 				A30001 /* Frameworks */,
 				A60002 /* Resources */,
 				05B1C5F3301837BC00589328 /* Embed Foundation Extensions */,
+				6448A34CA92242B19D175B16 /* [CP] Copy Pods Resources */,
 			);
 			buildRules = (
 			);
@@ -414,6 +477,48 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		6448A34CA92242B19D175B16 /* [CP] Copy Pods Resources */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources-${CONFIGURATION}-input-files.xcfilelist",
+			);
+			name = "[CP] Copy Pods Resources";
+			outputFileListPaths = (
+				"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources.sh\"\n";
+			showEnvVarsInLog = 0;
+		};
+		F517111FE672AAA01EAA9C80 /* [CP] Check Pods Manifest.lock */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"${PODS_PODFILE_DIR_PATH}/Podfile.lock",
+				"${PODS_ROOT}/Manifest.lock",
+			);
+			name = "[CP] Check Pods Manifest.lock";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(DERIVED_FILE_DIR)/Pods-GorillaTranslate-checkManifestLockResult.txt",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "diff \"${PODS_PODFILE_DIR_PATH}/Podfile.lock\" \"${PODS_ROOT}/Manifest.lock\" > /dev/null\nif [ $? != 0 ] ; then\n    # print error to STDERR\n    echo \"error: The sandbox is not in sync with the Podfile.lock. Run 'pod install' or update your CocoaPods installation.\" >&2\n    exit 1\nfi\n# This output is used by Xcode 'outputs' to avoid re-running this script phase.\necho \"SUCCESS\" > \"${SCRIPT_OUTPUT_FILE_0}\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		05B1C5D4301837BA00589328 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -457,6 +562,14 @@
 				P10007 /* LaunchAnimationView.swift in Sources */,
 				LA10002 /* GorillaActivityManager.swift in Sources */,
 				LA10003 /* LiveActivityPreviewTestView.swift in Sources */,
+				AM10001 /* AMapConfig.swift in Sources */,
+				AM10002 /* AmapNaviManager.swift in Sources */,
+				AM10003 /* FloatingLaneGuidanceView.swift in Sources */,
+				AM10005 /* LaneNavigationTestView.swift in Sources */,
+				AM10006 /* AmapNaviTestView.swift in Sources */,
+				AM10007 /* CapsuleLightEffect.swift in Sources */,
+				AM10008 /* LightDistortion.metal in Sources */,
+				AM10009 /* PredictionTestView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -580,7 +693,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -642,7 +755,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -662,6 +775,7 @@
 		};
 		A90003 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 466C90E74591632D7D4EF408 /* Pods-GorillaTranslate.debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -707,6 +821,7 @@
 		};
 		A90004 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 00B56AD3AD702332D6DFC29E /* Pods-GorillaTranslate.release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;

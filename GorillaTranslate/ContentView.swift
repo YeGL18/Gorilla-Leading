@@ -87,16 +87,16 @@ struct ContentView: View {
     @StateObject private var photoStorage = PhotoStorage()
     @StateObject private var sfxPlayer = SFXPlayer()
     @ObservedObject private var tripPredictor = TripPredictor.shared
+    @StateObject private var naviManager = AmapNaviManager.shared
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @State private var isInForeground = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     
     @State private var selectedTab: Int = 1
-    @State private var showAvatarMode: Bool = false
-    @State private var isMuted: Bool = false
     @State private var showVehiclePicker: Bool = false
     @State private var selectedVehicleBrand: String = "BMW"
     @State private var selectedVehicleModel: String = "X5"
@@ -105,6 +105,7 @@ struct ContentView: View {
     @State private var revealedCount = 0
     @State private var sparklePhase = false
     @State private var showMap = false
+    @State private var showSatellite = false  // 三態：光球→地圖→衛星3D→光球
     @State private var mapRegion: MKCoordinateRegion?
     @State private var mapCamera: MKMapCamera?
     @State private var hasShownMapFirstTime = false
@@ -139,6 +140,9 @@ struct ContentView: View {
     @State private var roseOpacity: Double = 1.0
     @State private var roseBlurRadius: Double = 0.0
     @State private var addressRevealProgress: Double = 0.0
+    // 地址輪播（POI名稱 ↔ 街道名）
+    @State private var showPOIName: Bool = true
+    @State private var addressAlternatingTimer: Timer?
     @State private var parkingEntryTime: Date = Date()
     @State private var parkingTimer: Timer?
     @State private var parkingElapsed: TimeInterval = 0
@@ -148,6 +152,8 @@ struct ContentView: View {
     @State private var capsuleUpdateTimer: Timer?
     @State private var stationaryTimer: Timer?
     @State private var stationaryStartTime: Date?
+    @State private var walkingStartTime: Date?
+    @State private var cyclingStartTime: Date?
     @State private var stationaryElapsed: TimeInterval = 0
     @State private var showCheckmarkAnimation = false
     @State private var departureTimerID: UUID?
@@ -169,6 +175,7 @@ struct ContentView: View {
     @State private var animatingPhotoPhase: Int = 0  // 0 = full size, 1 = shrunk to thumbnail
     @State private var animatingPhotoOffsetX: CGFloat = 0
     @State private var animatingPhotoOffsetY: CGFloat = 0
+    @State private var animatingPhotoRotation: Double = 0
     @State private var isCapturing = false
     @State private var isCameraActive = true
     @State private var cameraInactivityTimer: Timer?
@@ -256,6 +263,12 @@ struct ContentView: View {
     @State private var showFloorConfirm = false
     @State private var parkingRecognizedDisplayText: String? = nil
     @State private var hasConfirmedFloorThisSession = false
+    /// Barometer-preserved floor index before LLM overwrites — used to revert on "No"
+    @State private var pendingOriginalFloorIndex: Int? = nil
+    /// The LLM-detected floor text that is awaiting user confirmation
+    @State private var pendingFloorText: String? = nil
+    /// The LLM-detected floor index awaiting confirmation
+    @State private var pendingFloorIndex: Int? = nil
     @State private var isRecognizing = false
     // LLM Parking Recognition state
     @State private var llmSpotNumber: String? = nil
@@ -273,6 +286,10 @@ struct ContentView: View {
     @State private var parkingInfoDisplayMode: Bool = true
     @State private var parkingInfoSwitchTimer: Timer? = nil
     @State private var showRecognitionLogicAlert = false
+    @State private var showSpotEditor = false
+    @State private var editSpotNumber: String = ""
+    @State private var editAreaCode: String = ""
+    @State private var editFloorText: String = ""
     @State private var parkingPhotoContributions: [UUID: [String: String]] = [:]
     @State private var currentRecognizingPhotoID: UUID? = nil
     @State private var parkingOrbBoost: Double = 1.0
@@ -289,6 +306,25 @@ struct ContentView: View {
     @State private var floorCurveAppearTime: Date? = nil
     @State private var floorCurveLockAnimating: Bool = false
     @State private var isFloorCurveInCapsule: Bool = false
+    // 光效動畫
+    @State private var lightEffectProgress: CGFloat = 0        // 0.0→1.0 光帶位置
+    @State private var lightEffectIsFadingOut: Bool = false     // 是否正在自動消失
+    @State private var lightEffectFadeProgress: CGFloat = 0    // 消失進度
+    @State private var lightEffectDismissWorkItem: DispatchWorkItem?
+
+    /// 光效高斯模糊強度（0→12pt）
+    private var lightEffectBlur: CGFloat {
+        let p = lightEffectIsFadingOut ? max(0, 1 - lightEffectFadeProgress) : lightEffectProgress
+        let eased = p * p * p * (p * (p * 6 - 15) + 10)
+        return eased * 12
+    }
+
+    /// 光效光學扭曲強度（0→1，純視覺效果，唔影響佈局）
+    private var lightEffectDistortionStrength: CGFloat {
+        let p = lightEffectIsFadingOut ? max(0, 1 - lightEffectFadeProgress) : lightEffectProgress
+        let eased = p * p * p * (p * (p * 6 - 15) + 10)
+        return eased
+    }
     @State private var isOrbRecognizingBoost: Bool = false
     @State private var orbGradualStopTimer: Timer?
     @State private var drivingETASeconds: TimeInterval?
@@ -311,6 +347,10 @@ struct ContentView: View {
     @AppStorage("orbParkingMemory") private var orbParkingMemory: Bool = true
     @AppStorage("orbBackgroundHome") private var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
+    @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
+    @State private var darkKnightActivatedByFocus = false  // 是否由極致專注模式自動開啟
+    /// 黑武士模式地圖圓角（橫屏更大）
+    private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 50 : 44 }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("parkingTimerColorHex") private var parkingTimerColorHex: String = "46ADB8"
@@ -335,7 +375,18 @@ struct ContentView: View {
         let defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
         if let savedTime = defaults.object(forKey: "parkingStartTime") as? Date {
             let departed = defaults.bool(forKey: "hasDeparted")
-            if !departed {
+            let savedManualDeparted = defaults.bool(forKey: "manualDeparted")
+            if departed && savedManualDeparted {
+                // Restore manually-departed state — parked then left
+                _hasDeparted = State(initialValue: true)
+                _manualDeparted = State(initialValue: true)
+                _timerRunning = State(initialValue: false)
+                _parkingStartTime = State(initialValue: savedTime)
+                if let savedDepTime = defaults.object(forKey: "parkingDepartureTime") as? Date {
+                    _departureTime = State(initialValue: savedDepTime)
+                    _departureElapsed = State(initialValue: Date().timeIntervalSince(savedDepTime))
+                }
+            } else if !departed {
                 _parkingStartTime = State(initialValue: savedTime)
                 _parkingEntryTime = State(initialValue: savedTime)
                 _hasDeparted = State(initialValue: false)
@@ -396,12 +447,22 @@ struct ContentView: View {
     var body: some View {
         ZStack {
         TabView(selection: $selectedTab) {
-            SpeedView(showMap: showMap && !focusActive, animationClock: animationClock, mapCamera: $mapCamera, focusMode: $focusMode, focusFrameRate: $focusFrameRate, onEnterFocus: enterFocusMode, onExitFocus: exitFocusMode)
+            SpeedView(showMap: (showMap || showSatellite) && !focusActive, animationClock: animationClock, mapCamera: $mapCamera, focusMode: $focusMode, focusFrameRate: $focusFrameRate, onEnterFocus: enterFocusMode, onExitFocus: exitFocusMode)
                 .environment(\.colorScheme, effectiveColorScheme)
                 .tabItem {
                     Label(String(localized: "Speed"), systemImage: "speedometer")
                 }
                 .tag(0)
+                .onAppear {
+                    updateTabBarAppearance()
+                }
+                .onChange(of: darkKnightMode) { _, newValue in
+                    updateTabBarAppearance()
+                    // 手動關閉黑武士模式時，清除自動開啟標記
+                    if !newValue {
+                        darkKnightActivatedByFocus = false
+                    }
+                }
 
             NavigationStack {
                 homeContent
@@ -414,11 +475,16 @@ struct ContentView: View {
                 animationClock.start()
                 guard !hasPlayedEntrance else { return }
                 hasPlayedEntrance = true
-                triggerEntranceEffect()
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                    withAnimation(.easeOut(duration: 1.2)) {
-                        capsuleAppeared = true
+                let launchAnimEnabled = UserDefaults.standard.object(forKey: "launchAnimationEnabled") as? Bool ?? true
+                if launchAnimEnabled {
+                    triggerEntranceEffect()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        withAnimation(.easeOut(duration: 1.2)) {
+                            capsuleAppeared = true
+                        }
                     }
+                } else {
+                    capsuleAppeared = true
                 }
             }
 
@@ -433,7 +499,8 @@ struct ContentView: View {
         .onAppear {
             animationClock.start()
             if orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
-                timePhaseManager.start()
+                // 立即啟動入場動畫（同 blur 淡入同步進行）
+                timePhaseManager.startWithEntranceAnimation()
             }
             UIApplication.shared.isIdleTimerDisabled = true
             DispatchQueue.main.async {
@@ -454,8 +521,11 @@ struct ContentView: View {
             stopCapsuleUpdateTimer()
         }
         .onChange(of: scenePhase) { _, phase in
+            isInForeground = (phase == .active)
             if phase == .active {
                 DispatchQueue.main.async {
+                    // 重置速度濾波器，避免殘留舊值
+                    locationManager.resetSpeedFilter()
                     locationManager.startLocationServicesIfNeeded()
                     refreshVisitAndTimersForForeground()
                     // Force the Live Activity to re-render with the latest
@@ -484,6 +554,10 @@ struct ContentView: View {
             // 追蹤低速時的 GPS 位置（用於修正泊車位置）
             if parkingFloorStore.barometer.currentSpeedKmh < 20 {
                 parkingFloorStore.lastStationaryCoordinate = location.coordinate
+            }
+            // 有目的地時自動刷新 ETA
+            if destinationManager.selectedDestination != nil {
+                refreshETA()
             }
         }
         .onReceive(locationManager.$lastLocation) { location in
@@ -523,11 +597,11 @@ struct ContentView: View {
                     // 系統自動偵測到離開 — 推送通知
                     let content = UNMutableNotificationContent()
                     if isNonAutomotiveArrival && !hasParkingSpotData {
-                        content.title = String(localized: "Gorilla 逗留記憶")
-                        content.body = String(localized: "逗留已退出")
+                        content.title = String(localized: "Gorilla 記憶")
+                        content.body = String(localized: "記憶已退出")
                     } else {
-                        content.title = String(localized: "Gorilla 泊車記憶")
-                        content.body = String(localized: "泊車已退出")
+                        content.title = String(localized: "Gorilla 記憶")
+                        content.body = String(localized: "記憶已退出")
                     }
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-departed-\(UUID().uuidString)", content: content, trigger: nil)
@@ -556,6 +630,9 @@ struct ContentView: View {
             } else {
                 // 新的到訪：自動開始計時
                 let newArrival = lastVisit.arrivalDate
+                // Guard: if user manually departed, the old visit is still active — don't restart
+                // unless this is genuinely a different arrival (new visit event)
+                if manualDeparted && newArrival == parkingStartTime { return }
                 if lastKnownArrivalDate != newArrival {
                     lastKnownArrivalDate = newArrival
                     parkingEntryTime = newArrival
@@ -571,11 +648,11 @@ struct ContentView: View {
                     // 系統自動偵測到泊車 — 推送通知
                     let content = UNMutableNotificationContent()
                     if isNonAutomotiveArrival && !hasParkingSpotData {
-                        content.title = String(localized: "Gorilla 逗留記憶")
-                        content.body = String(localized: "逗留已開啟")
+                        content.title = String(localized: "Gorilla 記憶")
+                        content.body = String(localized: "記憶已開啟")
                     } else {
-                        content.title = String(localized: "Gorilla 泊車記憶")
-                        content.body = String(localized: "泊車已開啟")
+                        content.title = String(localized: "Gorilla 記憶")
+                        content.body = String(localized: "記憶已開啟")
                     }
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
@@ -655,7 +732,119 @@ struct ContentView: View {
             .transition(.opacity)
             .zIndex(100)
         }
+
+        // MARK: - 懸浮車道導航框（常態化：有目的地時自動顯示）
+        VStack {
+            FloatingLaneGuidanceView(naviManager: naviManager)
+                .padding(.top, 60)
+            Spacer()
+        }
+        .allowsHitTesting(naviManager.showLaneGuidance)
+        .onChange(of: destinationManager.selectedDestination?.id) { _, _ in
+            // 目的地變更時，自動開始/停止車道導航
+            syncLaneNavigation()
+        }
+        .onAppear {
+            syncLaneNavigation()
+        }
+
         } // ZStack
+    }
+
+    // MARK: - 地址輪播（POI名稱 ↔ 街道名）
+    private func startAddressAlternatingIfNeeded() {
+        addressAlternatingTimer?.invalidate()
+        addressAlternatingTimer = nil
+
+        let hasPOI = !locationManager.currentPOIName.isEmpty
+        let hasAddress = !locationManager.currentAddress.isEmpty
+        let streetName = hasPOI ? locationManager.currentAddress : ""
+
+        guard hasPOI && hasAddress && streetName != locationManager.currentPOIName else {
+            showPOIName = false
+            return
+        }
+
+        let isDriving = locationManager.speed >= 8
+
+        // 開車時：街道名 10 秒 → POI 名 2 秒 → 循環
+        // 停車瞬間：切換到 POI，然後 POI 2 秒 → 街道名 10 秒 → 循環
+        showPOIName = isDriving ? false : true
+
+        addressAlternatingTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: true) { _ in
+            DispatchQueue.main.async {
+                let driving = self.locationManager.speed >= 8
+                if driving {
+                    // 開車：街道名 10 秒 → POI 2 秒
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        self.showPOIName = false
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                        guard self.addressAlternatingTimer != nil else { return }
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            self.showPOIName = true
+                        }
+                    }
+                } else {
+                    // 停車：POI 2 秒 → 街道名 10 秒
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        self.showPOIName = true
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        guard self.addressAlternatingTimer != nil else { return }
+                        withAnimation(.easeInOut(duration: 0.4)) {
+                            self.showPOIName = false
+                        }
+                    }
+                }
+            }
+        }
+
+        // 第一個切換
+        if isDriving {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
+                guard self.addressAlternatingTimer != nil else { return }
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    self.showPOIName = true
+                }
+            }
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                guard self.addressAlternatingTimer != nil else { return }
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    self.showPOIName = false
+                }
+            }
+        }
+    }
+
+    /// 當前顯示嘅地址文字（考慮輪播）
+    private var displayAddress: String {
+        let hasPOI = !locationManager.currentPOIName.isEmpty
+        let streetName = locationManager.currentAddress
+
+        if hasPOI && !streetName.isEmpty && streetName != locationManager.currentPOIName {
+            return showPOIName ? locationManager.currentPOIName : streetName
+        }
+        return locationManager.currentAddress
+    }
+
+    // MARK: - 同步車道導航（有目的地時自動開始，無時停止）
+    private func syncLaneNavigation() {
+        if let dest = destinationManager.selectedDestination {
+            let currentLoc = locationManager.lastLocation?.coordinate
+            if let loc = currentLoc {
+                // 有目的地 + 有當前位置 → 自動開始靜默導航
+                if !naviManager.isNavigating {
+                    naviManager.startSilentNavigation(to: dest)
+                }
+            }
+        } else {
+            // 冇目的地 → 停止導航
+            if naviManager.isNavigating {
+                naviManager.stopNavigation()
+            }
+        }
     }
 
     // MARK: - Home Content
@@ -680,7 +869,6 @@ struct ContentView: View {
                                     withAnimation(.easeInOut(duration: 0.3)) {
                                         showSpeedInfo = true
                                     }
-                                    startRandomInfoTimer()
                                 }
                             }
                         }
@@ -692,33 +880,159 @@ struct ContentView: View {
                             addressRevealProgress = 0
                         }
                     }
+                    // 啟動/停止地址輪播
+                    startAddressAlternatingIfNeeded()
+                }
+                .onChange(of: locationManager.currentPOIName) { _, _ in
+                    startAddressAlternatingIfNeeded()
+                }
+                .onChange(of: locationManager.currentLocality) { _, newLocality in
+                    if !newLocality.isEmpty {
+                        parkingFloorStore.updateMissingLocalities(currentLocality: newLocality)
+                    }
+                }
+                .onChange(of: locationManager.speed) { _, newSpeed in
+                    // 時速跨越 8 km/h 閾值時重新啟動輪播
+                    let wasDriving = showPOIName == false  // 之前顯示街道名 = 開車中
+                    let isNowDriving = newSpeed >= 8
+                    if wasDriving != isNowDriving {
+                        startAddressAlternatingIfNeeded()
+                    }
                 }
             ZStack {
-            if showMap {
-                VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
-                    withAnimation(.easeOut(duration: 0.28)) {
-                        selectedParkingPointID = id
+            if showMap || showSatellite {
+                if darkKnightMode {
+                    // 黑武士模式：地圖喺圓角容器內，邊緣模糊+暗邊，向中心減弱
+                    Color.black.ignoresSafeArea()
+
+                    ZStack {
+                        // 底層：模糊版地圖（邊緣模糊效果）
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, hideCompass: true, onMapBlankTap: {}, onSelectHKLocation: { _ in })
+                        .blur(radius: 25)
+                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        .allowsHitTesting(false)
+
+                        // 頂層：清晰地圖（中心區域，邊緣透明）
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                            withAnimation(.easeOut(duration: 0.28)) {
+                                selectedParkingPointID = id
+                            }
+                        }, onMoveParkingPoint: { id, coordinate in
+                            parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
+                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, hideCompass: true, onMapBlankTap: {
+                            guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                                isCapsuleExpanded = false
+                                isParkingMemoryExpanded = false
+                                selectedPhotoIndex = nil
+                                showDeleteButton = false
+                                capsuleOnRight = false
+                            }
+                        }, onSelectHKLocation: { loc in
+                            withAnimation(.easeOut(duration: 0.28)) {
+                                selectedHKLocation = loc
+                            }
+                        })
+                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        // 徑向遮罩：中心清晰，邊緣透明（露出底層模糊版）
+                        .mask(
+                            RadialGradient(
+                                colors: [
+                                    .white,
+                                    .white,
+                                    .white.opacity(0.7),
+                                    .white.opacity(0.3),
+                                    .clear,
+                                ],
+                                center: .center,
+                                startRadius: 60,
+                                endRadius: 280
+                            )
+                        )
+
+                        // 暗邊層：圓角矩形同心描邊（由外到內漸變）
+                        let cr = darkKnightMapCornerRadius
+                        ZStack {
+                            RoundedRectangle(cornerRadius: cr + 16).stroke(Color.black, lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr + 10).stroke(Color.black.opacity(0.9), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr + 4).stroke(Color.black.opacity(0.8), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr - 2).stroke(Color.black.opacity(0.65), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr - 8).stroke(Color.black.opacity(0.5), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr - 14).stroke(Color.black.opacity(0.35), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr - 20).stroke(Color.black.opacity(0.2), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr - 26).stroke(Color.black.opacity(0.1), lineWidth: 5)
+                            RoundedRectangle(cornerRadius: cr - 32).stroke(Color.black.opacity(0.0), lineWidth: 5)
+                        }
+                        .allowsHitTesting(false)
+
+                        // 直暗邊：上
+                        VStack(spacing: 0) {
+                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 60)
+                            Spacer()
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        .allowsHitTesting(false)
+
+                        // 直暗邊：下
+                        VStack(spacing: 0) {
+                            Spacer()
+                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
+                                .frame(height: 60)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        .allowsHitTesting(false)
+
+                        // 直暗邊：左
+                        HStack(spacing: 0) {
+                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 60)
+                            Spacer()
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        .allowsHitTesting(false)
+
+                        // 直暗邊：右
+                        HStack(spacing: 0) {
+                            Spacer()
+                            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
+                                .frame(width: 60)
+                        }
+                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        .allowsHitTesting(false)
                     }
-                }, onMoveParkingPoint: { id, coordinate in
-                    parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
-                }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, onMapBlankTap: {
-                    // 點擊地圖空白處收縮膠囊 — 由 MKMapView 自己嘅 tap
-                    // gesture 處理，所以展開時依然可以正常拖動/縮放地圖
-                    // （舊版用全屏透明 overlay 接 tap，會擋住地圖操作）
-                    guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                        isCapsuleExpanded = false
-                        isParkingMemoryExpanded = false
-                        selectedPhotoIndex = nil
-                        showDeleteButton = false
-                        capsuleOnRight = false
-                    }
-                }, onSelectHKLocation: { loc in
-                    withAnimation(.easeOut(duration: 0.28)) {
-                        selectedHKLocation = loc
-                    }
-                })
+                    .clipShape(RoundedRectangle(cornerRadius: isLandscape ? 50 : 44))
+                    .padding(.horizontal, isLandscape ? 80 : 20)
+                    .padding(.top, isLandscape ? 50 : 100)
+                    .padding(.bottom, isLandscape ? 10 : 120)
+                    .transition(.opacity.animation(.easeInOut(duration: 0.8)))
+                } else {
+                    // 正常模式：全屏地圖
+                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                        withAnimation(.easeOut(duration: 0.28)) {
+                            selectedParkingPointID = id
+                        }
+                    }, onMoveParkingPoint: { id, coordinate in
+                        parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
+                    }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, onMapBlankTap: {
+                        guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            isCapsuleExpanded = false
+                            isParkingMemoryExpanded = false
+                            selectedPhotoIndex = nil
+                            showDeleteButton = false
+                            capsuleOnRight = false
+                        }
+                    }, onSelectHKLocation: { loc in
+                        withAnimation(.easeOut(duration: 0.28)) {
+                            selectedHKLocation = loc
+                        }
+                    })
                     .ignoresSafeArea()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
+                }
+            } else if darkKnightMode {
+                Color.black.ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
                     .ignoresSafeArea()
@@ -726,7 +1040,7 @@ struct ContentView: View {
 
             // 冇開地圖時嘅收縮膠囊 fallback（開咗地圖就由 MKMapView 自己嘅
             // tap gesture 處理，噉先唔會擋住地圖操作）
-            if (isCapsuleExpanded || isParkingMemoryExpanded || showingExpandedPhotos) && !showMap {
+            if (isCapsuleExpanded || isParkingMemoryExpanded || showingExpandedPhotos) && !showMap && !showSatellite {
                 Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture {
@@ -748,18 +1062,21 @@ struct ContentView: View {
                     HStack(alignment: .center) {
                         // 液態玻璃標題
                         let titleText = Text(String(localized: "🦍 Gorilla")).font(.largeTitle.bold())
+                        let goldColor = Color(hex: "FFC46D")
                         ZStack {
                             // 玻璃材料
-                            Color.white.opacity(0.01)
+                            (darkKnightMode ? goldColor.opacity(0.15) : Color.white.opacity(0.01))
                                 .frame(width: 220, height: 50)
                                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
                                 .mask(titleText)
 
-                            // 頂部高光邊緣（描邊加強）
+                            // 頂部高光邊緣
                             titleText
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.white.opacity(0.9), .clear],
+                                        colors: darkKnightMode
+                                            ? [goldColor.opacity(0.9), .clear]
+                                            : [.white.opacity(0.9), .clear],
                                         startPoint: .top,
                                         endPoint: .bottom
                                     )
@@ -767,11 +1084,13 @@ struct ContentView: View {
                                 .blendMode(.overlay)
                                 .opacity(0.8)
 
-                            // 左上斜角高光（描邊加強）
+                            // 左上斜角高光
                             titleText
                                 .foregroundStyle(
                                     LinearGradient(
-                                        colors: [.white.opacity(0.7), .clear, .white.opacity(0.35)],
+                                        colors: darkKnightMode
+                                            ? [goldColor.opacity(0.7), .clear, goldColor.opacity(0.35)]
+                                            : [.white.opacity(0.7), .clear, .white.opacity(0.35)],
                                         startPoint: .topLeading,
                                         endPoint: .bottomTrailing
                                     )
@@ -799,11 +1118,11 @@ struct ContentView: View {
                     Spacer(minLength: 0)
 
                     let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isFloorCurveInCapsule ? -170 : (isCapsuleExpanded ? -140 : 0))) : 0
-                    let landscapeButtonOffset: CGFloat = (isLandscape && showMap) ? 20 : 0
+                    let landscapeButtonOffset: CGFloat = (isLandscape && (showMap || showSatellite)) ? 20 : 0
                     HStack {
                         if !hkDetailMode {
                             VStack(spacing: 10) {
-                                if showMap {
+                                if showMap || showSatellite {
                                     Button {
                                         withAnimation(.easeInOut(duration: 0.2)) {
                                             switch mapHeadingMode {
@@ -826,9 +1145,11 @@ struct ContentView: View {
                                             .font(.system(size: 20, weight: .medium))
                                             .foregroundStyle(mapHeadingMode.isActive ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
                                             .frame(width: 44, height: 44)
+                                            .id(mapHeadingMode)
+                                            .transition(AnyTransition.blurFade)
+                                            .animation(.easeInOut(duration: 0.25), value: mapHeadingMode)
                                     }
                                     .buttonStyle(.glass)
-                                    .transition(.blurReplace())
                                     .overlay(alignment: .trailing) {
                                         if let toast = headingToastText {
                                             Text(toast)
@@ -850,17 +1171,107 @@ struct ContentView: View {
                                         Label(String(localized: "新增目的地"), systemImage: "plus")
                                     }
 
-                                    if !destinationManager.destinations.isEmpty {
+                                    // 更名停車場（排除重複 + 排除唔同地區嘅）
+                                    let currentCity = locationManager.currentLocality
+                                    let namedLots = parkingFloorStore.lots.filter { lot in
+                                        guard let name = lot.name, !name.isEmpty else { return false }
+                                        // 排除同手動目的地距離 <200m 嘅
+                                        let isDuplicate = destinationManager.destinations.contains { dest in
+                                            let a = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+                                            let b = CLLocation(latitude: dest.coordinate.latitude, longitude: dest.coordinate.longitude)
+                                            return a.distance(from: b) < 200
+                                        }
+                                        guard !isDuplicate else { return false }
+                                        // 排除唔同城市嘅（有 locality 且唔同就排除）
+                                        if !currentCity.isEmpty, let lotCity = lot.locality, !lotCity.isEmpty {
+                                            return lotCity == currentCity
+                                        }
+                                        return true
+                                    }
+                                    if !namedLots.isEmpty {
                                         Divider()
-                                        ForEach(destinationManager.destinations) { destination in
+                                        Text("停車場")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        ForEach(namedLots, id: \.id) { lot in
+                                        Button {
+                                            var dest = destinationManager.findOrCreateDestination(
+                                                for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "", latitude: lot.centerLatitude, longitude: lot.centerLongitude, lotID: lot.id, updatedAt: lot.updatedAt)
+                                            )
+                                            // 填充 locality
+                                            if dest.locality == nil, !currentCity.isEmpty {
+                                                dest.locality = currentCity
+                                                destinationManager.updateDestination(dest)
+                                            }
+                                            destinationManager.selectDestination(dest)
+                                                if isCapsuleExpanded { refreshETA() }
+                                                if showingRoute { recalculateRoute() }
+                                            } label: {
+                                                HStack {
+                                                    Image(systemName: "car.fill")
+                                                        .font(.system(size: 10))
+                                                        .foregroundColor(.orange)
+                                                    Text(lot.name ?? "")
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 地址重集（排除重複）
+                                    let clusters = TripPredictor.shared.placeCatalog.values.filter { place in
+                                        guard place.kind == .addressCluster else { return false }
+                                        let isDuplicate = destinationManager.destinations.contains { dest in
+                                            let a = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                                            let b = CLLocation(latitude: dest.coordinate.latitude, longitude: dest.coordinate.longitude)
+                                            return a.distance(from: b) < 200
+                                        }
+                                        return !isDuplicate
+                                    }
+                                    if !clusters.isEmpty {
+                                        Divider()
+                                        Text("學習地點")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        ForEach(Array(clusters.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
+                                            Button {
+                                                let dest = destinationManager.findOrCreateDestination(for: place)
+                                                destinationManager.selectDestination(dest)
+                                                if isCapsuleExpanded { refreshETA() }
+                                                if showingRoute { recalculateRoute() }
+                                            } label: {
+                                                HStack {
+                                                    Image(systemName: "mappin.and.ellipse")
+                                                        .font(.system(size: 10))
+                                                        .foregroundColor(.blue)
+                                                    Text(place.displayName)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    // 手動添加嘅目的地（按城市篩選）
+                                    let filteredDestinations = destinationManager.destinations.filter { dest in
+                                        // 有 locality 且唔同就排除
+                                        if !currentCity.isEmpty, let destCity = dest.locality, !destCity.isEmpty {
+                                            return destCity == currentCity
+                                        }
+                                        // 冇 locality 嘅舊數據，用距離判斷（同城大約 <30km）
+                                        if let loc = locationManager.lastLocation {
+                                            let destLoc = CLLocation(latitude: dest.coordinate.latitude, longitude: dest.coordinate.longitude)
+                                            return loc.distance(from: destLoc) < 30000
+                                        }
+                                        return true
+                                    }
+                                    if !filteredDestinations.isEmpty {
+                                        Divider()
+                                        Text("我的目的地")
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                        ForEach(filteredDestinations) { destination in
                                             Button {
                                                 destinationManager.selectDestination(destination)
-                                                if isCapsuleExpanded {
-                                                    refreshETA()
-                                                }
-                                                if showingRoute {
-                                                    recalculateRoute()
-                                                }
+                                                if isCapsuleExpanded { refreshETA() }
+                                                if showingRoute { recalculateRoute() }
                                             } label: {
                                                 HStack {
                                                     Circle()
@@ -881,10 +1292,20 @@ struct ContentView: View {
 
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.3)) {
-                                        showMap.toggle()
+                                        if !showMap && !showSatellite {
+                                            // 光球 → 地圖
+                                            showMap = true
+                                        } else if showMap && !showSatellite {
+                                            // 地圖 → 衛星3D
+                                            showSatellite = true
+                                            showMap = false
+                                        } else {
+                                            // 衛星3D → 光球
+                                            showSatellite = false
+                                        }
                                     }
                                 }) {
-                                    Image(systemName: showMap ? "map.fill" : "map")
+                                    Image(systemName: globeToggleIcon)
                                         .font(.system(size: 20, weight: .medium))
                                         .foregroundStyle(adaptiveTextColor())
                                         .frame(width: 44, height: 44)
@@ -902,7 +1323,7 @@ struct ContentView: View {
                 }
             }
 
-            if showMap, let selected = selectedParkingPoint {
+            if (showMap || showSatellite), let selected = selectedParkingPoint {
                 parkingPointCapsule(point: selected)
                     .transition(
                         .asymmetric(
@@ -919,7 +1340,7 @@ struct ContentView: View {
                     .zIndex(20)
             }
 
-            if showMap, let hkLoc = selectedHKLocation {
+            if (showMap || showSatellite), let hkLoc = selectedHKLocation {
                 hkLocationCapsule(title: hkLoc.title, coordinate: hkLoc.coordinate)
                     .transition(
                         .asymmetric(
@@ -967,20 +1388,8 @@ struct ContentView: View {
             }
 
             if showFloorConfirm, let floor = recognizedFloorToConfirm {
-                Color.black.opacity(0.42)
-                    .ignoresSafeArea()
-                    .transition(.opacity)
-                    .zIndex(26)
-                    .onTapGesture {
-                        withAnimation(.easeIn(duration: 0.18)) {
-                            showFloorConfirm = false
-                            hasConfirmedFloorThisSession = true
-                        }
-                    }
-
                 floorConfirmCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor)" + String(localized: "樓"))
                     .frame(maxWidth: min(400, geo.size.width - 44))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     .transition(
                         .asymmetric(
                             insertion: .modifier(
@@ -1035,6 +1444,25 @@ struct ContentView: View {
             AddDestinationView()
                 .environmentObject(destinationManager)
                 .environmentObject(locationManager)
+        }
+        .sheet(isPresented: $showSpotEditor) {
+            SpotEditorSheet(
+                spotNumber: $editSpotNumber,
+                areaCode: $editAreaCode,
+                floorText: $editFloorText,
+                onSave: {
+                    llmSpotNumber = editSpotNumber.isEmpty ? nil : editSpotNumber
+                    llmAreaCode = editAreaCode.isEmpty ? nil : editAreaCode
+                    llmFloorText = editFloorText.isEmpty ? nil : editFloorText
+                    if let idx = Self.parseFloorIndex(editFloorText) {
+                        llmFloorIndex = idx
+                    }
+                    parkingFloorStore.updateLLMData(
+                        spotNumber: llmSpotNumber, areaCode: llmAreaCode,
+                        floorText: llmFloorText, floorIndex: llmFloorIndex
+                    )
+                }
+            )
         }
         // MARK: Trip Predictor bindings
         .onChange(of: tripPredictor.pendingConfirm) { (_: PendingTripPrediction?, newValue: PendingTripPrediction?) in
@@ -1208,103 +1636,89 @@ struct ContentView: View {
     // MARK: - Floor Confirmation Card
     private func floorConfirmCard(floorIndex: Int, floorText: String) -> some View {
         let tintColor = Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8") ?? .teal
-        return VStack(alignment: .leading, spacing: 20) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(String(localized: "樓層識別"))
-                    .font(.title2.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text(String(localized: "照片中偵測到樓層資訊"))
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.62))
-            }
-            .padding(.top, 2)
-
-            VStack(alignment: .leading, spacing: 14) {
-                HStack(alignment: .top, spacing: 14) {
-                    Image(systemName: "building.2.fill")
-                        .font(.system(size: 32))
-                        .foregroundStyle(tintColor)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(floorText)
-                            .font(.title3.weight(.bold))
-                            .foregroundStyle(.white)
-                        Text(String(localized: "樓層指數：") + "\(floorIndex)")
-                            .font(.callout)
-                            .foregroundStyle(.white.opacity(0.68))
-                    }
-                    Spacer()
+        return HStack(spacing: 0) {
+            // Left: icon + floor info
+            HStack(spacing: 12) {
+                Image(systemName: "building.2.fill")
+                    .font(.system(size: 24))
+                    .foregroundStyle(tintColor)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(floorText)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(.white)
+                    Text(String(localized: "樓層指數：") + "\(floorIndex)")
+                        .font(.caption)
+                        .foregroundStyle(.white.opacity(0.68))
                 }
-                .padding(18)
             }
+            .padding(.leading, 18)
 
-            VStack(spacing: 12) {
+            Spacer()
+
+            // Right: confirm / reject buttons
+            HStack(spacing: 10) {
                 Button {
-                    // 更新統一數據源
-                    llmFloorText = floorText
-                    llmFloorIndex = floorIndex
+                    // User confirmed — write the deferred floor now
+                    llmFloorText = pendingFloorText ?? floorText
+                    llmFloorIndex = pendingFloorIndex ?? floorIndex
                     parkingFloorStore.updateLLMData(
                         spotNumber: llmSpotNumber, areaCode: llmAreaCode,
-                        floorText: floorText, floorIndex: floorIndex
+                        floorText: pendingFloorText ?? floorText,
+                        floorIndex: pendingFloorIndex ?? floorIndex
                     )
+                    if let photoID = currentRecognizingPhotoID ?? parkingPhotoContributions.keys.first {
+                        parkingPhotoContributions[photoID, default: [:]]["floor"] = pendingFloorText ?? floorText
+                    }
+                    pendingOriginalFloorIndex = nil
+                    pendingFloorText = nil
+                    pendingFloorIndex = nil
                     withAnimation(.easeIn(duration: 0.18)) {
                         showFloorConfirm = false
                         hasConfirmedFloorThisSession = true
                     }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "checkmark.circle.fill")
-                        Text(String(localized: "是，調整為「") + "\(floorText)" + String(localized: "」"))
-                            .font(.body.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .foregroundStyle(.black)
-                    .background(
-                        Capsule()
-                            .fill(Color.white)
-                    )
-                    .glassEffect(.regular, in: .capsule)
-                    .clipShape(.capsule)
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Color.white)
                 }
                 .buttonStyle(.plain)
 
                 Button {
+                    // User rejected — revert to original barometer floor
+                    if let orig = pendingOriginalFloorIndex {
+                        llmFloorIndex = orig
+                        llmFloorText = nil
+                        parkingFloorStore.updateLLMData(
+                            spotNumber: llmSpotNumber, areaCode: llmAreaCode,
+                            floorText: nil, floorIndex: orig
+                        )
+                    }
+                    pendingOriginalFloorIndex = nil
+                    pendingFloorText = nil
+                    pendingFloorIndex = nil
                     withAnimation(.easeIn(duration: 0.18)) {
                         showFloorConfirm = false
                         hasConfirmedFloorThisSession = true
                     }
                 } label: {
-                    HStack(spacing: 10) {
-                        Image(systemName: "xmark.circle")
-                        Text(String(localized: "否，維持現狀"))
-                            .font(.body.weight(.semibold))
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 16)
-                    .foregroundStyle(.white)
-                    .background(
-                        Capsule()
-                            .fill(Color.white.opacity(0.08))
-                    )
-                    .glassEffect(.regular, in: .capsule)
-                    .clipShape(.capsule)
+                    Image(systemName: "xmark.circle")
+                        .font(.system(size: 22))
+                        .foregroundStyle(Color.white.opacity(0.6))
                 }
                 .buttonStyle(.plain)
             }
+            .padding(.trailing, 18)
         }
-        .padding(26)
-        .background(
-            RoundedRectangle(cornerRadius: 30)
-                .fill(Color.black.opacity(0.58))
-        )
-        .glassEffect(.regular, in: .rect(cornerRadius: 30))
-        .clipShape(.rect(cornerRadius: 30))
+        .padding(.vertical, 14)
+        .glassEffect(.regular, in: .capsule)
+        .clipShape(.capsule)
         .borderBeam(
             size: .large,
             palette: .senshackDark,
             cornerRadius: 30,
             enableRotate: false,
-            enablePulse: true
+            enablePulse: true,
+            showSurface: false
         )
     }
 
@@ -1546,6 +1960,49 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - 光效動畫
+
+    /// 光效完成動畫：上升 + 到頂後自動消失
+    private func animateLightEffectToFull() {
+        lightEffectDismissWorkItem?.cancel()
+        lightEffectIsFadingOut = false
+        lightEffectFadeProgress = 0
+        lightEffectProgress = 0
+
+        // 直接啟動上升動畫（2秒）
+        withAnimation(.timingCurve(0.25, 0.1, 0.2, 1.0, duration: 2.0)) {
+            lightEffectProgress = 1.0
+        }
+
+        // 到頂後 1 秒自動消失（淡出 0.8 秒）
+        let workItem = DispatchWorkItem { [self] in
+            withAnimation(.easeOut(duration: 0.8)) {
+                lightEffectIsFadingOut = true
+                lightEffectFadeProgress = 1.0
+            }
+            // 消失後重置
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [self] in
+                lightEffectProgress = 0
+                lightEffectIsFadingOut = false
+                lightEffectFadeProgress = 0
+            }
+        }
+        lightEffectDismissWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: workItem)
+    }
+
+    /// 光效收回動畫（下滑收回時，超慢柔和）
+    private func animateLightEffectRetract() {
+        lightEffectDismissWorkItem?.cancel()
+        lightEffectIsFadingOut = false
+        lightEffectFadeProgress = 0
+
+        // 超慢收回：2.5 秒
+        withAnimation(.timingCurve(0.08, 0.0, 0.15, 1.0, duration: 2.5)) {
+            lightEffectProgress = 0
+        }
+    }
+
     /// 關閉彈窗
     private func dismissFloorCurve() {
         floorCurveDismissTimer?.invalidate()
@@ -1557,6 +2014,8 @@ struct ContentView: View {
             isCapsuleExpanded = true
             orbOpacity = 0.5
         }
+        // 光效收回（暫時移除）
+        // animateLightEffectRetract()
         // 重置
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             floorCurveHistory = []
@@ -1620,7 +2079,7 @@ struct ContentView: View {
                 }
             }
             .padding(.horizontal, 16)
-            .padding(.top, 30)
+            .padding(.top, 14)
 
             // 曲線區域
             GeometryReader { geo in
@@ -1653,7 +2112,25 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .background(accentColor.opacity(0.1))
             .cornerRadius(12)
+            .blur(radius: floorCurveLocked ? (floorCurveLockAnimating ? 4 : 0) : 0)
+            .animation(.easeInOut(duration: 0.4), value: floorCurveLockAnimating)
             .padding(.horizontal, 12)
+            .overlay {
+                // 鎖定後在曲線區域內顯示確認訊息
+                if floorCurveLocked {
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.teal)
+                        Text("已鎖定樓層")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.primary)
+                    }
+                    .blur(radius: floorCurveLockAnimating ? 0 : 8)
+                    .opacity(floorCurveLockAnimating ? 1 : 0)
+                    .transition(.opacity)
+                }
+            }
 
             // 速度 + 地址 + 剩餘時間（同擴展態佈局）
             HStack(alignment: .lastTextBaseline) {
@@ -1661,39 +2138,29 @@ struct ContentView: View {
                     .font(.body.bold())
                     .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                     .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                     .monospacedDigit()
                     .padding(.leading, 5)
                 Spacer()
-                if !locationManager.currentAddress.isEmpty {
-                    Text(locationManager.currentAddress)
-                        .font(.body.bold())
-                        .foregroundStyle(adaptiveTextColor())
-                        .lineLimit(1)
-                }
+                Text(locationManager.currentAddress)
+                    .font(.body.bold())
+                    .foregroundStyle(adaptiveTextColor())
+                    .lineLimit(1)
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.15), value: locationManager.currentAddress)
                 Spacer()
-                if let eta = drivingETASeconds {
-                    Text(formatCompactETA(eta))
-                        .font(.body.bold())
-                        .foregroundStyle(adaptiveTextColor(opacity: 0.6))
-                        .contentTransition(.numericText())
-                        .padding(.trailing, 5)
-                }
+                Text(etaText ?? "--")
+                    .font(.body.bold())
+                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.15), value: etaText ?? "--")
+                    .monospacedDigit()
+                    .frame(minWidth: 60, alignment: .trailing)
+                    .padding(.trailing, 5)
             }
             .padding(.horizontal, 16)
             .padding(.top, 10)
 
-            // 鎖定後顯示確認訊息（固定佔位，用 opacity 控制可見性）
-            HStack(spacing: 8) {
-                Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: 15))
-                    .foregroundStyle(.teal)
-                Text("已鎖定樓層")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.secondary)
-            }
-            .padding(.bottom, 4)
-            .blur(radius: floorCurveLocked ? (floorCurveLockAnimating ? 0 : 6) : 0)
-            .opacity(floorCurveLocked ? (floorCurveLockAnimating ? 1 : 0) : 0)
         }
     }
 
@@ -1986,8 +2453,14 @@ struct ContentView: View {
                     } message: {
                         Text(String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「") + "\(llmShortcutName)" + String(localized: "」快捷指令。"))
                     }
-                    .alert(String(localized: "識別詳情"), isPresented: $showRecognitionLogicAlert) {
-                        Button(String(localized: "清除車位")) {
+                    .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
+                        Button(String(localized: "編輯")) {
+                            editSpotNumber = llmSpotNumber ?? ""
+                            editAreaCode = llmAreaCode ?? ""
+                            editFloorText = llmFloorText ?? ""
+                            showSpotEditor = true
+                        }
+                        Button(String(localized: "清除車位"), role: .destructive) {
                             withAnimation(.easeInOut(duration: 0.4)) {
                                 clearParkingContributions()
                             }
@@ -1995,6 +2468,10 @@ struct ContentView: View {
                         Button(String(localized: "確定"), role: .cancel) {}
                     } message: {
                         Text(buildRecognitionLogicText())
+                        if let raw = llmRawResult, !raw.isEmpty {
+                            Text("\n" + String(localized: "原始結果：") + "\n" + raw)
+                                .font(.caption)
+                        }
                     }
             } else if isFloorCurveInCapsule {
                 floorCurveCapsuleContent
@@ -2049,12 +2526,13 @@ struct ContentView: View {
                             }
                             .transition(.blurReplace())
                         } else {
-                            Text(locationManager.currentAddress)
+                            Text(displayAddress)
                                 .font(.body.bold())
                                 .foregroundStyle(adaptiveTextColor())
                                 .lineLimit(1)
                                 .padding(.horizontal, 6)
                                 .transition(.blurReplace())
+                                .id(showPOIName)  // 觸發 transition
                         }
                     }
                     .opacity(addressReveal)
@@ -2071,6 +2549,12 @@ struct ContentView: View {
             orbBackground
         }
         .glassEffect(.regular, in: .rect(cornerRadius: 34))
+        .overlay(
+            // 黑武士模式：半透明黑色覆蓋層
+            RoundedRectangle(cornerRadius: 34)
+                .fill(Color.black.opacity(darkKnightMode ? 0.3 : 0))
+                .allowsHitTesting(false)
+        )
         .clipShape(.rect(cornerRadius: 34))
         .contentShape(Rectangle())
         .scaleEffect(capsuleAnimationStyle == 1 ? capsuleDragScale : capsuleScale)
@@ -2092,16 +2576,24 @@ struct ContentView: View {
                         // 從當前動畫位置接手，避免跳動
                         if let settle = capsuleSettleHeight {
                             smoothDragHeight = settle
+                        } else {
+                            smoothDragHeight = isCapsuleExpanded ? 182 : 44
                         }
                         capsuleSettleWorkItem?.cancel()
                         capsuleSettleWorkItem = nil
                         capsuleSettleHeight = nil
                         if !isCapsuleExpanded, dy < 0 {
+                            // 緊湊態上滑 → 展開
                             state.mode = -1
                             lastGestureMode = -1
                         } else if isCapsuleExpanded, dy > 0 {
+                            // 展開態下滑 → 收縮
                             state.mode = 1
                             lastGestureMode = 1
+                        } else if isCapsuleExpanded, dy < 0 {
+                            // 展開態上滑 → 進入樓層探測
+                            state.mode = -1
+                            lastGestureMode = -1
                         } else {
                             state.active = false
                             state.offset = 0
@@ -2138,6 +2630,17 @@ struct ContentView: View {
                                 capsuleDragScale = 1.0 + progress * 0.12
                                 smoothDragHeight = 44 + current
                             }
+                        } else if isCapsuleExpanded, dy < 0 {
+                            // 展開態上滑：準備進入樓層探測
+                            let current = min(-dy, maxDrag)
+                            lastDragOffset = current
+                            peakDragOffset = max(peakDragOffset, current)
+                            let progress = current / maxDrag
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.65)) {
+                                capsuleDragOffsetY = -progress * 20
+                                capsuleDragScale = 1.0 + progress * 0.06
+                            }
+                            // 光效：暫時移除
                         } else if isCapsuleExpanded, dy > 0 {
                             let current = min(dy, maxDrag)
                             lastDragOffset = current
@@ -2243,6 +2746,8 @@ struct ContentView: View {
                                 capsuleDragOffsetY = 0
                                 capsuleDragScale = 1.0
                             }
+                            // 光效：重置
+                            lightEffectProgress = 0
                             let workItem = DispatchWorkItem { capsuleSettleHeight = nil }
                             capsuleSettleWorkItem = workItem
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
@@ -2431,6 +2936,42 @@ struct ContentView: View {
         return opacity < 1.0 ? color.opacity(opacity) : color
     }
 
+    /// 描邊/點綴顏色（黑武士模式用金色，否則用白色）
+    private func accentStrokeColor(opacity: Double = 0.6) -> Color {
+        if darkKnightMode {
+            return Color(hex: "FFC46D").opacity(opacity)
+        }
+        return Color.white.opacity(opacity)
+    }
+
+    /// 按鈕背景透明度（黑武士模式更暗）
+    private func buttonBgOpacity(isActive: Bool) -> Double {
+        let base = isActive
+            ? (colorScheme == .dark ? 0.68 : 0.78)
+            : (colorScheme == .dark ? 0.32 : 0.26)
+        return darkKnightMode ? base * 0.5 : base
+    }
+
+    /// 黑武士模式半透明黑色覆蓋層
+    private func darkKnightOverlay() -> some View {
+        RoundedRectangle(cornerRadius: 34)
+            .fill(Color.black.opacity(darkKnightMode ? 0.35 : 0))
+            .allowsHitTesting(false)
+    }
+
+    /// 更新 TabBar 外觀
+    private func updateTabBarAppearance() {
+        let appearance = UITabBarAppearance()
+        if darkKnightMode {
+            appearance.configureWithOpaqueBackground()
+            appearance.backgroundColor = UIColor(red: 1.0, green: 0.77, blue: 0.43, alpha: 0.15) // 金色半透明
+        } else {
+            appearance.configureWithDefaultBackground()
+        }
+        UITabBar.appearance().standardAppearance = appearance
+        UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+
     @ViewBuilder
     private var orbBackground: some View {
         if effectiveOrbOpacity > 0 {
@@ -2547,9 +3088,7 @@ struct ContentView: View {
                             .glassEffect(.regular, in: .capsule)
                             .background(
                                 (Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")).opacity(
-                                    timerRunning
-                                        ? (colorScheme == .dark ? 0.68 : 0.78)
-                                        : (colorScheme == .dark ? 0.32 : 0.26)
+                                    buttonBgOpacity(isActive: timerRunning)
                                 )
                                     .clipShape(Capsule())
                                     .allowsHitTesting(false)
@@ -2584,7 +3123,7 @@ struct ContentView: View {
                             let overlayToken = UUID()
                             routeOverlayToken = overlayToken
                             routeOverlayAnimationToken = overlayToken
-                            if !showMap {
+                            if !showMap && !showSatellite {
                                 withAnimation(.easeInOut(duration: 0.3)) {
                                     showMap = true
                                 }
@@ -2632,9 +3171,7 @@ struct ContentView: View {
                             .glassEffect(.regular, in: .capsule)
                             .background(
                                 (Color(hex: bestRouteColorHex) ?? Color(hex: "BCBA1E")).opacity(
-                                    showingRoute
-                                        ? (colorScheme == .dark ? 0.68 : 0.78)
-                                        : (colorScheme == .dark ? 0.32 : 0.26)
+                                    buttonBgOpacity(isActive: showingRoute)
                                 )
                                     .clipShape(Capsule())
                                     .allowsHitTesting(false)
@@ -2682,6 +3219,7 @@ struct ContentView: View {
                     .contentTransition(.numericText())
                     .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: etaText ?? "--")
                     .monospacedDigit()
+                    .frame(minWidth: 60, alignment: .trailing)
                     .blur(radius: capsuleDragState.active ? 6 : 0)
                     .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
             }
@@ -2735,6 +3273,9 @@ struct ContentView: View {
                                 hasConfirmedFloorThisSession = false
                                 showFloorConfirm = false
                                 recognizedFloorToConfirm = nil
+                                pendingOriginalFloorIndex = nil
+                                pendingFloorText = nil
+                                pendingFloorIndex = nil
                                 llmPollTimer?.invalidate()
                                 parkingInfoSwitchTimer?.invalidate()
                             }
@@ -2894,13 +3435,14 @@ struct ContentView: View {
                                     .stroke(Color.white.opacity(0.6), lineWidth: 4)
                             )
                             VStack(spacing: 2) {
-                                Text(parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時"))
+                                let isLingering = isNonAutomotiveArrival && !hasParkingSpotData
+                                Text(isLingering ? String(localized: "計時") : (parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時")))
                                     .font(.system(size: 16, weight: .bold))
                                     .foregroundStyle(.white)
                                     .frame(maxWidth: .infinity, alignment: .trailing)
                                     .padding(.trailing, 28)
                                     .id("parkingTitle")
-                                if parkingInfoDisplayMode {
+                                if !isLingering && parkingInfoDisplayMode {
                                     let session = parkingFloorStore.currentSession
                                     VStack(alignment: .leading, spacing: 1) {
                                         HStack(spacing: 4) {
@@ -2932,12 +3474,19 @@ struct ContentView: View {
                             .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
                             .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
                             .onTapGesture {
+                                // 逗留模式唔切換
+                                guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
                                 withAnimation(.easeInOut(duration: 0.5)) {
                                     parkingInfoDisplayMode.toggle()
                                 }
                                 resetParkingInfoSwitchTimer()
                             }
-                            .onLongPressGesture { showRecognitionLogicAlert = true }
+                            .onLongPressGesture {
+                                editSpotNumber = llmSpotNumber ?? ""
+                                editAreaCode = llmAreaCode ?? ""
+                                editFloorText = llmFloorText ?? ""
+                                showSpotEditor = true
+                            }
                             }
                         }
                         .padding(.bottom, 20)
@@ -3130,13 +3679,14 @@ struct ContentView: View {
                                 .stroke(Color.white.opacity(0.6), lineWidth: 4)
                         )
                         VStack(spacing: 2) {
-                            Text(parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時"))
+                            let isLingering = isNonAutomotiveArrival && !hasParkingSpotData
+                            Text(isLingering ? String(localized: "計時") : (parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時")))
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(maxWidth: .infinity, alignment: .trailing)
                                 .padding(.trailing, 18)
                                 .id("parkingTitle")
-                            if parkingInfoDisplayMode {
+                            if !isLingering && parkingInfoDisplayMode {
                                 let session = parkingFloorStore.currentSession
                                 VStack(alignment: .leading, spacing: 1) {
                                     HStack(spacing: 4) {
@@ -3168,6 +3718,7 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
                         .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
                         .onTapGesture {
+                            guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
                             withAnimation(.easeInOut(duration: 0.5)) {
                                 parkingInfoDisplayMode.toggle()
                             }
@@ -3365,6 +3916,8 @@ struct ContentView: View {
         let d = Self.appGroupDefaults ?? .standard
         d.set(parkingStartTime, forKey: "parkingStartTime")
         d.set(hasDeparted, forKey: "hasDeparted")
+        d.set(manualDeparted, forKey: "manualDeparted")
+        d.set(departureTime, forKey: "parkingDepartureTime")
         d.set(timerRunning, forKey: "timerRunning")
         d.set(lastKnownArrivalDate, forKey: "lastKnownArrivalDate")
         d.synchronize()
@@ -3372,6 +3925,12 @@ struct ContentView: View {
     }
 
     // MARK: - 專注模式
+
+    private var globeToggleIcon: String {
+        if showSatellite { return "binoculars.fill" }       // 衛星3D
+        if showMap { return "map.fill" }                     // 地圖
+        return "map"                                         // 光球
+    }
 
     private var focusActive: Bool { focusMode != nil }
 
@@ -3393,20 +3952,59 @@ struct ContentView: View {
         if level == .balanced || level == .extreme {
             stopRandomInfoTimer()
         } else if wasActive {
-            // 從 balanced/extreme 切換到 light：恢復 light 唔閂嘅功能
             restartRandomInfoTimerIfNeeded()
+        }
+        // 極致專注模式：自動開啟黑武士模式
+        if level == .extreme && !darkKnightMode {
+            darkKnightMode = true
+            darkKnightActivatedByFocus = true
+            updateTabBarAppearance()
         }
     }
 
     private func exitFocusMode() {
+        // 如果黑武士模式係由極致專注自動開啟嘅，一併退出
+        if darkKnightActivatedByFocus {
+            darkKnightMode = false
+            darkKnightActivatedByFocus = false
+            updateTabBarAppearance()
+        }
         withAnimation(.easeInOut(duration: 0.25)) {
             focusMode = nil
         }
         animationClock.setFrameRate(60)
-        // 還原被暫停嘅嘢：資訊彈出、狀態偵測、靈動島同步
         restartRandomInfoTimerIfNeeded()
         refreshVisitAndTimersForForeground()
         syncLiveActivity(forceRefresh: true)
+    }
+
+    /// Restart the stationary timer + departure elapsed timer + sync Live Activity.
+    /// Called after cold-launch when `manualDeparted` and visit data hasn't changed.
+    private func ensureStationaryTimerRunning() {
+        // Start stationary timer (counts up since departure)
+        if stationaryTimer == nil, let dep = departureTime {
+            let elapsed = Date().timeIntervalSince(dep)
+            stationaryElapsed = elapsed
+            stationaryStartTime = dep
+            let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
+                let e = Date().timeIntervalSince(dep)
+                DispatchQueue.main.async { stationaryElapsed = e }
+            }
+            stationaryTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        // Start departure elapsed timer (for the header label)
+        if departureElapsedTimer == nil, let dep = departureTime {
+            departureElapsed = Date().timeIntervalSince(dep)
+            let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
+                guard hasDeparted, let d = departureTime else { return }
+                let e = Date().timeIntervalSince(d)
+                DispatchQueue.main.async { departureElapsed = e }
+            }
+            departureElapsedTimer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        syncLiveActivity()
     }
 
     private func refreshVisitAndTimersForForeground() {
@@ -3416,6 +4014,11 @@ struct ContentView: View {
         guard locationManager.hasLoadedVisits else { return }
 
         guard let lastVisit = locationManager.visits.first else {
+            // If user manually departed, don't reset — stay dormant
+            if manualDeparted {
+                ensureStationaryTimerRunning()
+                return
+            }
             hasDeparted = false
             timerRunning = false
             parkingTimer?.invalidate()
@@ -3429,6 +4032,19 @@ struct ContentView: View {
         }
 
         if lastVisit.departureDate == nil {
+            // Guard: if user manually departed, don't restart parking memory
+            // for the SAME visit. Only a genuinely new visit event resets this.
+            if manualDeparted {
+                // Same visit (same arrival) → stay dormant
+                if lastVisit.arrivalDate == parkingStartTime {
+                    ensureStationaryTimerRunning()
+                    return
+                }
+                // Different arrival → new visit event, reset manual flag
+                manualDeparted = false
+                saveParkingState()
+            }
+
             hasDeparted = false
             departureElapsedTimer?.invalidate()
             departureElapsedTimer = nil
@@ -3466,10 +4082,15 @@ struct ContentView: View {
     private func startPersistentTimer() {
         guard !timerRunning else { return }
         timerRunning = true
-        startParkingReminder()
+        // 非自己開車（打車、步行等）唔需要泊車時間提醒
+        if !isNonAutomotiveArrival {
+            startParkingReminder()
+        }
         let d = Self.appGroupDefaults ?? .standard
         d.set(parkingStartTime, forKey: "parkingStartTime")
         d.set(hasDeparted, forKey: "hasDeparted")
+        d.set(manualDeparted, forKey: "manualDeparted")
+        d.set(departureTime, forKey: "parkingDepartureTime")
         d.set(timerRunning, forKey: "timerRunning")
         d.set(lastKnownArrivalDate, forKey: "lastKnownArrivalDate")
         d.set(locationManager.currentAddress, forKey: "parkingEntryLocation")
@@ -3591,33 +4212,75 @@ struct ContentView: View {
     private func startParkingReminder() {
         stopParkingReminder()
         lastReminderMinute = -1
+
+        // 用 UNTimeIntervalNotificationTrigger 預先排程通知（後台都能觸發）
+        scheduleParkingNotifications()
+
+        // 同時保留 Timer 用嚟更新 lastReminderMinute（前台時）
         parkingReminderTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             DispatchQueue.main.async {
                 guard !hasDeparted, timerRunning else { return }
                 let elapsed = parkingElapsed
                 let minutes = Int(elapsed / 60)
-                // 超過3小時停止
                 guard minutes < 180 else {
                     self.stopParkingReminder()
                     return
                 }
-                // 檢查該地點是否習慣長時間停泊
                 if self.isLongParkingHabit() { return }
-                // 計算下一個30分鐘整點
                 let nextHalfHour = ((minutes / 30) + 1) * 30
                 let minutesBefore = nextHalfHour - minutes
-                // 在整點前5分鐘發通知
                 if minutesBefore <= 5 && minutesBefore > 0 && minutes != self.lastReminderMinute {
                     self.lastReminderMinute = minutes
+                    // 前台時直接發通知
                     self.sendParkingReminder(minutes: minutes)
                 }
             }
         }
     }
 
+    /// 預先排程泊車提醒通知（後台都能觸發）
+    private func scheduleParkingNotifications() {
+        let center = UNUserNotificationCenter.current()
+        // 先移除舊嘅泊車提醒
+        center.removePendingNotificationRequests(withIdentifiers: ["parking-reminder-scheduled"])
+
+        let entryTime = parkingEntryTime
+
+        // 計算未來3小時內嘅提醒時間（每30分鐘整點前5分鐘）
+        var identifiers: [String] = []
+        for halfHour in stride(from: 30, through: 180, by: 30) {
+            let reminderMinute = halfHour - 5  // 整點前5分鐘
+            let secondsFromNow = Double(reminderMinute) * 60 - parkingElapsed
+            guard secondsFromNow > 10 else { continue }  // 至少10秒後
+
+            let content = UNMutableNotificationContent()
+            let hours = reminderMinute / 60
+            let mins = reminderMinute % 60
+            let timeStr = hours > 0 ? "\(hours)小時\(mins)分鐘" : "\(mins)分鐘"
+            content.title = String(localized: "泊車時間提醒")
+            content.body = String(localized: "你已經泊車\(timeStr)")
+            content.sound = .default
+
+            let id = "parking-reminder-scheduled-\(halfHour)"
+            identifiers.append(id)
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: secondsFromNow, repeats: false)
+            let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
+            center.add(request)
+        }
+    }
+
     private func stopParkingReminder() {
         parkingReminderTimer?.invalidate()
         parkingReminderTimer = nil
+        // 取消排程通知
+        UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [
+            "parking-reminder-scheduled-30",
+            "parking-reminder-scheduled-60",
+            "parking-reminder-scheduled-90",
+            "parking-reminder-scheduled-120",
+            "parking-reminder-scheduled-150",
+            "parking-reminder-scheduled-180",
+        ])
     }
 
     /// 檢查當前停車地點是否習慣長時間停泊（>=3小時）
@@ -3640,6 +4303,9 @@ struct ContentView: View {
     }
 
     private func sendParkingReminder(minutes: Int) {
+        // 只喺 App 喺後台時先發通知，前台唔發
+        guard !isInForeground else { return }
+
         let content = UNMutableNotificationContent()
         let hours = minutes / 60
         let mins = minutes % 60
@@ -3826,7 +4492,7 @@ struct ContentView: View {
         let overlayToken = UUID()
         routeOverlayToken = overlayToken
         routeOverlayAnimationToken = overlayToken
-        if !showMap {
+        if !showMap && !showSatellite {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showMap = true
             }
@@ -3923,7 +4589,7 @@ struct ContentView: View {
         let overlayToken = UUID()
         routeOverlayToken = overlayToken
         routeOverlayAnimationToken = overlayToken
-        if !showMap {
+        if !showMap && !showSatellite {
             withAnimation(.easeInOut(duration: 0.3)) {
                 showMap = true
             }
@@ -4035,36 +4701,34 @@ struct ContentView: View {
     }
 
     private func startCaptureAnimation(photo: UIImage) {
-        // Save photo first so we know its exact position (random offset)
         guard let saved = photoStorage.savePhoto(photo) else { return }
         let tempID = saved.id
         animatingPhotoID = tempID
         animatingPhotoImage = photo
         animatingPhotoPhase = 0
-        // Compute exact thumbnail offset (matches CameraPhotoItem compact layout)
+        animatingPhotoRotation = 0
+        // 計算縮略圖位置偏移（左上角）
         let camW: CGFloat = isLandscape ? 304.0 : 338.0
         let camH: CGFloat = isLandscape ? 211.0 : 235.0
-        let thumbOX: CGFloat = -(camW / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
-        let thumbOY: CGFloat = -(camH / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
-        animatingPhotoOffsetX = 0
-        animatingPhotoOffsetY = 0
+        animatingPhotoOffsetX = -(camW / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
+        animatingPhotoOffsetY = -(camH / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
 
-        // Start shrink animation
+        // 動畫：喺縮略圖位置原位放大 + 旋轉
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.03) {
             withAnimation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.45)) {
                 animatingPhotoPhase = 1
-                animatingPhotoOffsetX = thumbOX
-                animatingPhotoOffsetY = thumbOY
+                animatingPhotoRotation = saved.rotation
             }
         }
 
-        // Clean up overlay after animation settles
+        // Clean up
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) {
             animatingPhotoID = nil
             animatingPhotoImage = nil
             animatingPhotoPhase = 0
             animatingPhotoOffsetX = 0
             animatingPhotoOffsetY = 0
+            animatingPhotoRotation = 0
         }
 
         // Trigger LLM recognition via shortcut (if enabled)
@@ -4152,6 +4816,7 @@ struct ContentView: View {
 
     private func parseParkingLLMResponse(_ text: String) {
         let lines = text.components(separatedBy: .newlines)
+        var needsFloorConfirm = false
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -4195,20 +4860,30 @@ struct ContentView: View {
             }
 
             // Extract floor — simplified "楼层" / traditional "樓層"
+            var needsFloorConfirm = false
             if let floorStr = extractValue(from: trimmed, keywords: ["楼层", "樓層"]) {
-                llmFloorText = floorStr
                 hasParkingSpotData = true
                 if let index = Self.parseFloorIndex(floorStr) {
-                    llmFloorIndex = index
                     // 與氣壓計預測比較，觸發確認彈窗
                     if let current = parkingFloorStore.allPoints.first,
                        let barometerFloor = current.predictedFloorIndex,
                        index != barometerFloor,
                        !hasConfirmedFloorThisSession {
+                        // Defer: save pending floor, don't write to store yet
+                        pendingOriginalFloorIndex = barometerFloor
+                        pendingFloorText = floorStr
+                        pendingFloorIndex = index
                         recognizedFloorToConfirm = index
                         recognizedFloorText = floorStr
                         showFloorConfirm = true
+                        needsFloorConfirm = true
+                    } else {
+                        // No confirmation needed — write floor immediately
+                        llmFloorText = floorStr
+                        llmFloorIndex = index
                     }
+                } else {
+                    llmFloorText = floorStr
                 }
             }
         }
@@ -4225,8 +4900,13 @@ struct ContentView: View {
             currentRecognizingPhotoID = nil
         }
 
-        // Merge all contributions and display
-        mergeAndDisplayParkingInfo()
+        // Merge all contributions and display —
+        // if floor is pending confirmation, merge spot/area only (skip floor)
+        if needsFloorConfirm {
+            mergeParkingInfoExcludingFloor()
+        } else {
+            mergeAndDisplayParkingInfo()
+        }
         saveParkingContributions()
         // triggerOrbSpeedBoost 已由 stopOrbRecognitionBoost() 處理
     }
@@ -4411,6 +5091,31 @@ struct ContentView: View {
         return lines.joined(separator: "\n")
     }
 
+    /// Merge contributions but skip floor if pending confirmation.
+    /// Called immediately so spot/area update live, while floor waits for user OK.
+    private func mergeParkingInfoExcludingFloor() {
+        var spot: String? = nil
+        var area: String? = nil
+        for (_, contribution) in parkingPhotoContributions {
+            if let s = contribution["spot"], spot == nil { spot = s }
+            if let a = contribution["area"], area == nil { area = a }
+        }
+        llmSpotNumber = spot
+        llmAreaCode = area
+        llmRawResult = parkingPhotoContributions.isEmpty ? nil : "multi-photo"
+        if spot != nil || area != nil {
+            hasParkingSpotData = true
+        }
+        // Don't write floor — it's pending confirmation
+        parkingFloorStore.updateLLMData(
+            spotNumber: spot, areaCode: area,
+            floorText: nil, floorIndex: nil
+        )
+        if spot != nil || area != nil {
+            startParkingInfoSwitchTimer()
+        }
+    }
+
     private func mergeAndDisplayParkingInfo() {
         var spot: String? = nil
         var area: String? = nil
@@ -4481,16 +5186,27 @@ struct ContentView: View {
         parkingFloorStore.updateLLMData(spotNumber: nil, areaCode: nil, floorText: nil, floorIndex: nil)
     }
 
+    @State private var lastETASuccessLocation: CLLocation?  // 上次成功計算時嘅位置
+
     private func refreshETA() {
-        // 專注模式（平衡／極致）：切走 MKDirections 網絡請求
         guard !focusCutsInfoAndETA else { return }
         guard let dest = destinationManager.selectedDestination,
-              let loc = locationManager.manager.location else {
-            etaText = nil
-            drivingDistanceText = nil
-            drivingETASeconds = nil
+              let loc = locationManager.lastLocation else {
             return
         }
+
+        // 如果位置偏移超過 2km 且一直失敗，清空結果
+        if let lastLoc = lastETASuccessLocation {
+            let moved = loc.distance(from: lastLoc)
+            if moved > 2000 {
+                // 偏移太遠，清空舊結果
+                drivingDistanceText = nil
+                etaText = nil
+                drivingETASeconds = nil
+                lastETASuccessLocation = nil
+            }
+        }
+
         destinationManager.calculateRoute(
             from: loc.coordinate,
             to: dest.coordinate
@@ -4502,8 +5218,7 @@ struct ContentView: View {
                     } else {
                         drivingDistanceText = String(format: "%.1f km", distance / 1000)
                     }
-                } else {
-                    drivingDistanceText = nil
+                    lastETASuccessLocation = loc
                 }
                 if let time = time {
                     drivingETASeconds = time
@@ -4515,8 +5230,7 @@ struct ContentView: View {
                         let m = mins % 60
                         etaText = "\(h)h \(m)m"
                     }
-                } else {
-                    etaText = nil
+                    lastETASuccessLocation = loc
                 }
             }
         }
@@ -4589,14 +5303,24 @@ struct ContentView: View {
             // CMMotionActivity 是硬體感測器，比 GPS 速度更可靠
             if motion?.walking == true && speed > 1 {
                 // 步行中：CMMotionActivity 說步行 + GPS 有移動 → 已步行
+                if visitStatus != "已步行" {
+                    walkingStartTime = Date()
+                }
                 visitStatus = "已步行"
                 lastMovementTime = Date()
             } else if motion?.cycling == true && speed > 3 {
                 // 騎車中：CMMotionActivity 說騎車 + GPS 有移動 → 已騎車
+                if visitStatus != "已騎車" {
+                    cyclingStartTime = Date()
+                }
                 visitStatus = "已騎車"
                 lastMovementTime = Date()
             } else if speed > 8 || (speed > 5 && gpsLocationChanged) {
                 // 開車中：GPS 速度快（CMMotionActivity 沒說步行/騎車才走這裡）
+                if visitStatus != "已開車" {
+                    walkingStartTime = nil
+                    cyclingStartTime = nil
+                }
                 visitStatus = "已開車"
                 lastMovementTime = Date()
             } else if let lastMove = lastMovementTime {
@@ -4616,7 +5340,9 @@ struct ContentView: View {
                 if let dep = departureTime {
                     let elapsed = Date().timeIntervalSince(dep)
                     if elapsed < 120 {
-                        visitStatus = "已開車"
+                        // Manual departure: start stationary, wait for actual movement
+                        // System-detected departure: assume driving (motion was the trigger)
+                        visitStatus = manualDeparted ? "已停留" : "已開車"
                     } else {
                         visitStatus = "已停留"
                     }
@@ -4701,10 +5427,10 @@ struct ContentView: View {
             anchor = departureTime ?? parkingStartTime
         case "已步行":
             activityState = .walking
-            anchor = departureTime ?? parkingStartTime
+            anchor = walkingStartTime ?? departureTime ?? parkingStartTime
         case "已騎車":
             activityState = .cycling
-            anchor = departureTime ?? parkingStartTime
+            anchor = cyclingStartTime ?? departureTime ?? parkingStartTime
         default: // 已停留
             activityState = .stationary
             anchor = hasDeparted
@@ -4842,7 +5568,7 @@ struct ContentView: View {
             cameraDimOverlay
             // 相機未啟動時禁用 hit testing，讓觸控穿透到黑色遮罩
             cameraPhotoStack
-            // captureAnimationOverlay — DEBUG: replaced with EmptyView
+            // captureAnimationOverlay — 改用縮略圖自身動畫，避免閃退
             EmptyView()
             cameraButton
                 .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
@@ -4857,7 +5583,6 @@ struct ContentView: View {
                         .font(.system(size: 14, weight: .bold))
                         .foregroundStyle(.white)
                         .frame(width: 30, height: 30)
-                        .background(.ultraThinMaterial, in: .circle)
                         .glassEffect(.regular, in: .circle)
                 }
                 .position(x: 40, y: 34)
@@ -4916,6 +5641,7 @@ struct ContentView: View {
                 // Skip by ID — an index-based check would wrongly hide the next
                 // photo when indices shift after the deleted one is removed
                 if photo.id != deletingPhotoID {
+                    let isNewPhoto = photo.id == animatingPhotoID
                     CameraPhotoItem(
                         photo: photo,
                         index: index,
@@ -4929,8 +5655,11 @@ struct ContentView: View {
                         isSwiping: selectedPhotoIndex == index && isPhotoSwiping,
                         isAnimatingOut: photoAnimatingOutIndex == index,
                         swipePhotoScale: swipePhotoScale,
-                        isSwipingPhoto: isSwipingPhoto
+                        isSwipingPhoto: isSwipingPhoto,
+                        entranceScale: isNewPhoto ? 0.1 : 1.0
                     )
+                    .opacity(isNewPhoto ? 0.0 : 1.0)
+                    .animation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.45), value: animatingPhotoID)
                     .onTapGesture {
                         withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
                             if showingExpandedPhotos {
@@ -4949,7 +5678,7 @@ struct ContentView: View {
                                     triggerTiltEffect(index: index)
                                     // Show delete button after selection settles
                                     showDeleteButton = false
-                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                             if selectedPhotoIndex == index, deletingPhotoID == nil {
                                                 showDeleteButton = true
@@ -5103,23 +5832,29 @@ struct ContentView: View {
     private var captureAnimationOverlay: some View {
         let camW: CGFloat = isLandscape ? 304 : 338
         let camH: CGFloat = isLandscape ? 211 : 235
+        let thumbScale: CGFloat = 46.0 / camW
         return VStack(spacing: 0) {
             if animatingPhotoID != nil, let img = animatingPhotoImage {
-                let isShrunk = animatingPhotoPhase == 1
-                let cr: CGFloat = isShrunk ? 5 : (isLandscape ? 33 : 37)
-                let sc: CGFloat = isShrunk ? 46.0 / camW : 1.0
-                let lw: CGFloat = isShrunk ? 1.0 / (46.0 / camW) : 4
+                let isFinal = animatingPhotoPhase == 1
+                let containerScale: CGFloat = isFinal ? thumbScale : 0.1
+                let imageScale: CGFloat = isFinal ? 1.0 : 1.2
+                let opacity: Double = isFinal ? 1.0 : 0.2
+                let cr: CGFloat = isFinal ? 5 : (isLandscape ? 33 : 37)
+
                 Image(uiImage: img)
                     .resizable()
                     .scaledToFill()
+                    .scaleEffect(imageScale)
                     .frame(width: camW, height: camH)
                     .clipShape(RoundedRectangle(cornerRadius: cr))
                     .overlay(
                         RoundedRectangle(cornerRadius: cr)
-                            .stroke(Color.white.opacity(0.8), lineWidth: lw)
+                            .stroke(Color.white.opacity(0.8), lineWidth: isFinal ? 1.0 / thumbScale : 4)
                     )
-                    .scaleEffect(sc)
+                    .scaleEffect(containerScale)
+                    .rotationEffect(.degrees(animatingPhotoRotation))
                     .offset(x: animatingPhotoOffsetX, y: animatingPhotoOffsetY)
+                    .opacity(opacity)
                     .allowsHitTesting(false)
                     .zIndex(100)
             }
@@ -5134,36 +5869,34 @@ struct ContentView: View {
                     .frame(width: 66, height: 166)
                     .glassEffect(.regular, in: .rect(cornerRadius: 24))
                     .tint(.clear)
-                if cameraVisible {
-                    GeometryReader { geo in
-                        let w = geo.size.width
-                        let h = geo.size.height
-                        let t = animationClock.elapsed * 0.3
-                        ZStack {
-                            Circle()
-                                .fill(Color(hex: "3497FF").opacity(0.85))
-                                .blur(radius: 18)
-                                .frame(width: 112, height: 112)
-                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
-                            Circle()
-                                .fill(Color(hex: "FFC46D").opacity(0.85))
-                                .frame(width: 124, height: 124)
-                                .blur(radius: 18)
-                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
-                            Circle()
-                                .fill(Color(hex: "FF825C").opacity(0.85))
-                                .frame(width: 102, height: 102)
-                                .blur(radius: 18)
-                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
-                        }
+                GeometryReader { geo in
+                    let w = geo.size.width
+                    let h = geo.size.height
+                    let t = animationClock.elapsed * 0.3
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: "3497FF").opacity(0.85))
+                            .blur(radius: 18)
+                            .frame(width: 112, height: 112)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
+                        Circle()
+                            .fill(Color(hex: "FFC46D").opacity(0.85))
+                            .frame(width: 124, height: 124)
+                            .blur(radius: 18)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
+                        Circle()
+                            .fill(Color(hex: "FF825C").opacity(0.85))
+                            .frame(width: 102, height: 102)
+                            .blur(radius: 18)
+                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
+                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
                     }
-                    .frame(width: 57, height: 158)
-                    .clipShape(.rect(cornerRadius: 20))
-                    .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white.opacity(0.2), lineWidth: 1.6))
                 }
+                .frame(width: 57, height: 158)
+                .clipShape(.rect(cornerRadius: 20))
+                .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white.opacity(0.2), lineWidth: 1.6))
                 Image(systemName: "camera.fill")
                     .font(.system(size: 27))
                     .foregroundStyle(.white)
@@ -5256,12 +5989,18 @@ struct ContentView: View {
     }
 
     private var gpsColor: Color {
+        let base: Color
         switch locationManager.gpsQuality {
-        case .good: return .green
-        case .poor: return .yellow
-        case .bad: return .red
-        case .unknown: return .gray
+        case .good: base = .green
+        case .poor: base = .yellow
+        case .bad: base = .red
+        case .unknown: base = .gray
         }
+        // 黑武士模式：降低飽和度，用金色調
+        if darkKnightMode {
+            return Color(hex: "FFC46D") ?? base
+        }
+        return base
     }
 
     private var gpsLabel: String {
@@ -5328,7 +6067,7 @@ struct ContentView: View {
         // Do NOT reset tilt — the overlay reads live values and settles naturally
 
         // Start dissolve animation
-        withAnimation(.easeOut(duration: 0.85)) {
+        withAnimation(.easeInOut(duration: 0.85)) {
             deleteBlur = 20
             deleteOpacity = 0
             deleteOffsetY = 25
@@ -5558,6 +6297,7 @@ struct CameraPhotoItem: View {
     var isAnimatingOut: Bool = false  // Whether animating to bottom after release
     var swipePhotoScale: CGFloat = 1  // Explicit scale for swiping photo
     var isSwipingPhoto: Bool = false  // Whether photo is actively being swiped out
+    var entranceScale: CGFloat = 1   // 入場動畫縮放（新照片用）
 
     private let baseW: CGFloat = 46
     private let baseH: CGFloat = 32
@@ -5592,7 +6332,8 @@ struct CameraPhotoItem: View {
             let isThisSwiping = isSelected && isSwipingPhoto
             let photoScale: CGFloat = {
                 if isThisSwiping { return swipePhotoScale }
-                return isSelected ? selectedScale : (isExpanded ? 0.85 : 1.0)
+                let base = isSelected ? selectedScale : (isExpanded ? 0.85 : 1.0)
+                return base * entranceScale
             }()
 
             let finalOffsetX: CGFloat = {
@@ -5762,6 +6503,83 @@ struct AnimatedCheckmarkView: View {
                 animationProgress = 1.0
             }
         }
+    }
+}
+
+// MARK: - Spot Editor Sheet
+struct SpotEditorSheet: View {
+    @Binding var spotNumber: String
+    @Binding var areaCode: String
+    @Binding var floorText: String
+    var onSave: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var floorIndex: Int = 0
+
+    var body: some View {
+        NavigationStack {
+            List {
+                Section(header: Label("車位資訊", systemImage: "car.fill")) {
+                    HStack {
+                        Text("車位")
+                            .frame(width: 50, alignment: .leading)
+                        TextField("例如 A12", text: $spotNumber)
+                            .textInputAutocapitalization(.characters)
+                    }
+                    HStack {
+                        Text("區域")
+                            .frame(width: 50, alignment: .leading)
+                        TextField("例如 B區", text: $areaCode)
+                            .textInputAutocapitalization(.characters)
+                    }
+                }
+
+                Section(header: Label("樓層", systemImage: "building.2")) {
+                    HStack {
+                        Text("樓層文字")
+                            .frame(width: 70, alignment: .leading)
+                        TextField("例如 B2", text: $floorText)
+                            .textInputAutocapitalization(.characters)
+                    }
+
+                    HStack {
+                        Text("樓層指數")
+                            .frame(width: 70, alignment: .leading)
+                        Stepper("\(floorIndex)", value: $floorIndex, in: -10...50)
+                    }
+                }
+            }
+            .navigationTitle("修改車位資訊")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("確認") {
+                        floorText = floorText.isEmpty ? "\(floorIndex)" : floorText
+                        onSave()
+                        dismiss()
+                    }
+                    .fontWeight(.semibold)
+                }
+            }
+            .onAppear {
+                let parsed = Self.parseFloorText(floorText)
+                floorIndex = parsed
+            }
+        }
+        .presentationDetents([.medium])
+    }
+
+    private static func parseFloorText(_ text: String) -> Int {
+        let trimmed = text.trimmingCharacters(in: .whitespaces).uppercased()
+        if trimmed == "G" || trimmed == "GF" || trimmed == "LG" { return 0 }
+        if trimmed.hasPrefix("B") {
+            let num = trimmed.dropFirst()
+            if let n = Int(num) { return -n }
+        }
+        if let n = Int(trimmed) { return n }
+        return 0
     }
 }
 

@@ -18,12 +18,14 @@ struct SettingsView: View {
     @AppStorage("orbParkingMemory") var orbParkingMemory: Bool = true
     @AppStorage("orbBackgroundHome") var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") var orbBackgroundSpeed: Bool = true
+    @AppStorage("darkKnightMode") var darkKnightMode: Bool = false
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     @AppStorage("floorConvention") private var floorConvention: Int = 2  // 0=香港, 1=內地, 2=自動
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = false
+    @AppStorage("launchAnimationEnabled") var launchAnimationEnabled: Bool = true
     @AppStorage("parkingTimerColorHex") var parkingTimerColorHex: String = "46ADB8"
     @AppStorage("bestRouteColorHex") var bestRouteColorHex: String = "BCBA1E"
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
@@ -67,30 +69,14 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                // Language Section
+                // ── 1. 語言 ──
                 Section {
-                    HStack {
-                        Text(String(localized: "語言"))
-                        Spacer()
-                        Text(LanguageManager.shared.currentAppLanguage.displayName)
-                            .foregroundStyle(.secondary)
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
-                            .font(.caption)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { showLanguagePicker = true }
-                } header: {
-                    Label(String(localized: "語言"), systemImage: "globe")
-                }
-                .sheet(isPresented: $showLanguagePicker) {
-                    NavigationStack {
+                    NavigationLink {
                         List {
                             ForEach(AppLanguage.allCases) { lang in
                                 Button {
                                     LanguageManager.shared.currentLanguage = lang.rawValue
                                     LanguageManager.shared.applyLanguage()
-                                    showLanguagePicker = false
                                 } label: {
                                     HStack {
                                         Text("\(lang.flag) \(lang.displayName)")
@@ -106,16 +92,19 @@ struct SettingsView: View {
                         }
                         .navigationTitle(String(localized: "語言"))
                         .navigationBarTitleDisplayMode(.inline)
-                        .toolbar {
-                            ToolbarItem(placement: .cancellationAction) {
-                                Button(String(localized: "關閉")) { showLanguagePicker = false }
-                            }
+                    } label: {
+                        HStack {
+                            Text(String(localized: "語言"))
+                            Spacer()
+                            Text(LanguageManager.shared.currentAppLanguage.displayName)
+                                .foregroundStyle(.secondary)
                         }
                     }
-                    .presentationDetents([.medium])
+                } header: {
+                    Label(String(localized: "語言"), systemImage: "globe")
                 }
 
-                // Destination Section
+                // ── 2. 目的地 ──
                 Section {
                     if destinationManager.destinations.isEmpty {
                         Text(String(localized: "No saved destinations yet"))
@@ -153,7 +142,6 @@ struct SettingsView: View {
                                 } label: {
                                     Image(systemName: "trash")
                                 }
-                                
                                 Button {
                                     editingDestination = destination
                                     showingEditDestination = true
@@ -176,28 +164,34 @@ struct SettingsView: View {
                     }
                 }
 
-                // Appearance Section
+                // ── 3. 外觀 ──
                 Section {
-                    Picker(String(localized: "外觀"), selection: $appearanceMode) {
+                    Picker(String(localized: "外觀模式"), selection: $appearanceMode) {
                         Text(String(localized: "System")).tag(0)
                         Text(String(localized: "Dark")).tag(1)
                         Text(String(localized: "Light")).tag(2)
                     }
-
                     Picker(String(localized: "地圖樣式"), selection: $colorSchemeIndex) {
                         Text(String(localized: "Default")).tag(0)
                         Text("27").tag(1)
                     }
-
                     Picker(String(localized: "膠囊動畫"), selection: $capsuleAnimationStyle) {
                         Text(String(localized: "預設")).tag(0)
                         Text(String(localized: "提升縮放")).tag(1)
+                    }
+                    Picker(String(localized: "地圖風格"), selection: $mapStyleIndex) {
+                        Text(String(localized: "默認")).tag(0)
+                        Text(String(localized: "我的世界")).tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    Toggle(isOn: $launchAnimationEnabled) {
+                        Label(String(localized: "啟動動畫"), systemImage: "play.rectangle.on.rectangle")
                     }
                 } header: {
                     Label(String(localized: "外觀"), systemImage: "paintpalette")
                 }
 
-                // Custom Colors Section
+                // ── 4. 自定義顏色 ──
                 Section {
                     HStack {
                         Text("泊車計顏色")
@@ -212,8 +206,6 @@ struct SettingsView: View {
                         .foregroundStyle(.blue)
                         .buttonStyle(.plain)
                     }
-                    .padding(.vertical, 4)
-
                     HStack {
                         Text("最優路線顏色")
                             .foregroundStyle(.primary)
@@ -227,12 +219,11 @@ struct SettingsView: View {
                         .foregroundStyle(.blue)
                         .buttonStyle(.plain)
                     }
-                    .padding(.vertical, 4)
                 } header: {
                     Label("自定義顏色", systemImage: "paintpalette.fill")
                 }
 
-                // Map Tracking Section
+                // ── 5. 地圖 ──
                 Section {
                     Toggle(isOn: $highFrequencyTracking) {
                         Label(String(localized: "高頻率地圖追蹤"), systemImage: "location.fill")
@@ -240,17 +231,10 @@ struct SettingsView: View {
                     Text(String(localized: "開啟後地圖視角更新更流暢，但會增加耗電。關閉後更新頻率降低，延長電池壽命。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-
                     Picker(String(localized: "追蹤動畫"), selection: $mapTrackingAnimation) {
                         Text(String(localized: "標準")).tag(0)
                         Text(String(localized: "柔軟")).tag(1)
                     }
-                } header: {
-                    Label(String(localized: "地圖追蹤"), systemImage: "map")
-                }
-
-                // Data Smoothing Section
-                Section {
                     Toggle(isOn: $kalmanSmoothingEnabled) {
                         Label(String(localized: "卡爾曼濾波"), systemImage: "waveform.path.ecg")
                     }
@@ -258,30 +242,10 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
-                    Label(String(localized: "數據平滑"), systemImage: "slider.horizontal.3")
+                    Label(String(localized: "地圖"), systemImage: "map")
                 }
 
-                Section {
-                    Picker(String(localized: "地圖風格"), selection: $mapStyleIndex) {
-                        Text(String(localized: "默認")).tag(0)
-                        Text(String(localized: "我的世界")).tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                } header: {
-                    Label(String(localized: "地圖樣式"), systemImage: "paintbrush")
-                }
-
-                Section {
-                    Toggle(isOn: $sfxAccelerationEnabled) {
-                        Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
-                    }
-                    Text(String(localized: "關閉後，時速頁嘅「加速」提示聲會停用。"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Label(String(localized: "音效"), systemImage: "speaker")
-                }
-
+                // ── 6. 泊車功能 ──
                 Section {
                     Toggle(isOn: $vlmRecognitionEnabled) {
                         Label(String(localized: "VLM 車位識別"), systemImage: "brain.head.profile")
@@ -289,11 +253,12 @@ struct SettingsView: View {
                     Text(String(localized: "拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } header: {
-                    Label(String(localized: "泊車識別"), systemImage: "car")
-                }
-
-                Section {
+                    Toggle(isOn: $sfxAccelerationEnabled) {
+                        Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
+                    }
+                    Text(String(localized: "關閉後，時速頁嘅「加速」提示聲會停用。"))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                     Picker(String(localized: "樓層探測觸發"), selection: $floorCurveTriggerMode) {
                         Text(String(localized: "純速度")).tag(0)
                         Text(String(localized: "速度 + 海拔")).tag(1)
@@ -304,11 +269,6 @@ struct SettingsView: View {
                         : String(localized: "速度低於 20 km/h 且偵測到海拔變化時才展開膠囊。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } header: {
-                    Label(String(localized: "樓層探測"), systemImage: "chart.line.uptrend.xyaxis")
-                }
-
-                Section {
                     Picker(String(localized: "樓層慣例"), selection: $floorConvention) {
                         Text(String(localized: "香港 (G, 1, 2…)")).tag(0)
                         Text(String(localized: "內地 (1, 2, 3…)")).tag(1)
@@ -322,27 +282,35 @@ struct SettingsView: View {
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 } header: {
-                    Label(String(localized: "樓層慣例"), systemImage: "building.2")
+                    Label(String(localized: "泊車功能"), systemImage: "car")
                 }
 
-                // Orb Effects Section
+                // ── 6.5 黑武士模式 ──
+                Section {
+                    Toggle(isOn: $darkKnightMode) {
+                        Label(String(localized: "黑武士模式"), systemImage: "moon.stars.fill")
+                    }
+                } header: {
+                    Text("黑武士模式")
+                } footer: {
+                    Text("純黑背景 + 金色點綴，時速超過 100 km/h 時金色變為橙紅色")
+                }
+
+                // ── 7. 光球效果 ──
                 Section {
                     Toggle(isOn: $orbMasterEnabled) {
                         Label(String(localized: "光球效果總開關"), systemImage: "sparkles")
                     }
-
                     if orbMasterEnabled {
                         Picker(String(localized: "背景效果"), selection: $useTimeBasedOrb) {
                             Text(String(localized: "光球")).tag(false)
                             Text(String(localized: "時程")).tag(true)
                         }
-
                         Toggle(String(localized: "緊湊膠囊"), isOn: $orbCapsule)
                         Toggle(String(localized: "擴展膠囊"), isOn: $orbExpanded)
                         Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
-
                         if useTimeBasedOrb {
                             VStack(spacing: 12) {
                                 HStack {
@@ -357,7 +325,6 @@ struct SettingsView: View {
                                             .foregroundStyle(.secondary)
                                     }
                                 }
-                                
                                 HStack(spacing: 12) {
                                     Slider(value: $timePreviewHour, in: 0...24, step: 0.5)
                                         .tint(.orange)
@@ -367,7 +334,6 @@ struct SettingsView: View {
                                                 previewPhaseManager.setPreviewHour(newValue)
                                             }
                                         }
-                                    
                                     Button {
                                         toggleAutoPlay()
                                     } label: {
@@ -378,30 +344,17 @@ struct SettingsView: View {
                                             .glassEffect(.regular, in: .circle)
                                     }
                                 }
-                                
                                 HStack {
-                                    Text("0:00")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("0:00").font(.caption).foregroundStyle(.secondary)
                                     Spacer()
-                                    Text("6:00")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("6:00").font(.caption).foregroundStyle(.secondary)
                                     Spacer()
-                                    Text("12:00")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("12:00").font(.caption).foregroundStyle(.secondary)
                                     Spacer()
-                                    Text("18:00")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("18:00").font(.caption).foregroundStyle(.secondary)
                                     Spacer()
-                                    Text("24:00")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                    Text("24:00").font(.caption).foregroundStyle(.secondary)
                                 }
-                                
-                                // 时程光球预览
                                 GeometryReader { geo in
                                     let phoneHeight = geo.size.width * (19.5 / 9.0)
                                     TimeBasedOrbView(phaseManager: previewPhaseManager, clock: previewClock, orbEnabled: true)
@@ -409,23 +362,22 @@ struct SettingsView: View {
                                 }
                                 .frame(height: UIScreen.main.bounds.width * (19.5 / 9.0))
                                 .clipShape(RoundedRectangle(cornerRadius: 12))
-                                    .onAppear {
-                                        previewClock.start()
-                                        previewPhaseManager.start()
-                                        previewPhaseManager.setPreviewHour(timePreviewHour)
-                                    }
-                                    .onDisappear {
-                                        stopAutoPlay()
-                                        previewClock.stop()
-                                        previewPhaseManager.stop()
-                                    }
+                                .onAppear {
+                                    previewClock.start()
+                                    previewPhaseManager.start()
+                                    previewPhaseManager.setPreviewHour(timePreviewHour)
+                                }
+                                .onDisappear {
+                                    stopAutoPlay()
+                                    previewClock.stop()
+                                    previewPhaseManager.stop()
+                                }
                             }
                         }
                     }
                 } header: {
                     Label(String(localized: "光球效果"), systemImage: "sparkles")
                 }
-
             }
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListHeaderHeight, 36)
@@ -449,7 +401,6 @@ struct SettingsView: View {
                 }
             }
             .onChange(of: timePreviewHour) { _, newValue in
-                // 通知 TimePhaseManager 预览时间
                 NotificationCenter.default.post(
                     name: .timePhasePreviewChanged,
                     object: nil,
@@ -457,7 +408,6 @@ struct SettingsView: View {
                 )
             }
             .onChange(of: parkingTimerColorHex) { _, newValue in
-                // Sync to App Group so widget extension can read it
                 let appGroup = UserDefaults(suiteName: "group.com.gorilla.translate")
                 appGroup?.set(newValue, forKey: "parkingTimerColorHex")
                 appGroup?.synchronize()
@@ -567,6 +517,9 @@ private let allTestItems: [TestItemDef] = [
     TestItemDef(id: "llmTest", title: "泊車辨識測試 (LLM)", icon: "brain.head.profile") { AnyView(ParkingLLMRecognitionTestView()) },
     TestItemDef(id: "liveActivity", title: "即時活動樣式預覽", icon: "iphone.and.dynamicIsland") { AnyView(LiveActivityPreviewTestView()) },
     TestItemDef(id: "kalmanTest", title: "卡爾曼濾波對比測試", icon: "waveform.path.ecg") { AnyView(KalmanFilterTestView()) },
+    TestItemDef(id: "routeSim", title: "路線模擬測試", icon: "road.lanes") { AnyView(LaneNavigationTestView()) },
+    TestItemDef(id: "amapNavi", title: "高德原生導航測試", icon: "map.fill") { AnyView(AmapNaviTestView()) },
+    TestItemDef(id: "prediction", title: "預測目的地測試", icon: "brain.head.profile") { AnyView(PredictionTestView()) },
 ]
 
 struct ParkingFloorTestView: View {
@@ -2746,7 +2699,31 @@ struct TimeOrbAnimationTestView: View {
     @State private var autoPlayTimer: Timer?
     @StateObject private var previewClock = AnimationClock()
     @StateObject private var previewPhaseManager = TimePhaseManager()
-    
+
+    private var phaseName: String {
+        switch previewPhaseManager.currentPhase {
+        case .deepNight:   return "深夜"
+        case .preDawn:     return "黎明前"
+        case .sunrise:     return "日出"
+        case .morning:     return "日出後"
+        case .afternoon:   return "下午"
+        case .postSunset:  return "傍晚"
+        case .sunset:      return "日落"
+        }
+    }
+
+    private var phaseColor: Color {
+        switch previewPhaseManager.currentPhase {
+        case .deepNight:   return Color(hex: "1A1E2E") ?? .black
+        case .preDawn:     return Color(hex: "927F6B") ?? .gray
+        case .sunrise:     return Color(hex: "DCAC70") ?? .orange
+        case .morning:     return Color(hex: "83A3C3") ?? .blue
+        case .afternoon:   return Color(hex: "87A3C7") ?? .blue
+        case .postSunset:  return Color(hex: "F79D6C") ?? .orange
+        case .sunset:      return Color(hex: "926361") ?? .red
+        }
+    }
+
     var body: some View {
         List {
             Section {
@@ -2758,7 +2735,23 @@ struct TimeOrbAnimationTestView: View {
                             .foregroundStyle(isAutoPlaying ? .orange : .secondary)
                             .monospacedDigit()
                     }
-                    
+
+                    // 當前階段標註
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(phaseColor)
+                            .frame(width: 10, height: 10)
+                        Text(phaseName)
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.primary)
+                        if previewPhaseManager.phaseTransitionProgress > 0 {
+                            Text("→ 漸變中 \(Int(previewPhaseManager.phaseTransitionProgress * 100))%")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                    }
+
                     HStack(spacing: 12) {
                         Slider(value: $timePreviewHour, in: 0...24, step: 0.5)
                             .tint(.orange)
@@ -2768,7 +2761,7 @@ struct TimeOrbAnimationTestView: View {
                                     previewPhaseManager.setPreviewHour(v)
                                 }
                             }
-                        
+
                         Button {
                             toggleAutoPlay()
                         } label: {
@@ -2779,7 +2772,10 @@ struct TimeOrbAnimationTestView: View {
                                 .glassEffect(.regular, in: .circle)
                         }
                     }
-                    
+
+                    // 階段時間軸
+                    phaseTimeline
+
                     GeometryReader { geo in
                         let phoneHeight = geo.size.width * (19.5 / 9.0)
                         TimeBasedOrbView(phaseManager: previewPhaseManager, clock: previewClock, orbEnabled: true)
@@ -2802,6 +2798,61 @@ struct TimeOrbAnimationTestView: View {
         }
         .navigationTitle("時程光球動畫測試")
         .navigationBarTitleDisplayMode(.inline)
+    }
+
+    // MARK: - 階段時間軸
+
+    private var phaseTimeline: some View {
+        let phases: [(String, Color, Double)] = [
+            ("深夜",   Color(hex: "1A1E2E") ?? .black,  0),
+            ("黎明前", Color(hex: "927F6B") ?? .gray,   4),
+            ("日出",   Color(hex: "DCAC70") ?? .orange,  5),
+            ("日出後", Color(hex: "83A3C3") ?? .blue,    7),
+            ("下午",   Color(hex: "87A3C7") ?? .blue,   12),
+            ("傍晚",   Color(hex: "F79D6C") ?? .orange, 17),
+            ("日落",   Color(hex: "926361") ?? .red,    18),
+        ]
+        return VStack(spacing: 4) {
+            // 色條
+            GeometryReader { geo in
+                let w = geo.size.width
+                let h: CGFloat = 8
+                ZStack(alignment: .leading) {
+                    // 背景色塊
+                    HStack(spacing: 1) {
+                        ForEach(0..<phases.count, id: \.self) { i in
+                            let nextEnd = (i + 1 < phases.count) ? phases[i + 1].2 : 24
+                            let duration = nextEnd - phases[i].2
+                            phases[i].1
+                                .frame(width: max(0, w * duration / 24))
+                        }
+                    }
+                    .clipShape(Capsule())
+
+                    // 當前位置指示器
+                    let x = w * timePreviewHour / 24
+                    Circle()
+                        .fill(Color.white)
+                        .frame(width: 12, height: 12)
+                        .shadow(color: .black.opacity(0.3), radius: 2)
+                        .offset(x: x - 6)
+                }
+            }
+            .frame(height: 8)
+
+            // 時間標籤
+            HStack {
+                Text("0").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text("6").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text("12").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text("18").font(.caption2).foregroundStyle(.secondary)
+                Spacer()
+                Text("24").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
     }
     
     private func toggleAutoPlay() {
@@ -2839,14 +2890,37 @@ struct SpeedAnimationTestView: View {
     @StateObject private var sfxPlayer = SFXPlayer()
     @State private var sfxEnabled = true
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
+    @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
     @State private var accelArmedFromStop: Bool = true
     @State private var lastSpeedSample: Double = 0
     @State private var lastSpeedSampleAt: Date = Date()
     @State private var accelerationCooldownUntil: Date = .distantPast
-    
+
+    private var speedColor: Color {
+        let gold = Color(hex: "FFC46D") ?? .yellow
+        let red = Color(hex: "FF4500") ?? .red
+        if darkKnightMode && simSpeed > 100 {
+            let t = min(1, (simSpeed - 100) / 100)
+            return Color.blend(from: gold, to: red, amount: t)
+        }
+        return gold
+    }
+
+    private var dotColorHex: String {
+        if !darkKnightMode { return "#ffd700" }
+        if simSpeed <= 100 { return "#FFC46D" }
+        // 100-200 之間漸變到紅色
+        let t = min(1.0, (simSpeed - 100) / 100)
+        let r = Int(255)
+        let g = Int(196 * (1 - t) + 69 * t)
+        let b = Int(109 * (1 - t))
+        return String(format: "#%02x%02x%02x", r, g, b)
+    }
+
     var body: some View {
         List {
             Section {
+                Toggle("黑武士模式", isOn: $darkKnightMode)
                 Toggle("測試音效", isOn: $sfxEnabled)
                 
                 HStack(spacing: 12) {
@@ -2875,10 +2949,10 @@ struct SpeedAnimationTestView: View {
             }
             
             Section {
-                DotMatrixView(speed: $simSpeed)
+                DotMatrixView(speed: $simSpeed, accentColor: speedColor, dynamicColorHex: dotColorHex)
                     .frame(minHeight: 360)
                     .listRowInsets(EdgeInsets())
-                    .listRowBackground(Color.clear)
+                    .listRowBackground(darkKnightMode ? Color.black : Color.clear)
             }
         }
         .onChange(of: simSpeed) { _, newSpeed in
