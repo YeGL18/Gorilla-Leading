@@ -2982,7 +2982,7 @@ struct ContentView: View {
                 let orbScale = sqrt(h / 44.0)
 
                 ZStack {
-                    Color.black.opacity(0.4)
+                    Color.black.opacity(0.2)
 
                     Circle()
                         .fill(Color(hex: "BEBC3F").opacity(0.3 * effectiveOrbOpacity))
@@ -3253,484 +3253,344 @@ struct ContentView: View {
     private var parkingMemoryContent: some View {
         VStack(spacing: 0) {
             if isLandscape {
-                // 横屏：标题行横跨顶部，下方左相机右按钮
-                VStack(spacing: 10) {
-                    // 顶部：返回 + 泊車記憶 + 入場時間 + 加减按钮（横跨全宽）
-                    HStack {
-                        Button(action: {
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                isParkingMemoryExpanded = false
-                                orbOpacity = 1.0
-                                capsuleOnRight = false
-                                showingExpandedPhotos = false
-                                selectedPhotoIndex = nil
-                                tiltAngleX = [:]
-                                tiltAngleY = [:]
-                                deletingPhotoID = nil
-                                deletingIndex = nil
-                                deletingImage = nil
-                                parkingRecognizedDisplayText = nil
-                                hasConfirmedFloorThisSession = false
-                                showFloorConfirm = false
-                                recognizedFloorToConfirm = nil
-                                pendingOriginalFloorIndex = nil
-                                pendingFloorText = nil
-                                pendingFloorIndex = nil
-                                llmPollTimer?.invalidate()
-                                parkingInfoSwitchTimer?.invalidate()
-                            }
-                        }) {
-                            Image(systemName: "chevron.left.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                        }
-                        Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
-                            .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(adaptiveTextColor())
-                        Spacer()
-                        // 入場時間 + 调整文字 + 加减按钮
+                parkingMemoryLandscape
+            } else {
+                parkingMemoryPortrait
+            }
+        }
+    }
+
+    // MARK: - Parking Memory Landscape
+    private var parkingMemoryLandscape: some View {
+        VStack(spacing: 10) {
+            // 顶部：返回 + 泊車記憶 + 入場時間 + 加减按钮（横跨全宽）
+            parkingMemoryLandscapeHeader
+            // 下方：左相机 + 右按钮
+            HStack(alignment: .bottom, spacing: 20) {
+                // 左边：相机预览
+                VStack(spacing: 0) {
+                    cameraSection
+                }
+                .padding(.bottom, 20)
+                .frame(width: isLandscape ? 304 : 370)
+                .frame(maxHeight: .infinity, alignment: .bottom)
+                // 右边：离场 + 入场计时
+                parkingMemoryLandscapeButtons
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+
+    private var parkingMemoryLandscapeHeader: some View {
+        HStack {
+            parkingBackButton
+            Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
+                .font(.system(size: 20, weight: .bold))
+                .foregroundStyle(adaptiveTextColor())
+            Spacer()
+            if let text = timeAdjustText {
+                Text(text)
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                    .transition(.opacity)
+            }
+            HStack(spacing: 4) {
+                Text(String(localized: "入場時間"))
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                parkingEntryTimeDisplay(fontSize: 12)
+            }
+            parkingTimeAdjustButtons(buttonSize: 28, iconSize: 14)
+        }
+        .padding(.top, 18)
+    }
+
+    private var parkingMemoryLandscapeButtons: some View {
+        VStack(spacing: 16) {
+            // 離場 button
+            parkingDepartureButton(width: 161, height: 70, countdownSize: 40, labelSize: 22)
+            // 入场计时
+            parkingTimerOrb(width: 161, height: 70, orbBaseSize: 100, titleSize: 16, elapsedSize: 32, labelWidth: 28, labelSize: 11, onLongPress: {
+                editSpotNumber = llmSpotNumber ?? ""
+                editAreaCode = llmAreaCode ?? ""
+                editFloorText = llmFloorText ?? ""
+                showSpotEditor = true
+            })
+        }
+        .padding(.bottom, 20)
+        .frame(width: isLandscape ? 161 : 190)
+        .frame(maxHeight: .infinity, alignment: .bottom)
+    }
+
+    // MARK: - Parking Memory Portrait
+    private var parkingMemoryPortrait: some View {
+        Group {
+            // Back button + Title
+            HStack {
+                parkingBackButton
+                Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundStyle(adaptiveTextColor())
+                Spacer()
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+
+            // Entry time + adjustment
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(String(localized: "入場時間"))
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                         if let text = timeAdjustText {
                             Text(text)
-                                .font(.system(size: 10, weight: .bold))
+                                .font(.system(size: 13, weight: .bold))
                                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                                 .transition(.opacity)
                         }
-                        HStack(spacing: 4) {
-                            Text(String(localized: "入場時間"))
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor(opacity: 0.6))
-                            let cal = Calendar.current
-                            let d = cal.component(.day, from: parkingEntryTime)
-                            let m = cal.component(.month, from: parkingEntryTime)
-                            let y = cal.component(.year, from: parkingEntryTime)
-                            let hr = cal.component(.hour, from: parkingEntryTime)
-                            let mi = cal.component(.minute, from: parkingEntryTime)
-                            Text(String(format: "%02d/%02d/%04d %02d:%02d", d, m, y, hr, mi))
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor())
-                                .monospacedDigit()
-                                .contentTransition(.numericText())
-                                .animation(.easeInOut(duration: 0.15), value: parkingEntryTime)
-                        }
-                        HStack(spacing: 6) {
-                            Button(action: {
-                                timeAdjustAccumulated -= 1
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    parkingEntryTime = parkingEntryTime.addingTimeInterval(-60)
-                                }
-                                showAdjustText()
-                            }) {
-                                Image(systemName: "minus")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(adaptiveTextColor())
-                                    .frame(width: 28, height: 28)
-                                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
-                            }
-                            Button(action: {
-                                timeAdjustAccumulated += 1
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    parkingEntryTime = parkingEntryTime.addingTimeInterval(60)
-                                }
-                                showAdjustText()
-                            }) {
-                                Image(systemName: "plus")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundStyle(adaptiveTextColor())
-                                    .frame(width: 28, height: 28)
-                                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
-                            }
-                        }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 18)
-
-                    // 下方：左相机 + 右按钮
-                    HStack(alignment: .bottom, spacing: 20) {
-                        // 左边：相机预览
-                        VStack(spacing: 0) {
-                            cameraSection
-                        }
-                        .padding(.bottom, 20)
-                        .frame(width: isLandscape ? 304 : 370)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-
-                        // 右边：离场 + 入场计时
-                        VStack(spacing: 16) {
-                            // 離場 button
-                            Button(action: {
-                                startDepartureCountdown()
-                            }) {
-                                ZStack {
-                                    RoundedRectangle(cornerRadius: 25)
-                                        .fill(Color(hex: "D2251F"))
-                                        .frame(width: 161, height: 70)
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 25)
-                                                .stroke(Color.white.opacity(0.6), lineWidth: 4)
-                                        )
-                                    if let countdown = parkingCountdown {
-                                        Text("\(countdown)")
-                                            .font(.system(size: 40, weight: .bold))
-                                            .foregroundStyle(.white)
-                                            .contentTransition(.numericText())
-                                            .animation(.easeInOut(duration: 0.15), value: parkingCountdown)
-                                    } else if parkingDeparted {
-                                        AnimatedCheckmarkView()
-                                    } else {
-                                        Text(String(localized: "離場"))
-                                            .font(.system(size: 22, weight: .bold))
-                                            .foregroundStyle(.white)
-                                    }
-                                }
-                            }
-
-                            // 入场计时
-                            ZStack {
-                            GeometryReader { geo in
-                                let w = geo.size.width
-                                let h = geo.size.height
-                                let orbElapsed = orbBoostElapsedOffset > 0 ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
-                                let t = orbElapsed * 0.3 * parkingOrbBoost
-
-                                ZStack {
-                                    let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
-                                    // Crossfade factor：三色→六色漸變
-                                    let boostFactor = min(max((parkingOrbBoost - 1.0) / 1.0, 0), 1)
-                                    let threeColorOp = isOrbRecognizingBoost ? 0.5 : (isBoosted ? 0.5 * (1 - boostFactor) : 0.5)
-                                    let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
-                                    // Normal colors
-                                    Circle()
-                                        .fill((Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")).opacity(threeColorOp))
-                                        .blur(radius: 16)
-                                        .frame(width: 100, height: 100)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.35 - 50,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 50
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "0098FF").opacity(threeColorOp))
-                                        .blur(radius: 16)
-                                        .frame(width: 110, height: 110)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.3 - 55,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 55
-                                        )
-                                    Circle()
-                                        .fill(Color(hex: "BCBAE1").opacity(threeColorOp))
-                                        .blur(radius: 16)
-                                        .frame(width: 90, height: 90)
-                                        .offset(
-                                            x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 45,
-                                            y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 45
-                                        )
-                                    // Boost colors (6 orbs) — Lissajous curves
-                                    boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 100, sixColorOpacity: sixColorOp)
-                                }
-                            }
-                            .frame(width: 161, height: 70)
-                            .clipShape(.rect(cornerRadius: 25))
-                            .glassEffect(.regular, in: .rect(cornerRadius: 25))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 25)
-                                    .stroke(Color.white.opacity(0.6), lineWidth: 4)
-                            )
-                            VStack(spacing: 2) {
-                                let isLingering = isNonAutomotiveArrival && !hasParkingSpotData
-                                Text(isLingering ? String(localized: "計時") : (parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時")))
-                                    .font(.system(size: 16, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
-                                    .padding(.trailing, 28)
-                                    .id("parkingTitle")
-                                if !isLingering && parkingInfoDisplayMode {
-                                    let session = parkingFloorStore.currentSession
-                                    VStack(alignment: .leading, spacing: 1) {
-                                        HStack(spacing: 4) {
-                                            Text(String(localized: "車位")).frame(width: 28, alignment: .trailing)
-                                            Text(session?.spotNumber ?? "-")
-                                        }
-                                        HStack(spacing: 4) {
-                                            Text(String(localized: "區域")).frame(width: 28, alignment: .trailing)
-                                            Text(session?.areaCode ?? "-")
-                                        }
-                                        HStack(spacing: 4) {
-                                            Text(String(localized: "樓層")).frame(width: 28, alignment: .trailing)
-                                            Text(session?.floorDisplay ?? "-")
-                                        }
-                                    }
-                                    .font(.system(size: 11, weight: .medium))
-                                    .foregroundStyle(.white.opacity(0.9))
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.leading, 12)
-                                } else {
-                                    Text(formatParkingElapsed())
-                                        .font(.system(size: 32, weight: .bold))
-                                        .foregroundStyle(.white)
-                                        .monospacedDigit()
-                                        .contentTransition(.numericText())
-                                        .animation(.easeInOut(duration: 0.15), value: parkingElapsed)
-                                }
-                            }
-                            .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
-                            .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
-                            .onTapGesture {
-                                // 逗留模式唔切換
-                                guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
-                                withAnimation(.easeInOut(duration: 0.5)) {
-                                    parkingInfoDisplayMode.toggle()
-                                }
-                                resetParkingInfoSwitchTimer()
-                            }
-                            .onLongPressGesture {
-                                editSpotNumber = llmSpotNumber ?? ""
-                                editAreaCode = llmAreaCode ?? ""
-                                editFloorText = llmFloorText ?? ""
-                                showSpotEditor = true
-                            }
-                            }
-                        }
-                        .padding(.bottom, 20)
-                        .frame(width: isLandscape ? 161 : 190)
-                        .frame(maxHeight: .infinity, alignment: .bottom)
-                    }
+                    parkingEntryTimeDisplay(fontSize: 18)
                 }
-                .padding(.horizontal, 20)
-            } else {
-                // 竖屏：原有布局
-                // Back button + Title
-                HStack {
-                    Button(action: {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                            isParkingMemoryExpanded = false
-                            orbOpacity = 1.0
-                            capsuleOnRight = false
-                            showingExpandedPhotos = false
-                            selectedPhotoIndex = nil
-                            tiltAngleX = [:]
-                            tiltAngleY = [:]
-                            deletingPhotoID = nil
-                            deletingIndex = nil
-                            deletingImage = nil
-                            parkingRecognizedDisplayText = nil
-                            hasConfirmedFloorThisSession = false
-                            showFloorConfirm = false
-                            recognizedFloorToConfirm = nil
-                            llmPollTimer?.invalidate()
-                            parkingInfoSwitchTimer?.invalidate()
-                        }
-                    }) {
-                        Image(systemName: "chevron.left.circle.fill")
-                            .font(.system(size: 32))
-                            .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                    }
-                    Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
-                        .font(.system(size: 24, weight: .bold))
-                        .foregroundStyle(adaptiveTextColor())
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-
-                // Entry time + adjustment
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Text(String(localized: "入場時間"))
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor(opacity: 0.6))
-                            if let text = timeAdjustText {
-                                Text(text)
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(adaptiveTextColor(opacity: 0.8))
-                                    .transition(.opacity)
-                            }
-                        }
-                        let cal = Calendar.current
-                        let d = cal.component(.day, from: parkingEntryTime)
-                        let m = cal.component(.month, from: parkingEntryTime)
-                        let y = cal.component(.year, from: parkingEntryTime)
-                        let hr = cal.component(.hour, from: parkingEntryTime)
-                        let mi = cal.component(.minute, from: parkingEntryTime)
-                        Text(String(format: "%02d/%02d/%04d %02d:%02d", d, m, y, hr, mi))
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(adaptiveTextColor())
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.15), value: parkingEntryTime)
-                    }
-                    Spacer()
-                    HStack(spacing: 8) {
-                        Button(action: {
-                            timeAdjustAccumulated -= 1
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                parkingEntryTime = parkingEntryTime.addingTimeInterval(-60)
-                            }
-                            showAdjustText()
-                        }) {
-                            Image(systemName: "minus")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor())
-                                .frame(width: 32, height: 32)
-                                .glassEffect(.regular, in: .rect(cornerRadius: 8))
-                        }
-                        Button(action: {
-                            timeAdjustAccumulated += 1
-                            withAnimation(.easeInOut(duration: 0.2)) {
-                                parkingEntryTime = parkingEntryTime.addingTimeInterval(60)
-                            }
-                            showAdjustText()
-                        }) {
-                            Image(systemName: "plus")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor())
-                                .frame(width: 32, height: 32)
-                                .glassEffect(.regular, in: .rect(cornerRadius: 8))
-                        }
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
-
-                // Camera preview + photo button + thumbnails
-                cameraSection
-                    .padding(.top, 14)
-
                 Spacer()
-                    .frame(height: 20)
+                parkingTimeAdjustButtons(buttonSize: 32, iconSize: 16)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
 
-                // Bottom: 離場 button + entry timer
-                HStack(spacing: 14) {
-                    // 離場 button
-                    Button(action: {
-                        startDepartureCountdown()
-                    }) {
-                        ZStack {
-                            RoundedRectangle(cornerRadius: 25)
-                                .fill(Color(hex: "D2251F"))
-                                .frame(width: 161, height: 87)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 25)
-                                        .stroke(Color.white.opacity(0.6), lineWidth: 4)
-                                )
-                            if let countdown = parkingCountdown {
-                                Text("\(countdown)")
-                                    .font(.system(size: 48, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .contentTransition(.numericText())
-                                    .animation(.easeInOut(duration: 0.15), value: parkingCountdown)
-                            } else if parkingDeparted {
-                                AnimatedCheckmarkView()
-                            } else {
-                                Text(String(localized: "離場"))
-                                    .font(.system(size: 24, weight: .bold))
-                                    .foregroundStyle(.white)
-                            }
-                        }
-                    }
+            // Camera preview + photo button + thumbnails
+            cameraSection
+                .padding(.top, 14)
 
-                    // Entry timer with aurora gradient orb animation
-                    ZStack {
-                        GeometryReader { geo in
-                            let w = geo.size.width
-                            let h = geo.size.height
-                            let orbElapsed = orbBoostElapsedOffset > 0 ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
-                                let t = orbElapsed * 0.3 * parkingOrbBoost
+            Spacer()
+                .frame(height: 20)
 
-                            ZStack {
-                                let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
-                                // Crossfade factor：三色→六色漸變
-                                let boostFactor = min(max((parkingOrbBoost - 1.0) / 1.0, 0), 1)
-                                let threeColorOp = isOrbRecognizingBoost ? 0.5 : (isBoosted ? 0.5 * (1 - boostFactor) : 0.5)
-                                let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
-                                // Normal colors
-                                Circle()
-                                    .fill((Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")).opacity(threeColorOp))
-                                    .blur(radius: 16)
-                                    .frame(width: 120, height: 120)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.35 - 60,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 60
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "0098FF").opacity(threeColorOp))
-                                    .blur(radius: 16)
-                                    .frame(width: 130, height: 130)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.3 - 65,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 65
-                                    )
-                                Circle()
-                                    .fill(Color(hex: "BCBAE1").opacity(threeColorOp))
-                                    .blur(radius: 16)
-                                    .frame(width: 110, height: 110)
-                                    .offset(
-                                        x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.33 - 55,
-                                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.33 - 55
-                                    )
-                                // Boost colors (6 orbs) — Lissajous curves
-                                boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: 120, sixColorOpacity: sixColorOp)
-                            }
-                        }
-                        .frame(width: 161, height: 87)
-                        .clipShape(.rect(cornerRadius: 25))
-                        .glassEffect(.regular, in: .rect(cornerRadius: 25))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 25)
-                                .stroke(Color.white.opacity(0.6), lineWidth: 4)
-                        )
-                        VStack(spacing: 2) {
-                            let isLingering = isNonAutomotiveArrival && !hasParkingSpotData
-                            Text(isLingering ? String(localized: "計時") : (parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時")))
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .padding(.trailing, 18)
-                                .id("parkingTitle")
-                            if !isLingering && parkingInfoDisplayMode {
-                                let session = parkingFloorStore.currentSession
-                                VStack(alignment: .leading, spacing: 1) {
-                                    HStack(spacing: 4) {
-                                        Text(String(localized: "車位")).frame(width: 32, alignment: .trailing)
-                                        Text(session?.spotNumber ?? "-")
-                                    }
-                                    HStack(spacing: 4) {
-                                        Text(String(localized: "區域")).frame(width: 32, alignment: .trailing)
-                                        Text(session?.areaCode ?? "-")
-                                    }
-                                    HStack(spacing: 4) {
-                                        Text(String(localized: "樓層")).frame(width: 32, alignment: .trailing)
-                                        Text(session?.floorDisplay ?? "-")
-                                    }
-                                }
-                                .font(.system(size: 13, weight: .medium))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.leading, 12)
-                            } else {
-                                Text(formatParkingElapsed())
-                                    .font(.system(size: 36, weight: .bold))
-                                    .foregroundStyle(.white)
-                                    .monospacedDigit()
-                                    .contentTransition(.numericText())
-                                    .animation(.easeInOut(duration: 0.15), value: parkingElapsed)
-                            }
-                        }
-                        .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
-                        .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
-                        .onTapGesture {
-                            guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
-                            withAnimation(.easeInOut(duration: 0.5)) {
-                                parkingInfoDisplayMode.toggle()
-                            }
-                            resetParkingInfoSwitchTimer()
-                        }
-                        .onLongPressGesture { showRecognitionLogicAlert = true }
-                    }
+            // Bottom: 離場 button + entry timer
+            HStack(spacing: 14) {
+                parkingDepartureButton(width: 161, height: 87, countdownSize: 48, labelSize: 24)
+                parkingTimerOrb(width: 161, height: 87, orbBaseSize: 120, titleSize: 18, elapsedSize: 36, labelWidth: 32, labelSize: 13, onLongPress: { showRecognitionLogicAlert = true })
+            }
+            .padding(.horizontal, 20)
+            .padding(.bottom, 16)
+        }
+    }
+
+    // MARK: - Parking Memory Shared Components
+    private var parkingBackButton: some View {
+        Button(action: {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                isParkingMemoryExpanded = false
+                orbOpacity = 1.0
+                capsuleOnRight = false
+                showingExpandedPhotos = false
+                selectedPhotoIndex = nil
+                tiltAngleX = [:]
+                tiltAngleY = [:]
+                deletingPhotoID = nil
+                deletingIndex = nil
+                deletingImage = nil
+                parkingRecognizedDisplayText = nil
+                hasConfirmedFloorThisSession = false
+                showFloorConfirm = false
+                recognizedFloorToConfirm = nil
+                pendingOriginalFloorIndex = nil
+                pendingFloorText = nil
+                pendingFloorIndex = nil
+                llmPollTimer?.invalidate()
+                parkingInfoSwitchTimer?.invalidate()
+            }
+        }) {
+            Image(systemName: "chevron.left.circle.fill")
+                .font(.system(size: isLandscape ? 28 : 32))
+                .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+        }
+    }
+
+    @ViewBuilder
+    private func parkingEntryTimeDisplay(fontSize: CGFloat) -> some View {
+        let cal = Calendar.current
+        let d = cal.component(.day, from: parkingEntryTime)
+        let m = cal.component(.month, from: parkingEntryTime)
+        let y = cal.component(.year, from: parkingEntryTime)
+        let hr = cal.component(.hour, from: parkingEntryTime)
+        let mi = cal.component(.minute, from: parkingEntryTime)
+        Text(String(format: "%02d/%02d/%04d %02d:%02d", d, m, y, hr, mi))
+            .font(.system(size: fontSize, weight: .bold))
+            .foregroundStyle(adaptiveTextColor())
+            .monospacedDigit()
+            .contentTransition(.numericText())
+            .animation(.easeInOut(duration: 0.15), value: parkingEntryTime)
+    }
+
+    @ViewBuilder
+    private func parkingTimeAdjustButtons(buttonSize: CGFloat, iconSize: CGFloat) -> some View {
+        HStack(spacing: isLandscape ? 6 : 8) {
+            Button(action: {
+                timeAdjustAccumulated -= 1
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    parkingEntryTime = parkingEntryTime.addingTimeInterval(-60)
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 16)
+                showAdjustText()
+            }) {
+                Image(systemName: "minus")
+                    .font(.system(size: iconSize, weight: .bold))
+                    .foregroundStyle(adaptiveTextColor())
+                    .frame(width: buttonSize, height: buttonSize)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
+            }
+            Button(action: {
+                timeAdjustAccumulated += 1
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    parkingEntryTime = parkingEntryTime.addingTimeInterval(60)
+                }
+                showAdjustText()
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: iconSize, weight: .bold))
+                    .foregroundStyle(adaptiveTextColor())
+                    .frame(width: buttonSize, height: buttonSize)
+                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
             }
         }
+    }
+
+    @ViewBuilder
+    private func parkingDepartureButton(width: CGFloat, height: CGFloat, countdownSize: CGFloat, labelSize: CGFloat) -> some View {
+        Button(action: {
+            startDepartureCountdown()
+        }) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 25)
+                    .fill(Color(hex: "D2251F"))
+                    .frame(width: width, height: height)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 25)
+                            .stroke(Color.white.opacity(0.6), lineWidth: 4)
+                    )
+                if let countdown = parkingCountdown {
+                    Text("\(countdown)")
+                        .font(.system(size: countdownSize, weight: .bold))
+                        .foregroundStyle(.white)
+                        .contentTransition(.numericText())
+                        .animation(.easeInOut(duration: 0.15), value: parkingCountdown)
+                } else if parkingDeparted {
+                    AnimatedCheckmarkView()
+                } else {
+                    Text(String(localized: "離場"))
+                        .font(.system(size: labelSize, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func parkingTimerOrb(width: CGFloat, height: CGFloat, orbBaseSize: CGFloat, titleSize: CGFloat, elapsedSize: CGFloat, labelWidth: CGFloat, labelSize: CGFloat, onLongPress: @escaping () -> Void) -> some View {
+        ZStack {
+            parkingOrbBackground(width: width, height: height, orbBaseSize: orbBaseSize)
+            parkingTimerOverlay(titleSize: titleSize, elapsedSize: elapsedSize, labelWidth: labelWidth, labelSize: labelSize, onLongPress: onLongPress)
+        }
+    }
+
+    private func parkingOrbBackground(width: CGFloat, height: CGFloat, orbBaseSize: CGFloat) -> some View {
+        parkingOrbCanvas(width: width, height: height, orbBaseSize: orbBaseSize)
+            .frame(width: width, height: height)
+            .clipShape(.rect(cornerRadius: 25))
+            .overlay(
+                RoundedRectangle(cornerRadius: 25)
+                    .fill(Color.black.opacity(0.18))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 25)
+                    .stroke(Color.white.opacity(0.6), lineWidth: 4)
+            )
+    }
+
+    private func parkingOrbCanvas(width: CGFloat, height: CGFloat, orbBaseSize: CGFloat) -> some View {
+        GeometryReader { geo in
+            let w = geo.size.width
+            let h = geo.size.height
+            parkingOrbCircles(w: w, h: h, orbBaseSize: orbBaseSize)
+        }
+    }
+
+    private func parkingOrbCircles(w: CGFloat, h: CGFloat, orbBaseSize: CGFloat) -> some View {
+        let orbElapsed = orbBoostElapsedOffset > 0 ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
+        let t = orbElapsed * 0.3 * parkingOrbBoost
+        let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
+        let boostFactor = min(max((parkingOrbBoost - 1.0) / 1.0, 0), 1)
+        let threeColorOp = isOrbRecognizingBoost ? 0.5 : (isBoosted ? 0.5 * (1 - boostFactor) : 0.5)
+        let sixColorOp = isOrbRecognizingBoost ? 0 : (isBoosted ? 0.5 * boostFactor : 0)
+        let baseColor = Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8")
+
+        return ZStack {
+            parkingSingleOrb(color: baseColor, opacity: threeColorOp, size: orbBaseSize, w: w, h: h, t: t, freqX: 0.5, freqY: 0.4, ampX: 0.35, ampY: 0.35, phaseX: 0, phaseY: 0)
+            parkingSingleOrb(color: Color(hex: "0098FF"), opacity: threeColorOp, size: orbBaseSize + 10, w: w, h: h, t: t, freqX: 0.4, freqY: 0.35, ampX: 0.3, ampY: 0.3, phaseX: 2, phaseY: 2)
+            parkingSingleOrb(color: Color(hex: "BCBAE1"), opacity: threeColorOp, size: orbBaseSize - 10, w: w, h: h, t: t, freqX: 0.6, freqY: 0.45, ampX: 0.33, ampY: 0.33, phaseX: 4, phaseY: 4)
+            boostOrbs(w: w, h: h, t: t, isBoosted: isBoosted, orbSize: orbBaseSize, sixColorOpacity: sixColorOp)
+        }
+    }
+
+    private func parkingSingleOrb(color: Color, opacity: Double, size: CGFloat, w: CGFloat, h: CGFloat, t: Double, freqX: Double, freqY: Double, ampX: Double, ampY: Double, phaseX: Double, phaseY: Double) -> some View {
+        Circle()
+            .fill(color.opacity(opacity))
+            .blur(radius: 16)
+            .frame(width: size, height: size)
+            .offset(
+                x: w * 0.5 + CGFloat(sin(t * freqX + phaseX)) * w * ampX - size / 2,
+                y: h * 0.5 + CGFloat(cos(t * freqY + phaseY)) * h * ampY - size / 2
+            )
+    }
+
+    @ViewBuilder
+    private func parkingTimerOverlay(titleSize: CGFloat, elapsedSize: CGFloat, labelWidth: CGFloat, labelSize: CGFloat, onLongPress: @escaping () -> Void) -> some View {
+        VStack(spacing: 2) {
+            let isLingering = isNonAutomotiveArrival && !hasParkingSpotData
+            Text(isLingering ? String(localized: "計時") : (parkingInfoDisplayMode ? String(localized: "車位資訊") : String(localized: "入場計時")))
+                .font(.system(size: titleSize, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity, alignment: .trailing)
+                .padding(.trailing, isLandscape ? 28 : 18)
+                .id("parkingTitle")
+            if !isLingering && parkingInfoDisplayMode {
+                let session = parkingFloorStore.currentSession
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(String(localized: "車位")).frame(width: labelWidth, alignment: .trailing)
+                        Text(session?.spotNumber ?? "-")
+                    }
+                    HStack(spacing: 4) {
+                        Text(String(localized: "區域")).frame(width: labelWidth, alignment: .trailing)
+                        Text(session?.areaCode ?? "-")
+                    }
+                    HStack(spacing: 4) {
+                        Text(String(localized: "樓層")).frame(width: labelWidth, alignment: .trailing)
+                        Text(session?.floorDisplay ?? "-")
+                    }
+                }
+                .font(.system(size: labelSize, weight: .medium))
+                .foregroundStyle(.white.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.leading, 12)
+            } else {
+                Text(formatParkingElapsed())
+                    .font(.system(size: elapsedSize, weight: .bold))
+                    .foregroundStyle(.white)
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.15), value: parkingElapsed)
+            }
+        }
+        .animation(.easeInOut(duration: 0.5), value: parkingInfoDisplayMode)
+        .animation(.easeInOut(duration: 0.3), value: parkingFloorStore.lots)
+        .onTapGesture {
+            guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
+            withAnimation(.easeInOut(duration: 0.5)) {
+                parkingInfoDisplayMode.toggle()
+            }
+            resetParkingInfoSwitchTimer()
+        }
+        .onLongPressGesture { onLongPress() }
     }
 
     private func formatParkingElapsed() -> String {
@@ -4321,9 +4181,12 @@ struct ContentView: View {
         stopCapsuleUpdateTimer()
         let timer = Timer(timeInterval: 2.0, repeats: true) { _ in
             DispatchQueue.main.async {
-                updateVisitStatus()
-                if locationManager.speed >= 5 {
-                    refreshETA()
+                // 時速頁（selectedTab == 0）時跳過主頁專用嘅重計算，減少主線程阻塞
+                if selectedTab == 1 {
+                    updateVisitStatus()
+                    if locationManager.speed >= 5 {
+                        refreshETA()
+                    }
                 }
             }
         }
