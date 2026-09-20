@@ -49,7 +49,10 @@ final class SFXPlayer: ObservableObject {
     func playLaunchSound() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.playback, mode: .default, options: [])
-        try? session.setActive(true, options: [])
+        // 避免 main thread 阻塞
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? session.setActive(true, options: [])
+        }
         if let url = resolveURL(name: "gorilla_launch") {
             let p = try? AVAudioPlayer(contentsOf: url)
             p?.delegate = nil
@@ -184,7 +187,9 @@ final class SFXPlayer: ObservableObject {
     private func configureAudioSession() {
         let session = AVAudioSession.sharedInstance()
         try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
-        try? session.setActive(true, options: [])
+        DispatchQueue.global(qos: .userInitiated).async {
+            try? session.setActive(true, options: [])
+        }
     }
     
     private func loadPlayer(name: String, volume: Float) -> AVAudioPlayer? {
