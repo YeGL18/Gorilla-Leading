@@ -48,22 +48,24 @@ final class SFXPlayer: ObservableObject {
 
     func playLaunchSound() {
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.playback, mode: .default, options: [])
-        // 避免 main thread 阻塞
+        // 避免 main thread 阻塞：setCategory + setActive 都放 background
         DispatchQueue.global(qos: .userInitiated).async {
+            try? session.setCategory(.playback, mode: .default, options: [])
             try? session.setActive(true, options: [])
-        }
-        if let url = resolveURL(name: "gorilla_launch") {
-            let p = try? AVAudioPlayer(contentsOf: url)
-            p?.delegate = nil
-            p?.volume = baseVolume
-            p?.prepareToPlay()
-            p?.play()
-            SFXPlayer.launchPlayer = p // 防止被回收
-            // 播放完畢後恢復 ambient session
-            DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
-                SFXPlayer.launchPlayer = nil
-                self.configureAudioSession()
+            DispatchQueue.main.async {
+                if let url = self.resolveURL(name: "gorilla_launch") {
+                    let p = try? AVAudioPlayer(contentsOf: url)
+                    p?.delegate = nil
+                    p?.volume = self.baseVolume
+                    p?.prepareToPlay()
+                    p?.play()
+                    SFXPlayer.launchPlayer = p // 防止被回收
+                    // 播放完畢後恢復 ambient session
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                        SFXPlayer.launchPlayer = nil
+                        self.configureAudioSession()
+                    }
+                }
             }
         }
     }
@@ -185,9 +187,9 @@ final class SFXPlayer: ObservableObject {
     }
     
     private func configureAudioSession() {
-        let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
         DispatchQueue.global(qos: .userInitiated).async {
+            let session = AVAudioSession.sharedInstance()
+            try? session.setCategory(.ambient, mode: .default, options: [.mixWithOthers])
             try? session.setActive(true, options: [])
         }
     }
