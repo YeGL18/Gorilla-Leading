@@ -347,6 +347,7 @@ struct ContentView: View {
     @AppStorage("orbParkingMemory") private var orbParkingMemory: Bool = true
     @AppStorage("orbBackgroundHome") private var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
+    @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
     @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
     @State private var darkKnightActivatedByFocus = false  // 是否由極致專注模式自動開啟
     /// 黑武士模式地圖圓角（橫屏更大）
@@ -2910,17 +2911,45 @@ struct ContentView: View {
         return showCapsuleOrbs ? 1.0 : 0
     }
 
+    /// 根據 orbColorPreset 返回三顆圓球嘅 hex 顏色
+    private func orbPresetColors() -> [(hex: String, opacity: Double)] {
+        switch orbColorPreset {
+        case 1: // 動態橙：隨時速變化，越快越橙紅
+            let speed = locationManager.speed  // m/s
+            let kmh = max(0, speed * 3.6)
+            // 低速(0-60): 橙色 FF8C00 → 中速(60-120): 深橙 FF6B00 → 高速(120+): 紅橙 FF4500
+            let t = min(max((kmh - 30) / 90, 0), 1)  // 30kmh=0, 120kmh=1
+            let hex: String
+            if t < 0.5 {
+                // FF8C00 → FF6B00
+                let u = t * 2
+                let r = 255, g = Int(140 - 33 * u), b = 0
+                hex = String(format: "%02X%02X%02X", r, g, b)
+            } else {
+                // FF6B00 → FF4500
+                let u = (t - 0.5) * 2
+                let r = 255, g = Int(107 - 38 * u), b = 0
+                hex = String(format: "%02X%02X%02X", r, g, b)
+            }
+            return [(hex, 0.35), ("5CAEB7", 0.3), ("0098FF", 0.3)]
+        case 2: // #9BF783
+            return [("9BF783", 0.3), ("5CAEB7", 0.3), ("0098FF", 0.3)]
+        case 3: // #99E695
+            return [("99E695", 0.3), ("5CAEB7", 0.3), ("0098FF", 0.3)]
+        case 4: // #97D5AB
+            return [("97D5AB", 0.3), ("5CAEB7", 0.3), ("0098FF", 0.3)]
+        default: // 0 = 金黃色（預設）
+            return [("BEBC3F", 0.3), ("5CAEB7", 0.3), ("0098FF", 0.3)]
+        }
+    }
+
     private var orbBackgroundColor: Color {
         let opacity = effectiveOrbOpacity
         if opacity <= 0 { return Color.black.opacity(0.92) }
         var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
         UIColor(Color.black.opacity(0.4)).getRed(&r, green: &g, blue: &b, alpha: nil)
         var rr = r, gg = g, bb = b
-        let orbColors: [(UIColor, Double)] = [
-            (UIColor(hex: "BEBC3F"), 0.3),
-            (UIColor(hex: "5CAEB7"), 0.3),
-            (UIColor(hex: "0098FF"), 0.3)
-        ]
+        let orbColors = orbPresetColors().map { (UIColor(hex: $0.hex), $0.opacity) }
         for (uc, baseOpacity) in orbColors {
             var or: CGFloat = 0, og: CGFloat = 0, ob: CGFloat = 0
             uc.getRed(&or, green: &og, blue: &ob, alpha: nil)
@@ -2978,6 +3007,7 @@ struct ContentView: View {
     @ViewBuilder
     private var orbBackground: some View {
         if effectiveOrbOpacity > 0 {
+            let colors = orbPresetColors()
             GeometryReader { geo in
                 let w = geo.size.width
                 let h = geo.size.height
@@ -2988,7 +3018,7 @@ struct ContentView: View {
                     Color.black.opacity(0.2)
 
                     Circle()
-                        .fill(Color(hex: "BEBC3F").opacity(0.3 * effectiveOrbOpacity))
+                        .fill(Color(hex: colors[0].hex).opacity(colors[0].opacity * effectiveOrbOpacity))
                         .blur(radius: 20)
                         .frame(width: 200 * orbScale, height: 200 * orbScale)
                         .offset(
@@ -2996,7 +3026,7 @@ struct ContentView: View {
                             y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 100 * orbScale
                         )
                     Circle()
-                        .fill(Color(hex: "5CAEB7").opacity(0.3 * effectiveOrbOpacity))
+                        .fill(Color(hex: colors[1].hex).opacity(colors[1].opacity * effectiveOrbOpacity))
                         .blur(radius: 20)
                         .frame(width: 220 * orbScale, height: 220 * orbScale)
                         .offset(
@@ -3004,7 +3034,7 @@ struct ContentView: View {
                             y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 110 * orbScale
                         )
                     Circle()
-                        .fill(Color(hex: "0098FF").opacity(0.3 * effectiveOrbOpacity))
+                        .fill(Color(hex: colors[2].hex).opacity(colors[2].opacity * effectiveOrbOpacity))
                         .blur(radius: 20)
                         .frame(width: 180 * orbScale, height: 180 * orbScale)
                         .offset(

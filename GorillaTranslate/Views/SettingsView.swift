@@ -18,6 +18,7 @@ struct SettingsView: View {
     @AppStorage("orbParkingMemory") var orbParkingMemory: Bool = true
     @AppStorage("orbBackgroundHome") var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") var orbBackgroundSpeed: Bool = true
+    @AppStorage("orbColorPreset") var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
     @AppStorage("darkKnightMode") var darkKnightMode: Bool = false
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
@@ -311,6 +312,29 @@ struct SettingsView: View {
                         Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
+                        // 圓點顏色選擇
+                        Picker(String(localized: "圓點顏色"), selection: $orbColorPreset) {
+                            HStack(spacing: 4) {
+                                Circle().fill(Color(hex: "BEBC3F")).frame(width: 10, height: 10)
+                                Text("金黃色")
+                            }.tag(0)
+                            HStack(spacing: 4) {
+                                Circle().fill(Color(hex: "FF8C00")).frame(width: 10, height: 10)
+                                Text("動態橙")
+                            }.tag(1)
+                            HStack(spacing: 4) {
+                                Circle().fill(Color(hex: "9BF783")).frame(width: 10, height: 10)
+                                Text("#9BF783")
+                            }.tag(2)
+                            HStack(spacing: 4) {
+                                Circle().fill(Color(hex: "99E695")).frame(width: 10, height: 10)
+                                Text("#99E695")
+                            }.tag(3)
+                            HStack(spacing: 4) {
+                                Circle().fill(Color(hex: "97D5AB")).frame(width: 10, height: 10)
+                                Text("#97D5AB")
+                            }.tag(4)
+                        }
                         if useTimeBasedOrb {
                             VStack(spacing: 12) {
                                 HStack {
