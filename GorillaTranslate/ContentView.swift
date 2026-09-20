@@ -2722,8 +2722,11 @@ struct ContentView: View {
                             let workItem = DispatchWorkItem { capsuleSettleHeight = nil }
                             capsuleSettleWorkItem = workItem
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.55, execute: workItem)
-                            updateVisitStatus()
-                            refreshETA()
+                            // 延遲計算，避免阻塞展開動畫
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                                updateVisitStatus()
+                                refreshETA()
+                            }
                         } else if !targetExpanded && isCapsuleExpanded {
                             // 收縮：高度 + offset + scale 一起動畫
                             capsuleSettleHeight = releasedHeight
