@@ -2482,108 +2482,13 @@ struct ContentView: View {
 
         return ZStack {
             if isParkingMemoryExpanded {
-                parkingMemoryContent
-                    .transition(.opacity)
-                    .alert(String(localized: "請啟動動作按鈕"), isPresented: $showLLMActionPrompt) {
-                        Button(String(localized: "已準備好")) { startLLMPollingAfterAction() }
-                        Button(String(localized: "取消"), role: .cancel) {
-                            llmSoundStopTimer?.invalidate()
-                            llmSoundStopTimer = nil
-                            sfxPlayer.stopVLMLoadingImmediately()
-                            stopOrbRecognitionBoost(triggerSixColor: false)
-                            isRecognizing = false
-                        }
-                    } message: {
-                        Text(String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「") + "\(llmShortcutName)" + String(localized: "」快捷指令。"))
-                    }
-                    .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
-                        Button(String(localized: "編輯")) {
-                            editSpotNumber = llmSpotNumber ?? ""
-                            editAreaCode = llmAreaCode ?? ""
-                            editFloorText = llmFloorText ?? ""
-                            showSpotEditor = true
-                        }
-                        Button(String(localized: "清除車位"), role: .destructive) {
-                            withAnimation(.easeInOut(duration: 0.4)) {
-                                clearParkingContributions()
-                            }
-                        }
-                        Button(String(localized: "確定"), role: .cancel) {}
-                    } message: {
-                        Text(buildRecognitionLogicText())
-                        if let raw = llmRawResult, !raw.isEmpty {
-                            Text("\n" + String(localized: "原始結果：") + "\n" + raw)
-                                .font(.caption)
-                        }
-                    }
+                addressCapsuleParkingMemory
             } else if isFloorCurveInCapsule {
-                floorCurveCapsuleContent
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                    .transition(AnyTransition.blurFade)
+                addressCapsuleFloorCurve
             } else if isCapsuleExpanded {
-                expandedContent
-                    .id(parkingStartTime)
-                    .transition(AnyTransition.blurFade)
-                    .allowsHitTesting(!capsuleDragState.active)
+                addressCapsuleExpanded
             } else {
-                let addressReveal = locationManager.currentAddress.isEmpty ? 0 : addressRevealProgress
-                ZStack {
-                    RoseFourView(
-                        loop: roseLoopSpeed,
-                        opacity: roseOpacity * (1 - addressReveal),
-                        blurRadius: roseBlurRadius + 20 * addressReveal
-                    )
-                    .frame(width: 50, height: 50)
-                    .padding(.horizontal, 6)
-
-                    ZStack {
-                        if compactModeShowStatus {
-                            HStack(spacing: 8) {
-                                Text(compactStatusTitle)
-                                    .font(.body.bold())
-                                    .foregroundStyle(adaptiveTextColor(opacity: 0.85))
-                                Text(frozenCompactStatus ?? compactStatusDuration)
-                                    .font(.body.bold())
-                                    .foregroundStyle(adaptiveTextColor())
-                                    .contentTransition(.numericText())
-                                    .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: compactStatusTickValue)
-                                    .monospacedDigit()
-                                    .blur(radius: capsuleDragState.active ? 6 : 0)
-                                    .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
-                            }
-                            .transition(.blurReplace())
-                        } else if showSpeedInfo {
-                            HStack(spacing: 16) {
-                                Text("\(Int(locationManager.smoothedSpeed)) km/h")
-                                    .font(.body.bold())
-                                    .foregroundStyle(adaptiveTextColor())
-                                    .contentTransition(.numericText())
-                                    .monospacedDigit()
-                                    .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
-                                if let eta = drivingETASeconds {
-                                    Text(formatCompactETA(eta))
-                                        .font(.body.bold())
-                                        .foregroundStyle(adaptiveTextColor())
-                                        .contentTransition(.numericText())
-                                }
-                            }
-                            .transition(.blurReplace())
-                        } else {
-                            Text(displayAddress)
-                                .font(.body.bold())
-                                .foregroundStyle(adaptiveTextColor())
-                                .lineLimit(1)
-                                .padding(.horizontal, 6)
-                                .transition(.blurReplace())
-                                .id(showPOIName)  // 觸發 transition
-                        }
-                    }
-                    .opacity(addressReveal)
-                    .blur(radius: 20 * (1 - addressReveal))
-                    .animation(.easeInOut(duration: 0.3), value: showSpeedInfo)
-                    .animation(.easeInOut(duration: 0.3), value: compactModeShowStatus)
-                }
-                .transition(AnyTransition.blurFade)
+                addressCapsuleCompact
             }
         }
         .frame(width: capsuleWidth)
@@ -2943,6 +2848,119 @@ struct ContentView: View {
                 startRandomInfoTimer()
             }
         }
+    }
+
+    // MARK: - addressCapsule sub-views (extracted to reduce generic nesting depth)
+
+    private var addressCapsuleParkingMemory: some View {
+        parkingMemoryContent
+            .transition(.opacity)
+            .alert(String(localized: "請啟動動作按鈕"), isPresented: $showLLMActionPrompt) {
+                Button(String(localized: "已準備好")) { startLLMPollingAfterAction() }
+                Button(String(localized: "取消"), role: .cancel) {
+                    llmSoundStopTimer?.invalidate()
+                    llmSoundStopTimer = nil
+                    sfxPlayer.stopVLMLoadingImmediately()
+                    stopOrbRecognitionBoost(triggerSixColor: false)
+                    isRecognizing = false
+                }
+            } message: {
+                Text(String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「") + "\(llmShortcutName)" + String(localized: "」快捷指令。"))
+            }
+            .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
+                Button(String(localized: "編輯")) {
+                    editSpotNumber = llmSpotNumber ?? ""
+                    editAreaCode = llmAreaCode ?? ""
+                    editFloorText = llmFloorText ?? ""
+                    showSpotEditor = true
+                }
+                Button(String(localized: "清除車位"), role: .destructive) {
+                    withAnimation(.easeInOut(duration: 0.4)) {
+                        clearParkingContributions()
+                    }
+                }
+                Button(String(localized: "確定"), role: .cancel) {}
+            } message: {
+                Text(buildRecognitionLogicText())
+                if let raw = llmRawResult, !raw.isEmpty {
+                    Text("\n" + String(localized: "原始結果：") + "\n" + raw)
+                        .font(.caption)
+                }
+            }
+    }
+
+    private var addressCapsuleFloorCurve: some View {
+        floorCurveCapsuleContent
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .transition(AnyTransition.blurFade)
+    }
+
+    private var addressCapsuleExpanded: some View {
+        expandedContent
+            .id(parkingStartTime)
+            .transition(AnyTransition.blurFade)
+            .allowsHitTesting(!capsuleDragState.active)
+    }
+
+    private var addressCapsuleCompact: some View {
+        let addressReveal = locationManager.currentAddress.isEmpty ? 0 : addressRevealProgress
+        return ZStack {
+            RoseFourView(
+                loop: roseLoopSpeed,
+                opacity: roseOpacity * (1 - addressReveal),
+                blurRadius: roseBlurRadius + 20 * addressReveal
+            )
+            .frame(width: 50, height: 50)
+            .padding(.horizontal, 6)
+
+            ZStack {
+                if compactModeShowStatus {
+                    HStack(spacing: 8) {
+                        Text(compactStatusTitle)
+                            .font(.body.bold())
+                            .foregroundStyle(adaptiveTextColor(opacity: 0.85))
+                        Text(frozenCompactStatus ?? compactStatusDuration)
+                            .font(.body.bold())
+                            .foregroundStyle(adaptiveTextColor())
+                            .contentTransition(.numericText())
+                            .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: compactStatusTickValue)
+                            .monospacedDigit()
+                            .blur(radius: capsuleDragState.active ? 6 : 0)
+                            .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
+                    }
+                    .transition(.blurReplace())
+                } else if showSpeedInfo {
+                    HStack(spacing: 16) {
+                        Text("\(Int(locationManager.smoothedSpeed)) km/h")
+                            .font(.body.bold())
+                            .foregroundStyle(adaptiveTextColor())
+                            .contentTransition(.numericText())
+                            .monospacedDigit()
+                            .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
+                        if let eta = drivingETASeconds {
+                            Text(formatCompactETA(eta))
+                                .font(.body.bold())
+                                .foregroundStyle(adaptiveTextColor())
+                                .contentTransition(.numericText())
+                        }
+                    }
+                    .transition(.blurReplace())
+                } else {
+                    Text(displayAddress)
+                        .font(.body.bold())
+                        .foregroundStyle(adaptiveTextColor())
+                        .lineLimit(1)
+                        .padding(.horizontal, 6)
+                        .transition(.blurReplace())
+                        .id(showPOIName)  // 觸發 transition
+                }
+            }
+            .opacity(addressReveal)
+            .blur(radius: 20 * (1 - addressReveal))
+            .animation(.easeInOut(duration: 0.3), value: showSpeedInfo)
+            .animation(.easeInOut(duration: 0.3), value: compactModeShowStatus)
+        }
+        .transition(AnyTransition.blurFade)
     }
 
     private var effectiveOrbOpacity: Double {
