@@ -5,6 +5,8 @@
 //  路線模擬測試頁 - 模擬 A→B 路線移動 + SDK 車道箭頭
 //
 
+
+#if !targetEnvironment(simulator)
 import SwiftUI
 import MapKit
 import CoreLocation
@@ -471,3 +473,23 @@ struct LaneNavigationTestView: View {
         }
     }
 }
+
+#else
+// 模擬器 stub
+import SwiftUI
+struct LaneNavigationTestView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "location.north.line")
+                .font(.system(size: 48))
+                .foregroundColor(.gray)
+            Text("路線模擬測試")
+                .font(.title2)
+            Text("AMap SDK 不支援 arm64 模擬器\n請使用真機測試")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+        }
+        .navigationTitle("路線模擬測試")
+    }
+}
+#endif

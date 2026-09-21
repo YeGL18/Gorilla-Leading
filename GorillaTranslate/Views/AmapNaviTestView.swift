@@ -5,6 +5,8 @@
 //  高德原生導航測試頁 - MAMapView + AMapNaviDriveManager + SDK 車道 UI
 //
 
+
+#if !targetEnvironment(simulator)
 import SwiftUI
 import AMapNaviKit
 import AMapFoundationKit
@@ -370,3 +372,23 @@ struct AmapNaviTestView: View {
         }
     }
 }
+
+#else
+// 模擬器 stub
+import SwiftUI
+struct AmapNaviTestView: View {
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "map.fill")
+                .font(.system(size: 48))
+                .foregroundColor(.gray)
+            Text("高德導航測試")
+                .font(.title2)
+            Text("AMap SDK 不支援 arm64 模擬器\n請使用真機測試")
+                .multilineTextAlignment(.center)
+                .foregroundColor(.secondary)
+        }
+        .navigationTitle("高德導航測試")
+    }
+}
+#endif

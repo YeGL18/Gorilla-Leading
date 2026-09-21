@@ -8,8 +8,11 @@
 import Foundation
 import SwiftUI
 import CoreLocation
+
+#if !targetEnvironment(simulator)
 import AMapNaviKit
 import AMapFoundationKit
+#endif
 
 // MARK: - 車道方向類型
 enum LaneDirection: Int, CaseIterable, Identifiable {
@@ -53,6 +56,34 @@ enum LaneDirection: Int, CaseIterable, Identifiable {
 }
 
 // MARK: - 高德靜默導航管理器
+
+#if targetEnvironment(simulator)
+// 模擬器 stub — AMap SDK 不支援 arm64 模擬器
+@MainActor
+class AmapNaviManager: NSObject, ObservableObject {
+    static let shared = AmapNaviManager()
+
+    @Published var isNavigating = false
+    @Published var showLaneGuidance = false
+    @Published var laneImage: UIImage?
+    @Published var laneBackInfo: String = ""
+    @Published var laneSelectInfo: String = ""
+    @Published var currentRoadName: String = ""
+    @Published var nextAction: String = ""
+    @Published var remainingDistance: Int = 0
+    @Published var remainingTime: Int = 0
+
+    private override init() { super.init() }
+
+    func startSilentNavigation(to destination: Destination) {
+        print("⚠️ AMap SDK 不支援模擬器，導航功能已停用")
+    }
+
+    func stopNavigation() {}
+}
+
+#else
+
 @MainActor
 class AmapNaviManager: NSObject, ObservableObject {
     static let shared = AmapNaviManager()
@@ -201,3 +232,5 @@ extension AmapNaviManager: AMapNaviDriveManagerDelegate {
         }
     }
 }
+
+#endif
