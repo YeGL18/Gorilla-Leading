@@ -93,6 +93,11 @@ struct ContentView: View {
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.scenePhase) private var scenePhase
+    @ObservedObject private var meterManager = ParkingMeterManager.shared
+    @State private var meterRouteTarget: ParkingMeter?
+    @State private var meterDirections: MKDirections?
+    @State private var meterRouteError: String?
+    private let meterTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var isInForeground = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     
@@ -497,7 +502,22 @@ struct ContentView: View {
                 .tag(2)
         }
         .preferredColorScheme(resolvedColorScheme)
+        .onReceive(meterTick) { _ in
+            meterManager.tick(location: locationManager.lastLocation, speed: locationManager.speed,
+                              destination: destinationManager.selectedDestination,
+                              canPresentNotices: selectedTab == 1 && selectedParkingPointID == nil
+                                && selectedHKLocation == nil && !showingTripConfirm
+                                && !meterManager.needsVehicleSelection && !meterManager.paymentHelpPresented)
+        }
+        .sheet(isPresented: $meterManager.needsVehicleSelection) { MeterVehiclePicker() }
+        .modifier(MeterPaymentHelp(manager: meterManager))
+        .alert("未能取得路線", isPresented: Binding(get: { meterRouteError != nil }, set: { if !$0 { meterRouteError = nil } })) {
+            Button("確定", role: .cancel) { meterRouteError = nil }
+        } message: { Text(meterRouteError ?? "") }
         .onAppear {
+            meterManager.prepare()
+            meterManager.setActive(true)
+            if meterManager.isEnabled && meterManager.vehicle == .unset { meterManager.needsVehicleSelection = true }
             animationClock.start()
             if orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
                 // 立即啟動入場動畫（同 blur 淡入同步進行）
@@ -522,6 +542,7 @@ struct ContentView: View {
             stopCapsuleUpdateTimer()
         }
         .onChange(of: scenePhase) { _, phase in
+            meterManager.setActive(phase == .active)
             isInForeground = (phase == .active)
             if phase == .active {
                 DispatchQueue.main.async {
@@ -565,7 +586,7 @@ struct ContentView: View {
             guard let location = location else { return }
             guard showingRoute, let polyline = routePolyline else { return }
             guard locationManager.speed >= 15 else { return }
-            if isRerouting { return }
+            if isRerouting || meterDirections != nil { return }
             if let last = lastRerouteRequestAt, Date().timeIntervalSince(last) < 8 { return }
             let distance = distanceFromRoute(location: location, polyline: polyline)
             if distance > 40 {
@@ -742,6 +763,9 @@ struct ContentView: View {
         }
         .allowsHitTesting(naviManager.showLaneGuidance)
         .onChange(of: destinationManager.selectedDestination?.id) { _, _ in
+            meterRouteTarget = nil
+            meterDirections?.cancel()
+            meterDirections = nil
             // 目的地變更時，自動開始/停止車道導航
             syncLaneNavigation()
         }
@@ -1339,6 +1363,24 @@ struct ContentView: View {
                         )
                     )
                     .zIndex(20)
+            }
+
+            if (showMap || showSatellite), let meter = meterManager.selectedMeter {
+                ZStack {
+                    Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { meterManager.selectedMeter = nil }
+                    ScrollView {
+                        MeterDetailCapsule(meter: meter, manager: meterManager,
+                                           onClose: { meterManager.selectedMeter = nil },
+                                           onNavigate: { startNavigationToMeter(meter) })
+                            .padding(.vertical, 20)
+                    }.frame(maxHeight: 500)
+                }.zIndex(23)
+            } else if let notice = meterManager.notice, selectedParkingPointID == nil, selectedHKLocation == nil {
+                MeterNoticeCapsule(notice: notice, onCancel: { meterManager.dismissNotice() }, onAction: {
+                    meterManager.dismissNotice()
+                    if notice.kind == .destination { startNavigationToMeter(notice.meter) }
+                    else { MeterPayment.open(manager: meterManager) }
+                }).zIndex(23)
             }
 
             if (showMap || showSatellite), let hkLoc = selectedHKLocation {
@@ -3134,6 +3176,9 @@ struct ContentView: View {
                         if showingRoute {
                             withAnimation {
                                 showingRoute = false
+                                meterRouteTarget = nil
+                                meterDirections?.cancel()
+                                meterDirections = nil
                                 routePolyline = nil
                                 routeAnimationPolyline = nil
                             }
@@ -3170,6 +3215,7 @@ struct ContentView: View {
                             directions.calculate { response, error in
                                 guard let route = response?.routes.first, error == nil else {
                                     DispatchQueue.main.async {
+                                        guard meterRouteTarget == nil, routePriorityToken == routeToken else { return }
                                         routePriorityToken = nil
                                         routePriorityAnchor = nil
                                         routeOverlayToken = nil
@@ -3178,6 +3224,7 @@ struct ContentView: View {
                                     return
                                 }
                                 DispatchQueue.main.async {
+                                    guard meterRouteTarget == nil, routePriorityToken == routeToken else { return }
                                     withAnimation {
                                         showingRoute = true
                                         routePolyline = route.polyline
@@ -3779,6 +3826,11 @@ struct ContentView: View {
     }
 
     private func reroute(from coordinate: CLLocationCoordinate2D) {
+        if let meter = meterRouteTarget {
+            lastRerouteRequestAt = Date()
+            startNavigationToMeter(meter)
+            return
+        }
         guard let destination = destinationManager.selectedDestination else { return }
         isRerouting = true
         lastRerouteRequestAt = Date()
@@ -3791,6 +3843,7 @@ struct ContentView: View {
         directions.calculate { response, error in
             DispatchQueue.main.async {
                 defer { isRerouting = false }
+                guard meterRouteTarget == nil else { return }
                 guard let route = response?.routes.first, error == nil else { return }
                 routeOverlayToken = UUID()
                 routeOverlayAnimationToken = nil
@@ -4381,6 +4434,9 @@ struct ContentView: View {
     }
 
     private func startNavigationToParkingPoint(_ point: ParkingPointRecord) {
+        meterRouteTarget = nil
+        meterDirections?.cancel()
+        meterDirections = nil
         guard let currentLocation = locationManager.lastLocation else { return }
         let routeToken = UUID()
         routePriorityToken = routeToken
@@ -4432,6 +4488,56 @@ struct ContentView: View {
 
     // MARK: - 香港地點彈窗
 
+    private func startNavigationToMeter(_ meter: ParkingMeter) {
+        guard let location = locationManager.lastLocation else {
+            meterRouteError = "尚未取得目前位置"
+            return
+        }
+        meterManager.selectedMeter = nil
+        meterManager.dismissNotice()
+        meterDirections?.cancel()
+        meterRouteTarget = meter
+        lastRerouteRequestAt = Date()
+        let token = UUID()
+        routePriorityToken = token
+        routePriorityAnchor = location.coordinate
+        if !showMap && !showSatellite { showMap = true }
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: location.coordinate.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: meter.coordinate.wgs84ToGCJ02))
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = true
+        let directions = MKDirections(request: request)
+        meterDirections = directions
+        directions.calculate { response, error in
+            DispatchQueue.main.async {
+                guard meterDirections === directions, meterRouteTarget?.id == meter.id else { return }
+                meterDirections = nil
+                guard let route = response?.routes.min(by: { $0.expectedTravelTime < $1.expectedTravelTime }), error == nil else {
+                    meterRouteError = error?.localizedDescription ?? "暫時找不到可行駕駛路線"
+                    routePriorityToken = nil
+                    routePriorityAnchor = nil
+                    meterRouteTarget = nil
+                    return
+                }
+                routeOverlayToken = token
+                routeOverlayAnimationToken = token
+                withAnimation {
+                    showingRoute = true
+                    routePolyline = route.polyline
+                    routeAnimationPolyline = simplifiedRoutePolyline(route.polyline, maxPoints: 220)
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    guard routeOverlayToken == token else { return }
+                    routePriorityToken = nil
+                    routePriorityAnchor = nil
+                    routeOverlayAnimationToken = nil
+                    routeAnimationPolyline = nil
+                }
+            }
+        }
+    }
+
     private func hkLocationCapsule(title: String, coordinate: CLLocationCoordinate2D) -> some View {
         ZStack {
             Color.black.opacity(0.001)
@@ -4478,6 +4584,9 @@ struct ContentView: View {
     }
 
     private func startNavigationToHKLocation(_ coordinate: CLLocationCoordinate2D) {
+        meterRouteTarget = nil
+        meterDirections?.cancel()
+        meterDirections = nil
         guard let currentLocation = locationManager.lastLocation else { return }
         let routeToken = UUID()
         routePriorityToken = routeToken
@@ -5109,6 +5218,7 @@ struct ContentView: View {
         ) { distance, time in
             DispatchQueue.main.async {
                 if let distance = distance {
+                    meterManager.updateRouteDistance(distance, destinationID: dest.id)
                     if distance < 1000 {
                         drivingDistanceText = "\(Int(distance)) m"
                     } else {
@@ -5133,6 +5243,10 @@ struct ContentView: View {
     }
 
     private func recalculateRoute() {
+        if let meter = meterRouteTarget {
+            startNavigationToMeter(meter)
+            return
+        }
         // 專注模式（平衡／極致）：切走 MKDirections 網絡請求
         guard !focusCutsInfoAndETA else { return }
         guard let destination = destinationManager.selectedDestination,
@@ -5146,6 +5260,7 @@ struct ContentView: View {
         directions.calculate { response, error in
             guard let route = response?.routes.first, error == nil else { return }
             DispatchQueue.main.async {
+                guard meterRouteTarget == nil else { return }
                 routeOverlayToken = UUID()
                 routeOverlayAnimationToken = nil
                 withAnimation {

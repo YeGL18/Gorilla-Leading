@@ -70,6 +70,7 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
+                MeterSettingsSection()
                 // ── 1. 語言 ──
                 Section {
                     NavigationLink {
@@ -527,6 +528,7 @@ private struct TestItemDef: Identifiable {
 }
 
 private let allTestItems: [TestItemDef] = [
+    TestItemDef(id: "meterMap", title: "全港咪錶測試", icon: "parkingsign.circle") { AnyView(ParkingMeterTestView()) },
     TestItemDef(id: "parkingFlow", title: "停車流程測試", icon: "parkingsign.circle.fill") { AnyView(ParkingFlowTestView()) },
     TestItemDef(id: "timeOrb", title: "時程光球動畫測試", icon: "sparkles") { AnyView(TimeOrbAnimationTestView()) },
     TestItemDef(id: "visitRecords", title: "到訪記錄測試", icon: "mappin.and.ellipse") { AnyView(VisitRecordsTestView()) },

@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 77;
+	objectVersion = 70;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -25,6 +25,14 @@
 		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
 		A10021 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20021 /* AppLanguage.swift */; };
 		A10022 /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20022 /* LanguageManager.swift */; };
+		AM10001 /* AMapConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20001 /* AMapConfig.swift */; };
+		AM10002 /* AmapNaviManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20002 /* AmapNaviManager.swift */; };
+		AM10003 /* FloatingLaneGuidanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20003 /* FloatingLaneGuidanceView.swift */; };
+		AM10005 /* LaneNavigationTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20005 /* LaneNavigationTestView.swift */; };
+		AM10006 /* AmapNaviTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20006 /* AmapNaviTestView.swift */; };
+		AM10007 /* CapsuleLightEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20007 /* CapsuleLightEffect.swift */; };
+		AM10008 /* LightDistortion.metal in Sources */ = {isa = PBXBuildFile; fileRef = AM20008 /* LightDistortion.metal */; };
+		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
@@ -50,17 +58,12 @@
 		F3A0C011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 */; };
 		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
 		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
+		ME10001 /* MeterData.swift in Sources */ = {isa = PBXBuildFile; fileRef = ME20001 /* MeterData.swift */; };
+		ME10002 /* ParkingMeterManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = ME20002 /* ParkingMeterManager.swift */; };
+		ME10003 /* ParkingMeterViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = ME20003 /* ParkingMeterViews.swift */; };
 		P10002 /* Pixelate.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10001 /* Pixelate.metal */; };
 		P10005 /* MetaballEffect.metal in Sources */ = {isa = PBXBuildFile; fileRef = P10004 /* MetaballEffect.metal */; };
 		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
-		AM10001 /* AMapConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20001 /* AMapConfig.swift */; };
-		AM10002 /* AmapNaviManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20002 /* AmapNaviManager.swift */; };
-		AM10003 /* FloatingLaneGuidanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20003 /* FloatingLaneGuidanceView.swift */; };
-		AM10005 /* LaneNavigationTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20005 /* LaneNavigationTestView.swift */; };
-		AM10006 /* AmapNaviTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20006 /* AmapNaviTestView.swift */; };
-		AM10007 /* CapsuleLightEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20007 /* CapsuleLightEffect.swift */; };
-		AM10008 /* LightDistortion.metal in Sources */ = {isa = PBXBuildFile; fileRef = AM20008 /* LightDistortion.metal */; };
-		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -101,6 +104,14 @@
 		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
 		A20021 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A20022 /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
+		AM20001 /* AMapConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMapConfig.swift; sourceTree = "<group>"; };
+		AM20002 /* AmapNaviManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviManager.swift; sourceTree = "<group>"; };
+		AM20003 /* FloatingLaneGuidanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLaneGuidanceView.swift; sourceTree = "<group>"; };
+		AM20005 /* LaneNavigationTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneNavigationTestView.swift; sourceTree = "<group>"; };
+		AM20006 /* AmapNaviTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviTestView.swift; sourceTree = "<group>"; };
+		AM20007 /* CapsuleLightEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapsuleLightEffect.swift; sourceTree = "<group>"; };
+		AM20008 /* LightDistortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = LightDistortion.metal; path = GorillaTranslate/Shaders/LightDistortion.metal; sourceTree = "<group>"; };
+		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
@@ -129,21 +140,16 @@
 		L10002 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
 		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
+		ME20001 /* MeterData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeterData.swift; sourceTree = "<group>"; };
+		ME20002 /* ParkingMeterManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingMeterManager.swift; sourceTree = "<group>"; };
+		ME20003 /* ParkingMeterViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingMeterViews.swift; sourceTree = "<group>"; };
 		P10001 /* Pixelate.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = Pixelate.metal; sourceTree = "<group>"; };
 		P10004 /* MetaballEffect.metal */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.metal; path = MetaballEffect.metal; sourceTree = "<group>"; };
 		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
-		AM20001 /* AMapConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMapConfig.swift; sourceTree = "<group>"; };
-		AM20002 /* AmapNaviManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviManager.swift; sourceTree = "<group>"; };
-		AM20003 /* FloatingLaneGuidanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLaneGuidanceView.swift; sourceTree = "<group>"; };
-		AM20005 /* LaneNavigationTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaneNavigationTestView.swift; sourceTree = "<group>"; };
-		AM20006 /* AmapNaviTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviTestView.swift; sourceTree = "<group>"; };
-		AM20007 /* CapsuleLightEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapsuleLightEffect.swift; sourceTree = "<group>"; };
-		AM20008 /* LightDistortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = LightDistortion.metal; path = GorillaTranslate/Shaders/LightDistortion.metal; sourceTree = "<group>"; };
-		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */ = {
+		05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -153,29 +159,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ParkingTimerWidget;
-			sourceTree = "<group>";
-		};
-		SH2001 /* Shared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
+		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ParkingTimerWidget; sourceTree = "<group>"; };
+		SH2001 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -199,6 +184,14 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		05938E103061627200FFA463 /* Recovered References */ = {
+			isa = PBXGroup;
+			children = (
+				AM20008 /* LightDistortion.metal */,
+			);
+			name = "Recovered References";
+			sourceTree = "<group>";
+		};
 		05B1C5D9301837BB00589328 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
@@ -215,7 +208,6 @@
 				466C90E74591632D7D4EF408 /* Pods-GorillaTranslate.debug.xcconfig */,
 				00B56AD3AD702332D6DFC29E /* Pods-GorillaTranslate.release.xcconfig */,
 			);
-			name = Pods;
 			path = Pods;
 			sourceTree = "<group>";
 		};
@@ -230,6 +222,7 @@
 				A40005 /* Products */,
 				65605E6361F50510E915CAAA /* MorphingText.swift */,
 				97520130FC61B9649E283D23 /* Pods */,
+				05938E103061627200FFA463 /* Recovered References */,
 			);
 			sourceTree = "<group>";
 		};
@@ -253,6 +246,8 @@
 		A40003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				ME20001 /* MeterData.swift */,
+				ME20002 /* ParkingMeterManager.swift */,
 				A20021 /* AppLanguage.swift */,
 				A20022 /* LanguageManager.swift */,
 				A20019 /* AnimationClock.swift */,
@@ -275,6 +270,7 @@
 		A40004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				ME20003 /* ParkingMeterViews.swift */,
 				A20014 /* AnimatedBackground.swift */,
 				A20016 /* SettingsView.swift */,
 				7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */,
@@ -486,9 +482,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
@@ -531,6 +531,9 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				ME10001 /* MeterData.swift in Sources */,
+				ME10002 /* ParkingMeterManager.swift in Sources */,
+				ME10003 /* ParkingMeterViews.swift in Sources */,
 				A10001 /* GorillaTranslateApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
 				A10021 /* AppLanguage.swift in Sources */,

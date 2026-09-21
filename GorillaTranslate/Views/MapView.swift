@@ -46,6 +46,7 @@ final class ParkingPointAnnotation: NSObject, MKAnnotation {
 }
 
 struct MapView: UIViewRepresentable {
+    @ObservedObject private var meterManager = ParkingMeterManager.shared
     @Binding var savedRegion: MKCoordinateRegion?
     @Binding var savedCamera: MKMapCamera?
     @Binding var flyTrigger: Int
@@ -372,6 +373,7 @@ struct MapView: UIViewRepresentable {
         }
         
         context.coordinator.syncParkingAnnotations(parkingPoints: parkingPoints, titlePrefixesByID: parkingPointTitlePrefixesByID)
+        context.coordinator.meterLayer.sync(map: mapView, meters: meterManager.visibleMeters, manager: meterManager)
         context.coordinator.applyParkingSelection(selectedParkingPointID: selectedParkingPointID)
 
         // 持續跟隨模式：啟動/停止 heading 追蹤 timer
@@ -393,6 +395,7 @@ struct MapView: UIViewRepresentable {
     }
 
     class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
+        let meterLayer = MeterMapLayer()
         var parent: MapView
         weak var mapView: NonAdjustingMapView?
         weak var container: UIView?
@@ -1476,6 +1479,14 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
+            let meterMembers = MeterMapLayer.members(view.annotation)
+            if let meter = ParkingMeterManager.shared.representative(meterMembers) {
+                parent.onSelectParkingPoint(nil)
+                parent.onSelectHKLocation(nil)
+                ParkingMeterManager.shared.select(meter)
+                if let annotation = view.annotation { mapView.deselectAnnotation(annotation, animated: false) }
+                return
+            }
             if isApplyingParkingSelection { return }
             if let anno = view.annotation as? ParkingPointAnnotation {
                 parent.onSelectParkingPoint(anno.pointID)
@@ -1512,6 +1523,7 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let view = MeterMapLayer.view(map: mapView, annotation: annotation, manager: .shared) { return view }
             if annotation is MKUserLocation {
                 return nil
             }
