@@ -2480,17 +2480,7 @@ struct ContentView: View {
             return (isCapsuleExpanded || isFloorCurveInCapsule) ? 370 : (270 + 100 * dragProgress)
         }()
 
-        return ZStack {
-            if isParkingMemoryExpanded {
-                addressCapsuleParkingMemory
-            } else if isFloorCurveInCapsule {
-                addressCapsuleFloorCurve
-            } else if isCapsuleExpanded {
-                addressCapsuleExpanded
-            } else {
-                addressCapsuleCompact
-            }
-        }
+        return addressCapsuleContent
         .frame(width: capsuleWidth)
         .frame(height: capsuleHeight)
         .background {
@@ -2851,6 +2841,19 @@ struct ContentView: View {
     }
 
     // MARK: - addressCapsule sub-views (extracted to reduce generic nesting depth)
+
+    private var addressCapsuleContent: AnyView {
+        if isParkingMemoryExpanded {
+            return AnyView(addressCapsuleParkingMemory)
+        }
+        if isFloorCurveInCapsule {
+            return AnyView(addressCapsuleFloorCurve)
+        }
+        if isCapsuleExpanded {
+            return AnyView(addressCapsuleExpanded)
+        }
+        return AnyView(addressCapsuleCompact)
+    }
 
     private var addressCapsuleParkingMemory: some View {
         parkingMemoryContent

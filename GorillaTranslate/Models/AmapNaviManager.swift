@@ -75,7 +75,6 @@ class AmapNaviManager: NSObject, ObservableObject {
 
     private override init() {
         super.init()
-        setupDriveManager()
     }
 
     // MARK: - 設置導航管理器
@@ -89,6 +88,10 @@ class AmapNaviManager: NSObject, ObservableObject {
 
     // MARK: - 啟動靜默導航
     func startSilentNavigation(to destination: Destination) {
+        if driveManager == nil {
+            AMapConfig.shared.configure()
+            setupDriveManager()
+        }
         guard let driveManager = driveManager else { return }
 
         currentDestination = destination
