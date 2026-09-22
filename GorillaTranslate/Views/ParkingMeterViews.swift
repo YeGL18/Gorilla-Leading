@@ -24,43 +24,44 @@ final class MeterAnnotation: NSObject, MKAnnotation {
     }
 }
 
-final class MeterAnnotationView: MKAnnotationView {
-    private let symbol = UIImageView()
-    private let countLabel = UILabel()
-    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
-        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
-        frame = CGRect(x: 0, y: 0, width: 66, height: 36)
-        layer.cornerRadius = 8
-        layer.borderWidth = 2
-        layer.borderColor = UIColor.white.cgColor
-        layer.shadowColor = UIColor.black.cgColor
-        layer.shadowOpacity = 0.2
-        layer.shadowRadius = 3
-        layer.shadowOffset = CGSize(width: 0, height: 1)
-        symbol.frame = CGRect(x: 7, y: 8, width: 22, height: 20)
-        symbol.contentMode = .scaleAspectFit
-        symbol.tintColor = .black
-        countLabel.frame = CGRect(x: 31, y: 5, width: 29, height: 26)
-        countLabel.font = .monospacedDigitSystemFont(ofSize: 15, weight: .bold)
-        countLabel.textAlignment = .center
-        countLabel.textColor = .black
-        countLabel.adjustsFontSizeToFitWidth = true
-        countLabel.minimumScaleFactor = 0.6
-        addSubview(symbol); addSubview(countLabel)
-        canShowCallout = false
-        collisionMode = .rectangle
-        displayPriority = .defaultHigh
-        isAccessibilityElement = true
+final class MeterGroupAnnotation: NSObject, MKAnnotation {
+    let meters: [ParkingMeter]
+    let coordinate: CLLocationCoordinate2D
+    let title: String?
+    let subtitle: String?
+
+    init(_ meters: [ParkingMeter]) {
+        self.meters = meters
+        let latitude = meters.reduce(0) { $0 + $1.latitude } / Double(meters.count)
+        let longitude = meters.reduce(0) { $0 + $1.longitude } / Double(meters.count)
+        coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude).wgs84ToGCJ02
+        title = meters[0].bayType.title
+        subtitle = "\(meters.count) 個咪錶位"
+        super.init()
     }
-    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+}
+
+final class MeterAnnotationView: MKMarkerAnnotationView {
     @MainActor
     func configure(_ meters: [ParkingMeter], manager: ParkingMeterManager) {
+        guard let first = meters.first else { return }
         let state = MeterDisplayState.cluster(meters.map { manager.state($0) })
-        backgroundColor = state.uiColor
-        symbol.image = UIImage(systemName: meters.first?.bayType.symbol ?? "parkingsign")
-        countLabel.text = "\(meters.count)"
-        clusteringIdentifier = meters.first.map { "meter-\($0.bayType.rawValue)" }
-        accessibilityLabel = "\(meters.first?.bayType.title ?? "咪錶")，\(meters.count) 個泊位，\(state.title)"
+        let isCluster = annotation is MKClusterAnnotation || annotation is MeterGroupAnnotation
+        if let cluster = annotation as? MKClusterAnnotation {
+            cluster.title = first.bayType.title
+            cluster.subtitle = "\(meters.count) 個咪錶位"
+        }
+        markerTintColor = state.uiColor
+        glyphTintColor = state == .incompatible ? .black : .white
+        glyphText = isCluster ? "\(meters.count)" : "P"
+        clusteringIdentifier = isCluster ? nil : "meter-\(first.bayType.rawValue)"
+        titleVisibility = isCluster ? .adaptive : .visible
+        subtitleVisibility = .hidden
+        canShowCallout = false
+        collisionMode = .circle
+        displayPriority = .defaultHigh
+        isAccessibilityElement = true
+        accessibilityLabel = "\(first.bayType.title)，\(meters.count) 個泊位，\(state.title)"
     }
 }
 
@@ -70,6 +71,7 @@ final class MeterMapLayer {
     private var lastRevision = -1
     static func members(_ annotation: MKAnnotation?) -> [ParkingMeter] {
         if let meter = annotation as? MeterAnnotation { return [meter.meter] }
+        if let group = annotation as? MeterGroupAnnotation { return group.meters }
         if let cluster = annotation as? MKClusterAnnotation {
             return cluster.memberAnnotations.compactMap { ($0 as? MeterAnnotation)?.meter }
         }
@@ -95,8 +97,10 @@ final class MeterMapLayer {
     static func view(map: MKMapView, annotation: MKAnnotation, manager: ParkingMeterManager) -> MKAnnotationView? {
         let meters = members(annotation)
         guard !meters.isEmpty else { return nil }
-        let view = (map.dequeueReusableAnnotationView(withIdentifier: "Meter") as? MeterAnnotationView)
-            ?? MeterAnnotationView(annotation: annotation, reuseIdentifier: "Meter")
+        let reuseID = annotation is MKClusterAnnotation || annotation is MeterGroupAnnotation
+            ? "MeterCluster" : "MeterSingle"
+        let view = (map.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MeterAnnotationView)
+            ?? MeterAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
         view.annotation = annotation
         view.configure(meters, manager: manager)
         return view
@@ -161,6 +165,7 @@ struct MeterDetailCapsule: View {
     @ObservedObject var manager: ParkingMeterManager
     let onClose: () -> Void
     let onNavigate: () -> Void
+    let onPay: () -> Void
     var body: some View {
         VStack(spacing: 12) {
             HStack {
@@ -195,7 +200,7 @@ struct MeterDetailCapsule: View {
                     Label("導航", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }.buttonStyle(.glass)
-                Button { MeterPayment.open(manager: manager) } label: {
+                Button(action: onPay) {
                     Label("前往繳費", systemImage: "creditcard.fill")
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }
@@ -205,7 +210,54 @@ struct MeterDetailCapsule: View {
         .padding(20)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
         .frame(maxWidth: 420)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, 28)
+    }
+}
+
+private struct MeterPopupBlurSlideModifier: ViewModifier {
+    let blur: CGFloat
+    let y: CGFloat
+    let scale: CGFloat
+
+    func body(content: Content) -> some View {
+        content.blur(radius: blur).offset(y: y).scaleEffect(scale)
+    }
+}
+
+struct MeterDetailOverlay: View {
+    let meter: ParkingMeter
+    @ObservedObject var manager: ParkingMeterManager
+    let onClose: () -> Void
+    let onNavigate: () -> Void
+    let onPay: () -> Void
+
+    static var popupTransition: AnyTransition {
+        .asymmetric(
+            insertion: .modifier(
+                active: MeterPopupBlurSlideModifier(blur: 28, y: 10, scale: 0.985),
+                identity: MeterPopupBlurSlideModifier(blur: 0, y: 0, scale: 1)
+            ),
+            removal: .modifier(
+                active: MeterPopupBlurSlideModifier(blur: 28, y: 0, scale: 0.985),
+                identity: MeterPopupBlurSlideModifier(blur: 0, y: 0, scale: 1)
+            )
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.001)
+                .ignoresSafeArea()
+                .onTapGesture(perform: onClose)
+            ScrollView {
+                MeterDetailCapsule(meter: meter, manager: manager,
+                                   onClose: onClose, onNavigate: onNavigate, onPay: onPay)
+                    .padding(.vertical, 20)
+            }
+            .scrollIndicators(.hidden)
+            .frame(maxHeight: 500)
+            .offset(y: 56)
+        }
     }
 }
 
@@ -288,7 +340,9 @@ struct ParkingMeterTestView: View {
                 Spacer()
                 Toggle("測試咪錶", isOn: $includeTest).fixedSize()
             }.font(.caption).padding(.horizontal)
-            MeterTestMap(meters: filtered, revision: manager.revision, onSelect: { selected = $0 })
+            MeterTestMap(meters: filtered, revision: manager.revision, onSelect: { meter in
+                withAnimation(.easeOut(duration: 0.28)) { selected = meter }
+            })
                 .overlay(alignment: .bottomLeading) {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(MeterDisplayState.allCases, id: \.rawValue) { state in
@@ -302,6 +356,22 @@ struct ParkingMeterTestView: View {
             if let date = manager.lastStatusFetch {
                 Text("狀態更新 \(date.formatted(date: .omitted, time: .standard))")
                     .font(.caption).foregroundStyle(.secondary).padding(6)
+            }
+        }
+        .overlay {
+            if let meter = selected {
+                MeterDetailOverlay(meter: meter, manager: manager,
+                                   onClose: { dismissDetail() },
+                                   onNavigate: {
+                                       dismissDetail()
+                                       MKMapItem(placemark: MKPlacemark(coordinate: meter.coordinate.wgs84ToGCJ02))
+                                           .openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+                                   },
+                                   onPay: {
+                                       dismissDetail()
+                                       MeterPayment.open(manager: manager)
+                                   })
+                    .transition(MeterDetailOverlay.popupTransition)
             }
         }
         .navigationTitle("全港咪錶測試").navigationBarTitleDisplayMode(.inline)
@@ -318,15 +388,11 @@ struct ParkingMeterTestView: View {
         .onChange(of: type) { _, _ in filter() }
         .onChange(of: includeTest) { _, _ in filter() }
         .onChange(of: vehicle) { _, _ in manager.objectWillChange.send() }
-        .sheet(item: $selected) { meter in
-            MeterDetailCapsule(meter: meter, manager: manager, onClose: { selected = nil }, onNavigate: {
-                MKMapItem(placemark: MKPlacemark(coordinate: meter.coordinate.wgs84ToGCJ02))
-                    .openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-            })
-            .presentationDetents([.medium, .large])
-            .modifier(MeterPaymentHelp(manager: manager))
-        }
         .sheet(isPresented: $showSimulation) { MeterSimulationView() }
+        .modifier(MeterPaymentHelp(manager: manager))
+    }
+    private func dismissDetail() {
+        withAnimation(.easeIn(duration: 0.18)) { selected = nil }
     }
     private func filter() {
         filtered = manager.allMeters.filter {
@@ -354,7 +420,7 @@ struct MeterTestMap: UIViewRepresentable {
     }
     func updateUIView(_ map: MKMapView, context: Context) {
         context.coordinator.parent = self
-        context.coordinator.layer.sync(map: map, meters: meters, manager: .shared)
+        context.coordinator.update(map: map)
         if let center, let radius, context.coordinator.lastRadius != radius {
             map.removeOverlays(map.overlays)
             map.addOverlays([MKCircle(center: center, radius: radius), MKCircle(center: center, radius: radius * 2)])
@@ -362,10 +428,78 @@ struct MeterTestMap: UIViewRepresentable {
         }
     }
     class Coordinator: NSObject, MKMapViewDelegate {
+        private struct GridKey: Hashable {
+            let row: Int
+            let column: Int
+            let bayType: MeterBayType
+        }
+
         var parent: MeterTestMap
-        let layer = MeterMapLayer()
+        private var displayed: [MKAnnotation] = []
+        private var meterIDs: [String] = []
+        private var lastRevision = -1
         var lastRadius: Double?
         init(_ parent: MeterTestMap) { self.parent = parent }
+
+        func update(map: MKMapView) {
+            let ids = parent.meters.map(\.id)
+            if ids != meterIDs {
+                render(map: map, ids: ids)
+            } else if parent.revision != lastRevision {
+                refreshVisibleViews(map: map)
+            }
+        }
+
+        func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            render(map: mapView, ids: parent.meters.map(\.id))
+        }
+
+        private func render(map: MKMapView, ids: [String]) {
+            let center = map.region.center.gcj02ToWGS84
+            let span = map.region.span
+            let latitudeMargin = span.latitudeDelta * 0.1 + 0.005
+            let longitudeMargin = span.longitudeDelta * 0.1 + 0.005
+            let minLatitude = center.latitude - span.latitudeDelta / 2 - latitudeMargin
+            let maxLatitude = center.latitude + span.latitudeDelta / 2 + latitudeMargin
+            let minLongitude = center.longitude - span.longitudeDelta / 2 - longitudeMargin
+            let maxLongitude = center.longitude + span.longitudeDelta / 2 + longitudeMargin
+            let visible = parent.meters.filter {
+                (minLatitude...maxLatitude).contains($0.latitude)
+                    && (minLongitude...maxLongitude).contains($0.longitude)
+            }
+
+            let next: [MKAnnotation]
+            if visible.count <= 450 {
+                next = visible.map { MeterAnnotation($0) as MKAnnotation }
+            } else {
+                let latitudeCell = max((maxLatitude - minLatitude) / 12, 0.0001)
+                let longitudeCell = max((maxLongitude - minLongitude) / 12, 0.0001)
+                let groups = Dictionary(grouping: visible) { meter in
+                    GridKey(row: Int((meter.latitude - minLatitude) / latitudeCell),
+                            column: Int((meter.longitude - minLongitude) / longitudeCell),
+                            bayType: meter.bayType)
+                }
+                next = groups.values.map { group -> MKAnnotation in
+                    group.count == 1 ? MeterAnnotation(group[0]) : MeterGroupAnnotation(group)
+                }
+            }
+
+            map.removeAnnotations(displayed)
+            displayed = next
+            map.addAnnotations(next)
+            meterIDs = ids
+            lastRevision = parent.revision
+        }
+
+        private func refreshVisibleViews(map: MKMapView) {
+            for annotation in displayed {
+                if let view = map.view(for: annotation) as? MeterAnnotationView {
+                    view.configure(MeterMapLayer.members(annotation), manager: .shared)
+                }
+            }
+            lastRevision = parent.revision
+        }
+
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             MeterMapLayer.view(map: mapView, annotation: annotation, manager: .shared)
         }
@@ -393,6 +527,7 @@ struct MeterSimulationView: View {
     @State private var speed = 0.0
     @State private var radius = 500.0
     @State private var visibility = MeterVisibility()
+    @State private var index = MeterSpatialIndex([])
     @State private var meters: [ParkingMeter] = []
     @State private var mapID = UUID()
     @State private var selected: ParkingMeter?
@@ -416,20 +551,38 @@ struct MeterSimulationView: View {
                     LabeledContent("速度穩定判斷", value: visibility.speedAllowsDisplay ? "顯示" : "隱藏")
                     LabeledContent("顯示泊位", value: "\(meters.count)")
                 }.frame(height: 310)
-                MeterTestMap(meters: meters, revision: manager.revision, center: location.coordinate, radius: radius, onSelect: { selected = $0 })
+                MeterTestMap(meters: meters, revision: manager.revision, center: location.coordinate, radius: radius, onSelect: { meter in
+                    withAnimation(.easeOut(duration: 0.28)) { selected = meter }
+                })
                     .id(mapID)
             }
+            .overlay {
+                if let meter = selected {
+                    MeterDetailOverlay(meter: meter, manager: manager,
+                                       onClose: { dismissDetail() },
+                                       onNavigate: {
+                                           dismissDetail()
+                                           MKMapItem(placemark: MKPlacemark(coordinate: meter.coordinate.wgs84ToGCJ02))
+                                               .openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
+                                       },
+                                       onPay: {
+                                           dismissDetail()
+                                           MeterPayment.open(manager: manager)
+                                       })
+                        .transition(MeterDetailOverlay.popupTransition)
+                }
+            }
             .navigationTitle("範圍與速度模擬").navigationBarTitleDisplayMode(.inline)
+            .onAppear { index = MeterSpatialIndex(manager.allMeters) }
+            .onChange(of: manager.allMeters) { _, meters in index = MeterSpatialIndex(meters) }
             .onReceive(timer) { now in
-                let candidates = MeterSpatialIndex(manager.allMeters).nearby(location, radius: radius * 2)
+                let candidates = index.nearby(location, radius: radius * 2)
                 meters = visibility.update(candidates: candidates, location: location, speed: speed, radius: radius, now: now)
             }
-            .sheet(item: $selected) { meter in
-                MeterDetailCapsule(meter: meter, manager: manager, onClose: { selected = nil }, onNavigate: {
-                    MKMapItem(placemark: MKPlacemark(coordinate: meter.coordinate.wgs84ToGCJ02))
-                        .openInMaps(launchOptions: [MKLaunchOptionsDirectionsModeKey: MKLaunchOptionsDirectionsModeDriving])
-                }).modifier(MeterPaymentHelp(manager: manager))
-            }
+            .modifier(MeterPaymentHelp(manager: manager))
         }
+    }
+    private func dismissDetail() {
+        withAnimation(.easeIn(duration: 0.18)) { selected = nil }
     }
 }

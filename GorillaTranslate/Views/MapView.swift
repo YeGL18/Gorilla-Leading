@@ -1483,16 +1483,20 @@ struct MapView: UIViewRepresentable {
             if let meter = ParkingMeterManager.shared.representative(meterMembers) {
                 parent.onSelectParkingPoint(nil)
                 parent.onSelectHKLocation(nil)
-                ParkingMeterManager.shared.select(meter)
+                withAnimation(.easeOut(duration: 0.28)) {
+                    ParkingMeterManager.shared.select(meter)
+                }
                 if let annotation = view.annotation { mapView.deselectAnnotation(annotation, animated: false) }
                 return
             }
             if isApplyingParkingSelection { return }
             if let anno = view.annotation as? ParkingPointAnnotation {
+                ParkingMeterManager.shared.selectedMeter = nil
                 parent.onSelectParkingPoint(anno.pointID)
             } else if let pointAnno = view.annotation as? MKPointAnnotation,
                       hkAnnotations.contains(where: { $0 === pointAnno }),
                       let title = pointAnno.title {
+                ParkingMeterManager.shared.selectedMeter = nil
                 parent.onSelectHKLocation((title, pointAnno.coordinate))
             }
         }

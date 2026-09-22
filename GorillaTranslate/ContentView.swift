@@ -1366,15 +1366,15 @@ struct ContentView: View {
             }
 
             if (showMap || showSatellite), let meter = meterManager.selectedMeter {
-                ZStack {
-                    Color.black.opacity(0.001).ignoresSafeArea().onTapGesture { meterManager.selectedMeter = nil }
-                    ScrollView {
-                        MeterDetailCapsule(meter: meter, manager: meterManager,
-                                           onClose: { meterManager.selectedMeter = nil },
-                                           onNavigate: { startNavigationToMeter(meter) })
-                            .padding(.vertical, 20)
-                    }.frame(maxHeight: 500)
-                }.zIndex(23)
+                MeterDetailOverlay(meter: meter, manager: meterManager,
+                                   onClose: { dismissMeterDetail() },
+                                   onNavigate: { startNavigationToMeter(meter) },
+                                   onPay: {
+                                       dismissMeterDetail()
+                                       MeterPayment.open(manager: meterManager)
+                                   })
+                    .transition(MeterDetailOverlay.popupTransition)
+                    .zIndex(23)
             } else if let notice = meterManager.notice, selectedParkingPointID == nil, selectedHKLocation == nil {
                 MeterNoticeCapsule(notice: notice, onCancel: { meterManager.dismissNotice() }, onAction: {
                     meterManager.dismissNotice()
@@ -2842,17 +2842,18 @@ struct ContentView: View {
 
     // MARK: - addressCapsule sub-views (extracted to reduce generic nesting depth)
 
-    private var addressCapsuleContent: AnyView {
-        if isParkingMemoryExpanded {
-            return AnyView(addressCapsuleParkingMemory)
+    private var addressCapsuleContent: some View {
+        ZStack {
+            if isParkingMemoryExpanded {
+                AnyView(addressCapsuleParkingMemory)
+            } else if isFloorCurveInCapsule {
+                AnyView(addressCapsuleFloorCurve)
+            } else if isCapsuleExpanded {
+                AnyView(addressCapsuleExpanded)
+            } else {
+                AnyView(addressCapsuleCompact)
+            }
         }
-        if isFloorCurveInCapsule {
-            return AnyView(addressCapsuleFloorCurve)
-        }
-        if isCapsuleExpanded {
-            return AnyView(addressCapsuleExpanded)
-        }
-        return AnyView(addressCapsuleCompact)
     }
 
     private var addressCapsuleParkingMemory: some View {
@@ -4509,12 +4510,18 @@ struct ContentView: View {
 
     // MARK: - 香港地點彈窗
 
+    private func dismissMeterDetail() {
+        withAnimation(.easeIn(duration: 0.18)) {
+            meterManager.selectedMeter = nil
+        }
+    }
+
     private func startNavigationToMeter(_ meter: ParkingMeter) {
+        dismissMeterDetail()
         guard let location = locationManager.lastLocation else {
             meterRouteError = "尚未取得目前位置"
             return
         }
-        meterManager.selectedMeter = nil
         meterManager.dismissNotice()
         meterDirections?.cancel()
         meterRouteTarget = meter

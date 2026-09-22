@@ -39,11 +39,10 @@ post_install do |installer|
     if content =~ /^(OTHER_LDFLAGS\s*=\s*)(.+)$/
       full_flags = $2.strip
       non_amap = full_flags.gsub(amap_flag_pattern, '').gsub(/\s{2,}/, ' ').strip
-      amap_only = full_flags.scan(amap_flag_pattern).map(&:strip).join(' ')
-      # 基底用無 AMap 版（模擬器用），真機再加 AMap
+      # Conditional settings replace the base value, so the device needs all flags.
       content = content.sub(
         /^(OTHER_LDFLAGS\s*=\s*.+)$/,
-        "OTHER_LDFLAGS = #{non_amap}\nOTHER_LDFLAGS[sdk=iphoneos*] = #{amap_only}"
+        "OTHER_LDFLAGS = #{non_amap}\nOTHER_LDFLAGS[sdk=iphoneos*] = #{full_flags}"
       )
     end
 
@@ -51,10 +50,9 @@ post_install do |installer|
     if content =~ /^(FRAMEWORK_SEARCH_PATHS\s*=\s*)(.+)$/
       full_paths = $2.strip
       non_amap = full_paths.gsub(/\s*"\$\{PODS_ROOT\}\/AMap[^"]*"/, '').gsub(/\s{2,}/, ' ').strip
-      amap_paths = full_paths.scan(/\s*"\$\{PODS_ROOT\}\/AMap[^"]*"/).join.strip
       content = content.sub(
         /^(FRAMEWORK_SEARCH_PATHS\s*=\s*.+)$/,
-        "FRAMEWORK_SEARCH_PATHS = #{non_amap}\nFRAMEWORK_SEARCH_PATHS[sdk=iphoneos*] = #{amap_paths}"
+        "FRAMEWORK_SEARCH_PATHS = #{non_amap}\nFRAMEWORK_SEARCH_PATHS[sdk=iphoneos*] = #{full_paths}"
       )
     end
 
