@@ -8,14 +8,14 @@ struct SettingsView: View {
     @State private var simSpeed: Double = 0
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
-    @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 0
+    @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 1
     @AppStorage("highFrequencyTracking") var highFrequencyTracking: Bool = true
-    @AppStorage("mapTrackingAnimation") var mapTrackingAnimation: Int = 0
-    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
+    @AppStorage("mapTrackingAnimation") var mapTrackingAnimation: Int = 1
+    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
     @AppStorage("orbMasterEnabled") var orbMasterEnabled: Bool = true
-    @AppStorage("orbCapsule") var orbCapsule: Bool = true
-    @AppStorage("orbExpanded") var orbExpanded: Bool = true
-    @AppStorage("orbParkingMemory") var orbParkingMemory: Bool = true
+    @AppStorage("orbCapsule") var orbCapsule: Bool = false
+    @AppStorage("orbExpanded") var orbExpanded: Bool = false
+    @AppStorage("orbParkingMemory") var orbParkingMemory: Bool = false
     @AppStorage("orbBackgroundHome") var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") var orbBackgroundSpeed: Bool = true
     @AppStorage("orbColorPreset") var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
@@ -25,7 +25,7 @@ struct SettingsView: View {
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     @AppStorage("floorConvention") private var floorConvention: Int = 2  // 0=香港, 1=內地, 2=自動
-    @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = false
+    @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = true
     @AppStorage("launchAnimationEnabled") var launchAnimationEnabled: Bool = true
     @AppStorage("parkingTimerColorHex") var parkingTimerColorHex: String = "46ADB8"
     @AppStorage("bestRouteColorHex") var bestRouteColorHex: String = "BCBA1E"
@@ -2915,7 +2915,7 @@ struct SpeedAnimationTestView: View {
     @State private var simSpeed: Double = 0
     @StateObject private var sfxPlayer = SFXPlayer()
     @State private var sfxEnabled = true
-    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
+    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
     @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
     @State private var accelArmedFromStop: Bool = true
     @State private var lastSpeedSample: Double = 0
@@ -7359,6 +7359,7 @@ struct KalmanFilterTestView: View {
 
 struct InlineCurveContent: View {
     let history: [CGFloat]
+    var horizontalPositions: [CGFloat]? = nil
     let w: CGFloat
     let h: CGFloat
     let accentColor: Color
@@ -7390,6 +7391,20 @@ struct InlineCurveContent: View {
         for i in stride(from: 0, to: count - 1, by: step) { pts.append(history[i]) }
         if pts.last != history.last { pts.append(history.last!) }
         return pts
+    }
+
+    private func plottedPoints() -> [(alt: CGFloat, x: CGFloat)] {
+        if let positions = horizontalPositions, positions.count == history.count, let end = positions.last {
+            let origin = max(0, end - curveAreaWidth)
+            let firstVisible = max(0, (positions.firstIndex(where: { $0 >= origin }) ?? 0) - 1)
+            return (firstVisible..<history.count).map { (history[$0], positions[$0] - origin) }
+        }
+        let points = compressedPoints()
+        let count = points.count
+        let usedWidth = min(CGFloat(max(0, count - 1)) * baseSpacing, curveAreaWidth)
+        return points.enumerated().map { index, alt in
+            (alt, count > 1 ? usedWidth * CGFloat(index) / CGFloat(count - 1) : 0)
+        }
     }
 
     /// Y 映射
@@ -7426,16 +7441,13 @@ struct InlineCurveContent: View {
     }
 
     var body: some View {
-        let pts = compressedPoints()
+        let plotted = plottedPoints()
+        let pts = plotted.map(\.alt)
         let count = pts.count
         let minAlt = pts.min()!
         let maxAlt = pts.max()!
         let mid = (minAlt + maxAlt) / 2
         let halfRange = max((maxAlt - minAlt) / 2, oneFloorMeters / 2)
-
-        let actualSpacing = count > 1 ? curveAreaWidth / CGFloat(count - 1) : 0
-        let curveWidth = count > 1 ? CGFloat(count - 1) * min(actualSpacing, baseSpacing) : 0
-        let usedWidth = min(curveWidth, curveAreaWidth)
 
         let floors = visibleFloors(mid: mid, range: halfRange)
 
@@ -7459,13 +7471,12 @@ struct InlineCurveContent: View {
             ZStack {
                 // 填充（帶右側漸變淡化）
                 Path { p in
-                    p.move(to: CGPoint(x: 0, y: h))
-                    p.addLine(to: CGPoint(x: 0, y: yFor(pts[0], mid: mid, range: halfRange)))
+                    p.move(to: CGPoint(x: plotted[0].x, y: h))
+                    p.addLine(to: CGPoint(x: plotted[0].x, y: yFor(pts[0], mid: mid, range: halfRange)))
                     for i in 0..<count {
-                        let x = count > 1 ? usedWidth * CGFloat(i) / CGFloat(count - 1) : 0
-                        p.addLine(to: CGPoint(x: x, y: yFor(pts[i], mid: mid, range: halfRange)))
+                        p.addLine(to: CGPoint(x: plotted[i].x, y: yFor(pts[i], mid: mid, range: halfRange)))
                     }
-                    let lastX = count > 1 ? usedWidth : 0
+                    let lastX = plotted.last!.x
                     p.addLine(to: CGPoint(x: lastX, y: yFor(pts.last!, mid: mid, range: halfRange)))
                     p.addLine(to: CGPoint(x: lastX, y: h))
                     p.closeSubpath()
@@ -7480,16 +7491,15 @@ struct InlineCurveContent: View {
 
                 // 線條
                 Path { p in
-                    p.move(to: CGPoint(x: 0, y: yFor(pts[0], mid: mid, range: halfRange)))
+                    p.move(to: CGPoint(x: plotted[0].x, y: yFor(pts[0], mid: mid, range: halfRange)))
                     for i in 1..<count {
-                        let x = usedWidth * CGFloat(i) / CGFloat(count - 1)
-                        p.addLine(to: CGPoint(x: x, y: yFor(pts[i], mid: mid, range: halfRange)))
+                        p.addLine(to: CGPoint(x: plotted[i].x, y: yFor(pts[i], mid: mid, range: halfRange)))
                     }
                 }
                 .stroke(accentColor.opacity(0.45), style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
 
                 // 車喺最新點
-                let lastX = count > 1 ? usedWidth : 0
+                let lastX = plotted.last!.x
                 let lastY = yFor(pts.last!, mid: mid, range: halfRange)
                 ZStack {
                     Circle()

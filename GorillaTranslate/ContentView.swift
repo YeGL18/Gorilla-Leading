@@ -62,6 +62,126 @@ enum FocusFrameRate: Int, CaseIterable, Identifiable {
     var id: Int { rawValue }
 }
 
+@available(iOS 27.1, *)
+private struct DuoVerticalBarReader: View {
+    @Environment(\.toolbarVerticalEdge) private var edge
+    @Binding var isVertical: Bool
+    @Binding var verticalEdge: HorizontalEdge?
+
+    var body: some View {
+        Color.clear
+            .onAppear {
+                isVertical = edge != nil
+                verticalEdge = edge
+            }
+            .onChange(of: edge) { _, value in
+                isVertical = value != nil
+                verticalEdge = value
+            }
+    }
+}
+
+private struct WindowBoundsReader: UIViewRepresentable {
+    @Binding var bounds: CGRect
+
+    func makeUIView(context: Context) -> UIView {
+        UIView(frame: .zero)
+    }
+
+    func updateUIView(_ view: UIView, context: Context) {
+        DispatchQueue.main.async {
+            guard let windowBounds = view.window?.bounds, bounds != windowBounds else { return }
+            bounds = windowBounds
+        }
+    }
+}
+
+private struct DuoHingeStateReader: ViewModifier {
+    @Binding var isPartiallyOpen: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(iOS 27.1, *) {
+            content.onHingeChange { _, context in
+                isPartiallyOpen = context.hinge?.status == .partiallyOpen
+            }
+        } else {
+            content
+        }
+    }
+}
+
+private struct ParkingLotChangePanel: View {
+    let stage: Int
+    let nearbyLots: [(lot: ParkingLotRecord, distance: Double)]
+    let onSelect: (UUID) -> Void
+    let onCreate: () -> Void
+
+    private var flyTransition: AnyTransition {
+        .move(edge: .bottom)
+            .combined(with: .opacity)
+            .combined(with: .scale(scale: 0.96))
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if stage >= 1 {
+                Text("附近停車場")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .transition(flyTransition)
+            }
+
+            if stage >= 2 {
+                nearbyLotContent
+                    .transition(flyTransition)
+            }
+
+            if stage >= 3 {
+                Button(action: onCreate) {
+                    Label("新增停車場", systemImage: "plus")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+                .transition(flyTransition)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var nearbyLotContent: some View {
+        if nearbyLots.isEmpty {
+            Text("500 米內未有其他停車場")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(nearbyLots, id: \.lot.id) { candidate in
+                        Button {
+                            onSelect(candidate.lot.id)
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(candidate.lot.name ?? "未命名停車場")
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                Text("\(Int(candidate.distance.rounded())) 米")
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 40)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+        }
+    }
+}
+
 struct ContentView: View {
     private struct CapsuleDragState: Equatable {
         var mode: Int = 0
@@ -92,11 +212,13 @@ struct ContentView: View {
     @EnvironmentObject private var destinationManager: DestinationManager
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var meterManager = ParkingMeterManager.shared
     @State private var meterRouteTarget: ParkingMeter?
     @State private var meterDirections: MKDirections?
     @State private var meterRouteError: String?
+    @State private var presentedMeterNotice: MeterNotice?
     private let meterTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var isInForeground = true
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
@@ -107,12 +229,14 @@ struct ContentView: View {
     @State private var selectedVehicleModel: String = "X5"
     @State private var selectedVehicleColor: Color = .blue
     @State private var hasPlayedEntrance = false
+    @State private var hasCompletedInitialStatusHydration = false
     @State private var revealedCount = 0
     @State private var sparklePhase = false
     @State private var showMap = false
     @State private var showSatellite = false  // 三態：光球→地圖→衛星3D→光球
     @State private var mapRegion: MKCoordinateRegion?
     @State private var mapCamera: MKMapCamera?
+    @StateObject private var mapCompassBridge = MapCompassBridge()
     @State private var hasShownMapFirstTime = false
     @State private var firstMapFlyTrigger = 0
     @State private var routePriorityToken: UUID?
@@ -123,12 +247,41 @@ struct ContentView: View {
     @State private var lastRerouteRequestAt: Date?
     @State private var offRouteStrikeCount: Int = 0
     @State private var isCapsuleExpanded = false
-    @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 0  // 0 = default, 1 = lift-scale
+    @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 1  // 0 = default, 1 = lift-scale
     @State private var capsuleDragOffsetY: CGFloat = 0  // for lift-scale animation
     @State private var capsuleDragScale: CGFloat = 1.0  // for lift-scale animation
     @State private var isParkingMemoryExpanded = false
     @State private var etaText: String?
     @State private var isLandscape = false
+    @State private var hasDuoVerticalBar = false
+    @State private var duoVerticalBarEdge: HorizontalEdge?
+    @State private var appWindowBounds: CGRect = .zero
+    @State private var duoInnerGeometryDetected = false
+    @State private var isDuoPartiallyOpen = false
+    private var isDuoInnerDisplay: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+            && (horizontalSizeClass == .regular || duoInnerGeometryDetected)
+    }
+
+    private var isDuoInnerLandscape: Bool {
+        isDuoInnerDisplay && isLandscape
+    }
+
+    private var isDuoSeatedMode: Bool {
+        isDuoInnerDisplay && !isLandscape && isDuoPartiallyOpen
+    }
+
+    private var isDuoDevice: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && (isDuoInnerDisplay || hasDuoVerticalBar)
+    }
+
+    private var usesDuoToolbar: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone && (isDuoInnerLandscape || hasDuoVerticalBar)
+    }
+
+    private var parkingMemoryUsesLandscapeLayout: Bool {
+        isLandscape
+    }
     @State private var drivingDistanceText: String?
     @State private var capsuleScale: CGFloat = 1.0
     @State private var capsuleOnRight: Bool = false
@@ -302,6 +455,7 @@ struct ContentView: View {
     // Floor curve popup (auto-detect garage descent)
     @State private var showFloorCurvePopup = false
     @State private var floorCurveHistory: [CGFloat] = []
+    @State private var floorCurveHorizontalPositions: [CGFloat] = []
     @State private var floorCurveBaseAltitude: Double = 0
     @State private var floorCurveLocked = false
     @State private var floorCurveLockedFloor: Int = 0
@@ -338,6 +492,10 @@ struct ContentView: View {
     /// 非開車到達時為 true（步行/跑步/騎行到達），控制 UI 標籤和靈動島狀態
     @State private var isNonAutomotiveArrival: Bool = false
     @State private var selectedParkingPointID: UUID?
+    @State private var changingParkingLotPointID: UUID?
+    @State private var parkingLotExpansionStage = 0
+    @State private var newParkingLotName = ""
+    @State private var showNewParkingLotAlert = false
     @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
     /// 專注模式（nil = 關閉）—— 時速頁左下角按鈕控制
     @State private var focusMode: FocusModeLevel? = nil
@@ -347,9 +505,9 @@ struct ContentView: View {
     @AppStorage("outputAnimationStyle") private var outputAnimationStyle: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
-    @AppStorage("orbCapsule") private var orbCapsule: Bool = true
-    @AppStorage("orbExpanded") private var orbExpanded: Bool = true
-    @AppStorage("orbParkingMemory") private var orbParkingMemory: Bool = true
+    @AppStorage("orbCapsule") private var orbCapsule: Bool = false
+    @AppStorage("orbExpanded") private var orbExpanded: Bool = false
+    @AppStorage("orbParkingMemory") private var orbParkingMemory: Bool = false
     @AppStorage("orbBackgroundHome") private var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
@@ -453,7 +611,20 @@ struct ContentView: View {
     var body: some View {
         ZStack {
         TabView(selection: $selectedTab) {
-            SpeedView(showMap: (showMap || showSatellite) && !focusActive, animationClock: animationClock, mapCamera: $mapCamera, focusMode: $focusMode, focusFrameRate: $focusFrameRate, onEnterFocus: enterFocusMode, onExitFocus: exitFocusMode)
+            NavigationStack {
+                SpeedView(
+                    showMap: (showMap || showSatellite) && !focusActive,
+                    animationClock: animationClock,
+                    mapCamera: $mapCamera,
+                    isDuoDevice: isDuoDevice,
+                    isDuoInnerDisplay: isDuoInnerDisplay,
+                    isDuoPartiallyOpen: isDuoPartiallyOpen,
+                    focusMode: $focusMode,
+                    focusFrameRate: $focusFrameRate,
+                    onEnterFocus: enterFocusMode,
+                    onExitFocus: exitFocusMode
+                )
+            }
                 .environment(\.colorScheme, effectiveColorScheme)
                 .tabItem {
                     Label(String(localized: "Speed"), systemImage: "speedometer")
@@ -472,6 +643,67 @@ struct ContentView: View {
 
             NavigationStack {
                 homeContent
+                    .background {
+                        if #available(iOS 27.1, *) {
+                            DuoVerticalBarReader(isVertical: $hasDuoVerticalBar, verticalEdge: $duoVerticalBarEdge)
+                        }
+                    }
+                    .toolbar {
+                        if #available(iOS 27.1, *), usesDuoToolbar {
+                            if showMap || showSatellite {
+                                ToolbarItem(placement: .bottomBar) {
+                                    MapCompassToolbarView(bridge: mapCompassBridge)
+                                        .frame(width: 44, height: 44)
+                                        .accessibilityLabel("指南針")
+                                }
+                                .visibilityPriority(.high)
+                                .axisBehavior(.verticalPreferred)
+                                ToolbarSpacer(.fixed, placement: .bottomBar)
+                            }
+                            ToolbarItem(placement: .bottomBar) {
+                                Button(action: cycleMapPresentation) {
+                                    Label("切換地圖模式", systemImage: globeToggleIcon)
+                                }
+                            }
+                            .visibilityPriority(.high)
+                            .axisBehavior(.verticalPreferred)
+                            if #available(iOS 26.0, *) {
+                                ToolbarSpacer(.fixed, placement: .bottomBar)
+                            }
+                            ToolbarItem(placement: .bottomBar) {
+                                Button(action: cycleMapHeading) {
+                                    Label(mapHeadingMode.label, systemImage: mapHeadingMode.iconName)
+                                }
+                                .disabled(!showMap && !showSatellite)
+                            }
+                            .visibilityPriority(.automatic)
+                            .axisBehavior(.verticalPreferred)
+                            if #available(iOS 26.0, *) {
+                                ToolbarSpacer(.fixed, placement: .bottomBar)
+                            }
+                            ToolbarItem(placement: .bottomBar) {
+                                duoSearchMenu
+                            }
+                            .visibilityPriority(.low)
+                            .axisBehavior(.verticalPreferred)
+                        } else if #available(iOS 27.0, *), usesDuoToolbar {
+                            ToolbarItem(placement: .bottomBar) {
+                                Button(action: cycleMapPresentation) {
+                                    Label("切換地圖模式", systemImage: globeToggleIcon)
+                                }
+                            }
+                            .visibilityPriority(.high)
+                            ToolbarItem(placement: .bottomBar) {
+                                Button(action: cycleMapHeading) {
+                                    Label(mapHeadingMode.label, systemImage: mapHeadingMode.iconName)
+                                }
+                                .disabled(!showMap && !showSatellite)
+                            }
+                            .visibilityPriority(.automatic)
+                            ToolbarItem(placement: .bottomBar) { duoSearchMenu }
+                                .visibilityPriority(.low)
+                        }
+                    }
             }
             .tabItem {
                 Label(String(localized: "Home"), systemImage: "house.fill")
@@ -494,20 +726,52 @@ struct ContentView: View {
                 }
             }
 
-            SettingsView()
+            Group {
+                        if isDuoInnerDisplay {
+                    GeometryReader { geo in
+                        if geo.size.width > geo.size.height {
+                            HStack(spacing: 0) {
+                                homeContent
+                                    .frame(width: geo.size.width / 2)
+                                SettingsView()
+                                    .frame(width: geo.size.width / 2)
+                            }
+                        } else {
+                            SettingsView()
+                        }
+                    }
+                } else {
+                    SettingsView()
+                }
+            }
                 .environment(\.colorScheme, effectiveColorScheme)
                 .tabItem {
                     Label(String(localized: "Settings"), systemImage: "gearshape")
                 }
                 .tag(2)
         }
+        .background {
+            if #available(iOS 27.1, *) {
+                DuoVerticalBarReader(isVertical: $hasDuoVerticalBar, verticalEdge: $duoVerticalBarEdge)
+            }
+            WindowBoundsReader(bounds: $appWindowBounds)
+        }
         .preferredColorScheme(resolvedColorScheme)
+        .modifier(DuoHingeStateReader(isPartiallyOpen: $isDuoPartiallyOpen))
         .onReceive(meterTick) { _ in
             meterManager.tick(location: locationManager.lastLocation, speed: locationManager.speed,
                               destination: destinationManager.selectedDestination,
                               canPresentNotices: selectedTab == 1 && selectedParkingPointID == nil
                                 && selectedHKLocation == nil && !showingTripConfirm
                                 && !meterManager.needsVehicleSelection && !meterManager.paymentHelpPresented)
+        }
+        .onChange(of: meterManager.notice?.id) { _, _ in
+            if let notice = meterManager.notice, case .destination = notice.kind {
+                sfxPlayer.playMeterDestinationNotice()
+            }
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) {
+                presentedMeterNotice = meterManager.notice
+            }
         }
         .sheet(isPresented: $meterManager.needsVehicleSelection) { MeterVehiclePicker() }
         .modifier(MeterPaymentHelp(manager: meterManager))
@@ -872,15 +1136,187 @@ struct ContentView: View {
         }
     }
 
+    private func cycleMapHeading() {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            switch mapHeadingMode {
+            case .north: mapHeadingMode = .follow
+            case .follow: mapHeadingMode = .continuousFollow
+            case .continuousFollow: mapHeadingMode = .north
+            }
+        }
+        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+            headingToastText = mapHeadingMode.label
+        }
+        headingToastTimer?.invalidate()
+        headingToastTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
+            withAnimation(.easeOut(duration: 0.35)) { headingToastText = nil }
+        }
+    }
+
+    private func cycleMapPresentation() {
+        withAnimation(.easeInOut(duration: 0.3)) {
+            if !showMap && !showSatellite {
+                showMap = true
+            } else if showMap && !showSatellite {
+                showSatellite = true
+                showMap = false
+            } else {
+                showSatellite = false
+            }
+        }
+    }
+
+    private func selectMapDestination(_ destination: Destination) {
+        destinationManager.selectDestination(destination)
+        if isCapsuleExpanded { refreshETA() }
+        if showingRoute { recalculateRoute() }
+    }
+
+    private var duoSearchMenu: some View {
+        Menu {
+            Button {
+                showingAddDestination = true
+            } label: {
+                Label(String(localized: "新增目的地"), systemImage: "plus")
+            }
+
+            let city = locationManager.currentLocality
+            let destinations = destinationManager.destinations.filter { destination in
+                if !city.isEmpty, let locality = destination.locality, !locality.isEmpty {
+                    return locality == city
+                }
+                guard let location = locationManager.lastLocation else { return true }
+                return location.distance(from: CLLocation(latitude: destination.coordinate.latitude,
+                                                           longitude: destination.coordinate.longitude)) < 30_000
+            }
+            if !destinations.isEmpty {
+                Divider()
+                ForEach(destinations) { destination in
+                    Button { selectMapDestination(destination) } label: {
+                        Label(destination.name, systemImage: "mappin.and.ellipse")
+                    }
+                }
+            }
+
+            let lots = parkingFloorStore.lots.filter { lot in
+                guard let name = lot.name, !name.isEmpty else { return false }
+                if !city.isEmpty, let locality = lot.locality, !locality.isEmpty, locality != city { return false }
+                let lotLocation = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+                return !destinationManager.destinations.contains { destination in
+                    lotLocation.distance(from: CLLocation(latitude: destination.coordinate.latitude,
+                                                          longitude: destination.coordinate.longitude)) < 200
+                }
+            }
+            if !lots.isEmpty {
+                Divider()
+                ForEach(lots, id: \.id) { lot in
+                    Button {
+                        var destination = destinationManager.findOrCreateDestination(
+                            for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "",
+                                           latitude: lot.centerLatitude, longitude: lot.centerLongitude,
+                                           lotID: lot.id, updatedAt: lot.updatedAt))
+                        if destination.locality == nil, !city.isEmpty {
+                            destination.locality = city
+                            destinationManager.updateDestination(destination)
+                        }
+                        selectMapDestination(destination)
+                    } label: {
+                        Label(lot.name ?? "", systemImage: "car.fill")
+                    }
+                }
+            }
+
+            let learned = tripPredictor.placeCatalog.values.filter { place in
+                guard place.kind == .addressCluster else { return false }
+                let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+                return !destinationManager.destinations.contains { destination in
+                    placeLocation.distance(from: CLLocation(latitude: destination.coordinate.latitude,
+                                                            longitude: destination.coordinate.longitude)) < 200
+                }
+            }
+            if !learned.isEmpty {
+                Divider()
+                ForEach(Array(learned.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
+                    Button {
+                        selectMapDestination(destinationManager.findOrCreateDestination(for: place))
+                    } label: {
+                        Label(place.displayName, systemImage: "mappin.circle")
+                    }
+                }
+            }
+        } label: {
+            Label("搜尋目的地", systemImage: "magnifyingglass")
+        }
+    }
+
+    private var gorillaTitleView: some View {
+        let titleText = Text(String(localized: "🦍 Gorilla")).font(.largeTitle.bold())
+        let goldColor = Color(hex: "FFC46D")
+        return ZStack {
+            (darkKnightMode ? goldColor.opacity(0.15) : Color.white.opacity(0.01))
+                .frame(width: 220, height: 50)
+                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
+                .mask(titleText)
+            titleText
+                .foregroundStyle(LinearGradient(
+                    colors: darkKnightMode ? [goldColor.opacity(0.9), .clear] : [.white.opacity(0.9), .clear],
+                    startPoint: .top, endPoint: .bottom))
+                .blendMode(.overlay)
+                .opacity(0.8)
+            titleText
+                .foregroundStyle(LinearGradient(
+                    colors: darkKnightMode
+                        ? [goldColor.opacity(0.7), .clear, goldColor.opacity(0.35)]
+                        : [.white.opacity(0.7), .clear, .white.opacity(0.35)],
+                    startPoint: .topLeading, endPoint: .bottomTrailing))
+                .blendMode(.screen)
+                .opacity(0.6)
+        }
+        .compositingGroup()
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.5)) { showDemoAnimation = true }
+        }
+    }
+
     // MARK: - Home Content
     var homeContent: some View {
         GeometryReader { geo in
             let newLandscape = geo.size.width > geo.size.height
+            let geometryLooksLikeDuoInner = UIDevice.current.userInterfaceIdiom == .phone
+                && min(geo.size.width, geo.size.height) >= 560
+            let innerLandscape = isDuoInnerDisplay && newLandscape
+            let outerLandscape = isDuoDevice && !isDuoInnerDisplay && newLandscape
+            let globalFrame = geo.frame(in: .global)
+            let windowMidX = appWindowBounds.isEmpty ? globalFrame.midX : appWindowBounds.midX
+            let physicalCenterShift = isDuoDevice
+                ? windowMidX - globalFrame.midX : 0
+            let capsuleRightShift: CGFloat = newLandscape && capsuleOnRight
+                ? (isParkingMemoryExpanded ? 135 : 210)
+                : 0
+            let duoHeaderOffsetY: CGFloat = {
+                if innerLandscape { return 4 }
+                if outerLandscape { return 11 }
+                if isDuoDevice && !isDuoInnerDisplay { return 3 }
+                return 0
+            }()
+            let mapCenterOffsetX: CGFloat = (newLandscape && capsuleOnRight ? (isParkingMemoryExpanded ? 420 : 300) : 0)
+                + physicalCenterShift
+            let mapCenterOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 2 : 0
+            let hingeUpperOffsetY: CGFloat = isDuoSeatedMode ? -geo.size.height / 4 : 0
+            let hingeLowerOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 4 : 0
             Color.clear.onAppear {
                 isLandscape = newLandscape
+                if selectedTab != 2 {
+                    duoInnerGeometryDetected = geometryLooksLikeDuoInner
+                }
                 addressRevealProgress = locationManager.currentAddress.isEmpty ? 0 : 1
             }
                 .onChange(of: newLandscape) { _, v in isLandscape = v }
+                .onChange(of: geo.size) { _, _ in
+                    if selectedTab != 2 {
+                        duoInnerGeometryDetected = geometryLooksLikeDuoInner
+                    }
+                }
                 .onChange(of: locationManager.currentAddress) { _, newAddress in
                     if !newAddress.isEmpty {
                         roseLoopSpeed = 8.0
@@ -932,7 +1368,7 @@ struct ContentView: View {
 
                     ZStack {
                         // 底層：模糊版地圖（邊緣模糊效果）
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, hideCompass: true, onMapBlankTap: {}, onSelectHKLocation: { _ in })
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, onMapBlankTap: {}, onSelectHKLocation: { _ in })
                         .blur(radius: 25)
                         .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
                         .allowsHitTesting(false)
@@ -944,7 +1380,7 @@ struct ContentView: View {
                             }
                         }, onMoveParkingPoint: { id, coordinate in
                             parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
-                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, hideCompass: true, onMapBlankTap: {
+                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, onMapBlankTap: {
                             guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                 isCapsuleExpanded = false
@@ -1039,7 +1475,7 @@ struct ContentView: View {
                         }
                     }, onMoveParkingPoint: { id, coordinate in
                         parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
-                    }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: (isLandscape && capsuleOnRight) ? (isParkingMemoryExpanded ? 420 : 300) : 0, onMapBlankTap: {
+                    }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, onMapBlankTap: {
                         guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                             isCapsuleExpanded = false
@@ -1084,57 +1520,31 @@ struct ContentView: View {
 
             ZStack {
                 VStack(spacing: 0) {
-                    HStack(alignment: .center) {
-                        // 液態玻璃標題
-                        let titleText = Text(String(localized: "🦍 Gorilla")).font(.largeTitle.bold())
-                        let goldColor = Color(hex: "FFC46D")
-                        ZStack {
-                            // 玻璃材料
-                            (darkKnightMode ? goldColor.opacity(0.15) : Color.white.opacity(0.01))
-                                .frame(width: 220, height: 50)
-                                .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
-                                .mask(titleText)
-
-                            // 頂部高光邊緣
-                            titleText
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: darkKnightMode
-                                            ? [goldColor.opacity(0.9), .clear]
-                                            : [.white.opacity(0.9), .clear],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
-                                )
-                                .blendMode(.overlay)
-                                .opacity(0.8)
-
-                            // 左上斜角高光
-                            titleText
-                                .foregroundStyle(
-                                    LinearGradient(
-                                        colors: darkKnightMode
-                                            ? [goldColor.opacity(0.7), .clear, goldColor.opacity(0.35)]
-                                            : [.white.opacity(0.7), .clear, .white.opacity(0.35)],
-                                        startPoint: .topLeading,
-                                        endPoint: .bottomTrailing
-                                    )
-                                )
-                                .blendMode(.screen)
-                                .opacity(0.6)
-                        }
-                        .compositingGroup()
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.5)) {
-                                showDemoAnimation = true
+                    if isDuoInnerDisplay && !isLandscape {
+                        VStack(alignment: .leading, spacing: 0) {
+                            gorillaTitleView
+                                .offset(y: 4)
+                            HStack {
+                                Spacer()
+                                gpsStatusBadge
                             }
+                            .offset(y: 20)
                         }
-                        Spacer()
-                        gpsStatusBadge
+                        .padding(.horizontal, 20)
+                        .padding(.top, 6)
+                        .frame(height: 104, alignment: .top)
+                        .offset(y: -max(geo.safeAreaInsets.top - 8, 24))
+                    } else {
+                        HStack(alignment: .center) {
+                            gorillaTitleView
+                            Spacer()
+                            gpsStatusBadge
+                        }
+                        .padding(.horizontal, isDuoDevice ? 20 : 16)
+                        .padding(.top, isDuoDevice ? geo.safeAreaInsets.top + 16 : (isLandscape ? 43 : 30))
+                        .frame(height: 52)
+                        .offset(y: duoHeaderOffsetY)
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.top, isLandscape ? 43 : 30)
-                    .frame(height: 44)
 
                     Spacer(minLength: 0)
                 }
@@ -1145,7 +1555,7 @@ struct ContentView: View {
                     let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isFloorCurveInCapsule ? -170 : (isCapsuleExpanded ? -140 : 0))) : 0
                     let landscapeButtonOffset: CGFloat = (isLandscape && (showMap || showSatellite)) ? 20 : 0
                     HStack {
-                        if !hkDetailMode {
+                        if !hkDetailMode && !usesDuoToolbar {
                             VStack(spacing: 10) {
                                 if showMap || showSatellite {
                                     Button {
@@ -1350,6 +1760,7 @@ struct ContentView: View {
 
             if (showMap || showSatellite), let selected = selectedParkingPoint {
                 parkingPointCapsule(point: selected)
+                    .offset(y: hingeLowerOffsetY)
                     .transition(
                         .asymmetric(
                             insertion: .modifier(
@@ -1360,7 +1771,7 @@ struct ContentView: View {
                                 active: BlurSlideModifier(blur: 28, y: 0, scale: 0.985),
                                 identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
                             )
-                        )
+                        ).combined(with: .opacity)
                     )
                     .zIndex(20)
             }
@@ -1372,19 +1783,44 @@ struct ContentView: View {
                                    onPay: {
                                        dismissMeterDetail()
                                        MeterPayment.open(manager: meterManager)
-                                   })
+                                   },
+                                   compactLayout: isDuoDevice && !isDuoInnerDisplay)
+                    .offset(y: hingeLowerOffsetY)
                     .transition(MeterDetailOverlay.popupTransition)
                     .zIndex(23)
-            } else if let notice = meterManager.notice, selectedParkingPointID == nil, selectedHKLocation == nil {
-                MeterNoticeCapsule(notice: notice, onCancel: { meterManager.dismissNotice() }, onAction: {
+            } else if let notice = presentedMeterNotice, selectedParkingPointID == nil, selectedHKLocation == nil {
+                MeterNoticeCapsule(notice: notice, onCancel: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) {
+                        presentedMeterNotice = nil
+                    }
+                    meterManager.dismissNotice()
+                }, onAction: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) {
+                        presentedMeterNotice = nil
+                    }
                     meterManager.dismissNotice()
                     if notice.kind == .destination { startNavigationToMeter(notice.meter) }
                     else { MeterPayment.open(manager: meterManager) }
-                }).zIndex(23)
+                })
+                .offset(y: hingeUpperOffsetY)
+                .transition(
+                    .asymmetric(
+                        insertion: .modifier(
+                            active: BlurSlideModifier(blur: 28, y: 10, scale: 0.985),
+                            identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
+                        ),
+                        removal: .modifier(
+                            active: BlurSlideModifier(blur: 28, y: 0, scale: 0.985),
+                            identity: BlurSlideModifier(blur: 0, y: 0, scale: 1)
+                        )
+                    ).combined(with: .opacity)
+                )
+                .zIndex(23)
             }
 
             if (showMap || showSatellite), let hkLoc = selectedHKLocation {
                 hkLocationCapsule(title: hkLoc.title, coordinate: hkLoc.coordinate)
+                    .offset(y: hingeLowerOffsetY)
                     .transition(
                         .asymmetric(
                             insertion: .modifier(
@@ -1453,7 +1889,7 @@ struct ContentView: View {
                 .blur(radius: capsuleAppeared ? 0 : 30)
                 .opacity(capsuleAppeared ? 1 : 0)
                 .padding(.bottom, 20)
-                .offset(x: isLandscape && capsuleOnRight ? (isParkingMemoryExpanded ? 135 : 210) : 0)
+                .offset(x: capsuleRightShift)
                 .animation(.spring(response: 0.4, dampingFraction: 0.85), value: capsuleOnRight)
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 30)
@@ -1848,6 +2284,7 @@ struct ContentView: View {
 
         floorCurveBaseAltitude = lastSample.relativeAltitude
         floorCurveHistory = [0] // 起始點為 0
+        floorCurveHorizontalPositions = [0]
         floorCurveLocked = false
         floorCurveLockedFloor = 0
         floorCurveDescendingCount = 0
@@ -1880,8 +2317,11 @@ struct ContentView: View {
                 // 速度為0時不加新數據點，但保持現有曲線不動
                 guard barometer.currentSpeedKmh > 0.5 else { return }
                 let relativeAlt = lastSample.relativeAltitude - self.floorCurveBaseAltitude
+                let metersTravelled = barometer.currentSpeedKmh / 3.6 * 0.5
+                let nextX = (self.floorCurveHorizontalPositions.last ?? 0) + CGFloat(metersTravelled) * 0.95
                 withAnimation(.easeInOut(duration: 0.2)) {
                     self.floorCurveHistory.append(relativeAlt)
+                    self.floorCurveHorizontalPositions.append(nextX)
                 }
             }
         }
@@ -2062,6 +2502,7 @@ struct ContentView: View {
         // 重置
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
             floorCurveHistory = []
+            floorCurveHorizontalPositions = []
             floorCurveLocked = false
             floorCurveLockAnimating = false
             floorCurveDescendingCount = 0
@@ -2144,6 +2585,7 @@ struct ContentView: View {
                     } else {
                         InlineCurveContent(
                             history: floorCurveHistory,
+                            horizontalPositions: floorCurveHorizontalPositions,
                             w: w, h: h,
                             accentColor: accentColor,
                             carIconName: "car.side.fill"
@@ -2325,6 +2767,7 @@ struct ContentView: View {
                 } else {
                     InlineCurveContent(
                         history: floorCurveHistory,
+                        horizontalPositions: floorCurveHorizontalPositions,
                         w: w, h: h,
                         accentColor: accentColor,
                         carIconName: "car.side.fill"
@@ -2444,7 +2887,7 @@ struct ContentView: View {
         let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isFloorCurveInCapsule ? 210 : (isCapsuleExpanded ? 182 : 44))
         let capsuleHeight: CGFloat = {
             if isParkingMemoryExpanded {
-                return isLandscape ? 296 : 495
+                return parkingMemoryUsesLandscapeLayout ? 296 : 495
             }
             if isFloorCurveInCapsule {
                 return 210
@@ -2472,9 +2915,13 @@ struct ContentView: View {
         }()
         let dragProgress: CGFloat = isParkingMemoryExpanded ? 1.0 : max(0, min((capsuleHeight - 44) / 138, 1))
         let capsuleWidth: CGFloat = {
+            if isParkingMemoryExpanded {
+                return parkingMemoryUsesLandscapeLayout ? 525 : 370
+            }
             if isLandscape {
-                if isParkingMemoryExpanded { return 525 }
-                if isCapsuleExpanded || isFloorCurveInCapsule { return 370 }
+                if isCapsuleExpanded || isFloorCurveInCapsule {
+                    return 370
+                }
                 return 280
             }
             return (isCapsuleExpanded || isFloorCurveInCapsule) ? 370 : (270 + 100 * dragProgress)
@@ -2766,6 +3213,11 @@ struct ContentView: View {
             }
             // visits 載入後：重啟計時器 + 同步實時活動（冷啟動時確保恢復）
             refreshVisitAndTimersForForeground()
+            if locationManager.hasLoadedVisits && !hasCompletedInitialStatusHydration {
+                DispatchQueue.main.async {
+                    hasCompletedInitialStatusHydration = true
+                }
+            }
         }
         .onChange(of: showDepartedLabel) { _, _ in
             if isCapsuleExpanded {
@@ -2773,6 +3225,7 @@ struct ContentView: View {
             }
         }
         .onChange(of: visitStatus) { oldStatus, newStatus in
+            guard hasCompletedInitialStatusHydration else { return }
             if newStatus == "已停留", oldStatus != "已停留" {
                 sfxPlayer.playEnterStationary()
             } else if newStatus == "已開車", oldStatus != "已開車" {
@@ -3354,7 +3807,7 @@ struct ContentView: View {
 
     private var parkingMemoryContent: some View {
         VStack(spacing: 0) {
-            if isLandscape {
+            if parkingMemoryUsesLandscapeLayout {
                 parkingMemoryLandscape
             } else {
                 parkingMemoryPortrait
@@ -3374,7 +3827,7 @@ struct ContentView: View {
                     cameraSection
                 }
                 .padding(.bottom, 20)
-                .frame(width: isLandscape ? 304 : 370)
+                .frame(width: parkingMemoryUsesLandscapeLayout ? 304 : 370)
                 .frame(maxHeight: .infinity, alignment: .bottom)
                 // 右边：离场 + 入场计时
                 parkingMemoryLandscapeButtons
@@ -3420,7 +3873,7 @@ struct ContentView: View {
             })
         }
         .padding(.bottom, 20)
-        .frame(width: isLandscape ? 161 : 190)
+        .frame(width: parkingMemoryUsesLandscapeLayout ? 161 : 190)
         .frame(maxHeight: .infinity, alignment: .bottom)
     }
 
@@ -3503,7 +3956,7 @@ struct ContentView: View {
             }
         }) {
             Image(systemName: "chevron.left.circle.fill")
-                .font(.system(size: isLandscape ? 28 : 32))
+                .font(.system(size: parkingMemoryUsesLandscapeLayout ? 28 : 32))
                 .foregroundStyle(adaptiveTextColor(opacity: 0.8))
         }
     }
@@ -3526,7 +3979,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func parkingTimeAdjustButtons(buttonSize: CGFloat, iconSize: CGFloat) -> some View {
-        HStack(spacing: isLandscape ? 6 : 8) {
+        HStack(spacing: parkingMemoryUsesLandscapeLayout ? 6 : 8) {
             Button(action: {
                 timeAdjustAccumulated -= 1
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -3652,7 +4105,7 @@ struct ContentView: View {
                 .font(.system(size: titleSize, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(maxWidth: .infinity, alignment: .trailing)
-                .padding(.trailing, isLandscape ? 28 : 18)
+                .padding(.trailing, parkingMemoryUsesLandscapeLayout ? 28 : 18)
                 .id("parkingTitle")
             if !isLingering && parkingInfoDisplayMode {
                 let session = parkingFloorStore.currentSession
@@ -4370,6 +4823,9 @@ struct ContentView: View {
     private func parkingPointCapsule(point: ParkingPointRecord) -> some View {
         let currentFloor = point.manualFloorIndex ?? point.predictedFloorIndex ?? 0
         let hasFloor = point.manualFloorIndex != nil || point.predictedFloorIndex != nil
+        let currentLot = parkingFloorStore.lot(containing: point.id)
+        let isChangingLot = changingParkingLotPointID == point.id
+        let nearbyLots = nearbyParkingLots(for: point, excluding: currentLot?.id)
         return ZStack {
             Color.black.opacity(0.001)
                 .ignoresSafeArea()
@@ -4381,7 +4837,7 @@ struct ContentView: View {
 
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
-                    Text(point.address.isEmpty ? String(localized: "停車點") : point.address)
+                    Text(currentLot?.name ?? (point.address.isEmpty ? String(localized: "停車點") : point.address))
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
                         .lineLimit(2)
@@ -4444,15 +4900,114 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                 }
+
+                Button {
+                    if isChangingLot {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            parkingLotExpansionStage = 0
+                            changingParkingLotPointID = nil
+                        }
+                    } else {
+                        newParkingLotName = ""
+                        parkingLotExpansionStage = 0
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                            changingParkingLotPointID = point.id
+                        }
+                        revealParkingLotOptions(for: point.id)
+                    }
+                } label: {
+                    Label("更改停車場", systemImage: "building.2.crop.circle")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.glass)
+                .controlSize(.small)
+
+                if isChangingLot {
+                    ParkingLotChangePanel(
+                        stage: parkingLotExpansionStage,
+                        nearbyLots: nearbyLots,
+                        onSelect: { lotID in
+                            if parkingFloorStore.movePoint(point.id, toLotID: lotID) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                                    parkingLotExpansionStage = 0
+                                    changingParkingLotPointID = nil
+                                }
+                            }
+                        },
+                        onCreate: {
+                            newParkingLotName = ""
+                            showNewParkingLotAlert = true
+                        }
+                    )
+                }
             }
+            .frame(width: 196)
             .contentShape(Rectangle())
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
             .padding(.horizontal, 28)
-            .offset(y: 56)
+            .offset(y: isLandscape ? 50 : 56)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
+        .alert("新增停車場", isPresented: $showNewParkingLotAlert) {
+            TextField("停車場名稱", text: $newParkingLotName)
+            Button("新增") {
+                if parkingFloorStore.createLot(name: newParkingLotName, moving: point.id) != nil {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.86)) {
+                        parkingLotExpansionStage = 0
+                        changingParkingLotPointID = nil
+                    }
+                    newParkingLotName = ""
+                }
+            }
+            .disabled(newParkingLotName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            Button("取消", role: .cancel) {
+                newParkingLotName = ""
+            }
+        } message: {
+            Text("輸入新停車場名稱。今次停車點會移到新停車場，位置保持不變。")
+        }
+    }
+
+    private func revealParkingLotOptions(for pointID: UUID) {
+        let stages: [(delay: TimeInterval, value: Int)] = [
+            (0.02, 1),
+            (0.13, 2),
+            (0.24, 3),
+        ]
+        for stage in stages {
+            DispatchQueue.main.asyncAfter(deadline: .now() + stage.delay) {
+                guard changingParkingLotPointID == pointID else { return }
+                withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
+                    parkingLotExpansionStage = stage.value
+                }
+            }
+        }
+    }
+
+    private func nearbyParkingLots(
+        for point: ParkingPointRecord,
+        excluding currentLotID: UUID?
+    ) -> [(lot: ParkingLotRecord, distance: Double)] {
+        let pointLocation = CLLocation(latitude: point.latitude, longitude: point.longitude)
+        let currentLocality = currentLotID.flatMap { id in
+            parkingFloorStore.lots.first(where: { $0.id == id })?.locality
+        }
+        return parkingFloorStore.lots.compactMap { lot in
+            guard lot.id != currentLotID else { return nil }
+            if let currentLocality, !currentLocality.isEmpty,
+               let locality = lot.locality, !locality.isEmpty,
+               locality != currentLocality {
+                return nil
+            }
+            let distance = pointLocation.distance(from: CLLocation(
+                latitude: lot.centerLatitude,
+                longitude: lot.centerLongitude
+            ))
+            return distance <= 500 ? (lot, distance) : nil
+        }
+        .sorted { $0.distance < $1.distance }
     }
 
     private func startNavigationToParkingPoint(_ point: ParkingPointRecord) {
@@ -4741,8 +5296,8 @@ struct ContentView: View {
         animatingPhotoPhase = 0
         animatingPhotoRotation = 0
         // 計算縮略圖位置偏移（左上角）
-        let camW: CGFloat = isLandscape ? 304.0 : 338.0
-        let camH: CGFloat = isLandscape ? 211.0 : 235.0
+        let camW: CGFloat = parkingMemoryUsesLandscapeLayout ? 304.0 : 338.0
+        let camH: CGFloat = parkingMemoryUsesLandscapeLayout ? 211.0 : 235.0
         animatingPhotoOffsetX = -(camW / 2 - 20 - 46.0 / 2) + CGFloat(saved.offsetX)
         animatingPhotoOffsetY = -(camH / 2 - 18 - 32.0 / 2) + CGFloat(saved.offsetY)
 
@@ -5553,11 +6108,11 @@ struct ContentView: View {
     
     // MARK: - Camera Section
     private var cameraSection: some View {
-        let camW: CGFloat = isLandscape ? 304 : 338
-        let camH: CGFloat = isLandscape ? 211 : 235
-        let camCR: CGFloat = isLandscape ? 33 : 37
+        let camW: CGFloat = parkingMemoryUsesLandscapeLayout ? 304 : 338
+        let camH: CGFloat = parkingMemoryUsesLandscapeLayout ? 211 : 235
+        let camCR: CGFloat = parkingMemoryUsesLandscapeLayout ? 33 : 37
         return ZStack(alignment: .topLeading) {
-            CameraPreviewView(isLandscape: isLandscape, sessionRunning: isCameraActive)
+            CameraPreviewView(isLandscape: parkingMemoryUsesLandscapeLayout, sessionRunning: isCameraActive)
                 .frame(width: camW, height: camH)
                 .clipShape(RoundedRectangle(cornerRadius: camCR))
                 .overlay(
@@ -5631,7 +6186,7 @@ struct ContentView: View {
             // Thumbnail-only tap area for expanding (top-left, matching thumb position)
             if !showingExpandedPhotos {
                 Color.clear
-                    .frame(width: isLandscape ? 72 : 80, height: isLandscape ? 63 : 70)
+                    .frame(width: parkingMemoryUsesLandscapeLayout ? 72 : 80, height: parkingMemoryUsesLandscapeLayout ? 63 : 70)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         withAnimation(.spring(response: 0.45, dampingFraction: 0.82)) {
@@ -5646,9 +6201,9 @@ struct ContentView: View {
 
     private var cameraDimOverlay: some View {
         let dimOpacity = showingExpandedPhotos ? (selectedPhotoIndex != nil ? 0.65 : 0.45) : 0
-        let camW: CGFloat = isLandscape ? 304 : 338
-        let camH: CGFloat = isLandscape ? 211 : 235
-        let camCR: CGFloat = isLandscape ? 33 : 37
+        let camW: CGFloat = parkingMemoryUsesLandscapeLayout ? 304 : 338
+        let camH: CGFloat = parkingMemoryUsesLandscapeLayout ? 211 : 235
+        let camCR: CGFloat = parkingMemoryUsesLandscapeLayout ? 33 : 37
         return Color.black.opacity(dimOpacity)
             .frame(width: camW, height: camH)
             .clipShape(RoundedRectangle(cornerRadius: camCR))
@@ -5689,7 +6244,7 @@ struct ContentView: View {
                         isSelected: selectedPhotoIndex == index,
                         tiltX: tiltAngleX[index] ?? 0,
                         tiltY: tiltAngleY[index] ?? 0,
-                        isLandscape: isLandscape,
+                        isLandscape: parkingMemoryUsesLandscapeLayout,
                         swipeOffset: (selectedPhotoIndex == index) ? photoSwipeOffset : 0,
                         isSwiping: selectedPhotoIndex == index && isPhotoSwiping,
                         isAnimatingOut: photoAnimatingOutIndex == index,
@@ -5737,7 +6292,7 @@ struct ContentView: View {
             // Smoky Dissolve overlay — inside the same ZStack/frame so positioning matches exactly
             cameraDissolveOverlay
         }
-        .frame(width: isLandscape ? 304 : 338, height: isLandscape ? 211 : 235, alignment: .center)
+        .frame(width: parkingMemoryUsesLandscapeLayout ? 304 : 338, height: parkingMemoryUsesLandscapeLayout ? 211 : 235, alignment: .center)
         .mask(
             Group {
                 if showingExpandedPhotos {
@@ -5780,7 +6335,7 @@ struct ContentView: View {
                     // Phase 1: Slide out + shrink (0.15s after TILT)
                     // ═══════════════════════════════════════════════════════
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                        let camH: CGFloat = isLandscape ? 211 : 235
+                        let camH: CGFloat = parkingMemoryUsesLandscapeLayout ? 211 : 235
                         let expandedH: CGFloat = 32 * 3.8
                         let fullScale: CGFloat = (camH - 24) / expandedH
                         isSwipingPhoto = true
@@ -5837,7 +6392,7 @@ struct ContentView: View {
         Group {
             if deletingPhotoID != nil, let img = deletingImage {
                 let expandedH: CGFloat = 32 * 3.8
-                let selectedScale: CGFloat = ((isLandscape ? 211 : 235) - 24) / expandedH
+                let selectedScale: CGFloat = ((parkingMemoryUsesLandscapeLayout ? 211 : 235) - 24) / expandedH
                 let delTiltX = tiltAngleX[deletingIndex ?? -1] ?? 0
                 let delTiltY = tiltAngleY[deletingIndex ?? -1] ?? 0
                 let delTiltScale: CGFloat = 1.0 + abs(delTiltX) * 0.003

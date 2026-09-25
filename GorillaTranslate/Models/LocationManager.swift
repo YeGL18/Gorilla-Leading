@@ -1473,19 +1473,96 @@ final class ParkingFloorStore: ObservableObject {
     }
 
     func setPointCoordinate(pointID: UUID, coordinate: CLLocationCoordinate2D) {
-        var changed = false
         for i in lots.indices {
             if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
                 lots[i].points[pIndex].latitude = coordinate.latitude
                 lots[i].points[pIndex].longitude = coordinate.longitude
                 lots[i].updatedAt = Date()
-                changed = true
-                break
+                recomputeLotGeometry(at: i)
+                objectWillChange.send()
+                persist()
+                return
             }
         }
-        if changed {
-            persist()
+    }
+
+    func lot(containing pointID: UUID) -> ParkingLotRecord? {
+        lots.first { lot in lot.points.contains(where: { $0.id == pointID }) }
+    }
+
+    @discardableResult
+    func movePoint(_ pointID: UUID, toLotID destinationID: UUID) -> Bool {
+        guard let sourceIndex = lots.firstIndex(where: { lot in
+            lot.points.contains(where: { $0.id == pointID })
+        }), lots[sourceIndex].id != destinationID,
+              lots.contains(where: { $0.id == destinationID }),
+              let pointIndex = lots[sourceIndex].points.firstIndex(where: { $0.id == pointID }) else {
+            return false
         }
+
+        let sourceID = lots[sourceIndex].id
+        let point = lots[sourceIndex].points.remove(at: pointIndex)
+        let movedLearning = (lots[sourceIndex].floorLearningHistory ?? []).filter { $0.pointID == pointID }
+        lots[sourceIndex].floorLearningHistory?.removeAll { $0.pointID == pointID }
+
+        if lots[sourceIndex].points.isEmpty {
+            lots.remove(at: sourceIndex)
+        } else if let updatedSource = lots.firstIndex(where: { $0.id == sourceID }) {
+            recomputeLotGeometry(at: updatedSource)
+            rebuildLotLearning(at: updatedSource)
+        }
+
+        guard let destinationIndex = lots.firstIndex(where: { $0.id == destinationID }) else {
+            return false
+        }
+        lots[destinationIndex].points.insert(point, at: 0)
+        if !movedLearning.isEmpty {
+            if lots[destinationIndex].floorLearningHistory == nil {
+                lots[destinationIndex].floorLearningHistory = []
+            }
+            lots[destinationIndex].floorLearningHistory?.append(contentsOf: movedLearning)
+        }
+        lots[destinationIndex].updatedAt = Date()
+        recomputeLotGeometry(at: destinationIndex)
+        rebuildLotLearning(at: destinationIndex)
+        if activeLotID == sourceID { activeLotID = destinationID }
+        objectWillChange.send()
+        persist()
+        return true
+    }
+
+    @discardableResult
+    func createLot(name: String, moving pointID: UUID) -> UUID? {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty,
+              let sourceIndex = lots.firstIndex(where: { lot in
+                  lot.points.contains(where: { $0.id == pointID })
+              }),
+              let point = lots[sourceIndex].points.first(where: { $0.id == pointID }) else {
+            return nil
+        }
+        let sourceLocality = lots[sourceIndex].locality
+        let newID = UUID()
+        lots.append(ParkingLotRecord(
+            id: newID,
+            name: trimmed,
+            centerLatitude: point.latitude,
+            centerLongitude: point.longitude,
+            radiusMeters: 25,
+            createdAt: Date(),
+            updatedAt: Date(),
+            locality: sourceLocality,
+            points: [],
+            learnedMetersPerFloor: nil,
+            learnedOffsetMeters: nil,
+            learnedConfidence: nil,
+            floorLearningHistory: nil
+        ))
+        guard movePoint(pointID, toLotID: newID) else {
+            lots.removeAll { $0.id == newID }
+            return nil
+        }
+        return newID
     }
 
     func setLotName(lotID: UUID, name: String?) {
@@ -1549,7 +1626,11 @@ final class ParkingFloorStore: ObservableObject {
                 // 如果刪除後該停車場無點，則刪除整個停車場
                 if lots[lotIndex].points.isEmpty {
                     lots.remove(at: lotIndex)
+                } else {
+                    recomputeLotGeometry(at: lotIndex)
+                    rebuildLotLearning(at: lotIndex)
                 }
+                objectWillChange.send()
                 persist()
                 return
             }
@@ -1575,6 +1656,8 @@ final class ParkingFloorStore: ObservableObject {
             lots[lotIndex].points[pIndex].latitude = newCoord.latitude
             lots[lotIndex].points[pIndex].longitude = newCoord.longitude
             lots[lotIndex].updatedAt = Date()
+            recomputeLotGeometry(at: lotIndex)
+            objectWillChange.send()
             persist()
             break
         }
@@ -1582,13 +1665,54 @@ final class ParkingFloorStore: ObservableObject {
     
     func findLotIndex(near coordinate: CLLocationCoordinate2D, radiusMeters: Double) -> Int? {
         let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
-        for (idx, lot) in lots.enumerated() {
+        return lots.enumerated().compactMap { idx, lot -> (Int, Double)? in
             let c = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
-            if c.distance(from: loc) <= min(radiusMeters, lot.radiusMeters) {
-                return idx
-            }
+            let distance = c.distance(from: loc)
+            return distance <= radiusMeters ? (idx, distance) : nil
         }
-        return nil
+        .min(by: { $0.1 < $1.1 })?.0
+    }
+
+    private func recomputeLotGeometry(at index: Int) {
+        guard lots.indices.contains(index), !lots[index].points.isEmpty else { return }
+        let points = lots[index].points
+        let latitude = points.reduce(0.0) { $0 + $1.latitude } / Double(points.count)
+        let longitude = points.reduce(0.0) { $0 + $1.longitude } / Double(points.count)
+        let center = CLLocation(latitude: latitude, longitude: longitude)
+        let farthest = points.map {
+            center.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude))
+        }.max() ?? 0
+        lots[index].centerLatitude = latitude
+        lots[index].centerLongitude = longitude
+        lots[index].radiusMeters = min(Self.defaultRadiusMeters, max(25, farthest + 25))
+        lots[index].updatedAt = Date()
+    }
+
+    private func rebuildLotLearning(at index: Int) {
+        guard lots.indices.contains(index) else { return }
+        let valid = (lots[index].floorLearningHistory ?? []).filter {
+            $0.manualFloorIndex != 0 && $0.altitudeDeltaMeters != 0
+        }
+        guard !valid.isEmpty else {
+            lots[index].learnedMetersPerFloor = nil
+            lots[index].learnedOffsetMeters = nil
+            lots[index].learnedConfidence = nil
+            lots[index] = rerunPredictions(lot: lots[index])
+            return
+        }
+        var mean = valid.reduce(0.0) { $0 + abs($1.metersPerFloor) } / Double(valid.count)
+        mean = min(6, max(2, mean))
+        let variance = valid.reduce(0.0) { result, item in
+            let difference = abs(item.metersPerFloor) - mean
+            return result + difference * difference
+        } / Double(valid.count)
+        let confidence = max(0.1, min(0.98, 1 - sqrt(variance) / max(0.1, mean)))
+        let sampleBoost = min(1, Double(valid.count) / 4)
+        lots[index].learnedMetersPerFloor = mean
+        lots[index].learnedConfidence = 0.3 + 0.7 * (0.6 * confidence + 0.4 * sampleBoost)
+        let offsets = valid.map { $0.altitudeDeltaMeters - Double($0.manualFloorIndex) * mean }
+        lots[index].learnedOffsetMeters = offsets.reduce(0, +) / Double(offsets.count)
+        lots[index] = rerunPredictions(lot: lots[index])
     }
     
     // MARK: - 文件備份路徑（Documents/parking_lots_backup.json）

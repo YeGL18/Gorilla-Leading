@@ -16,6 +16,18 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
 @main
 struct GorillaTranslateApp: App {
+    init() {
+        UserDefaults.standard.register(defaults: [
+            "capsuleAnimationStyle": 1,
+            "mapTrackingAnimation": 1,
+            "kalmanSmoothingEnabled": true,
+            "sfxAccelerationEnabled": false,
+            "orbCapsule": false,
+            "orbExpanded": false,
+            "orbParkingMemory": false
+        ])
+    }
+
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
     @StateObject private var destinationManager = DestinationManager.shared
     @StateObject private var locationManager = LocationManager()

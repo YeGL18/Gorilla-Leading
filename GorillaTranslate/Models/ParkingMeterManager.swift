@@ -29,6 +29,7 @@ final class ParkingMeterManager: ObservableObject {
     @Published private(set) var lastStatusFetch: Date?
     @Published private(set) var lastSpacesFetch: Date?
     @Published private(set) var loading = false
+    @Published private(set) var statusRefreshing = false
     @Published private(set) var errorMessage: String?
     @Published private(set) var revision = 0
     @Published var selectedMeter: ParkingMeter?
@@ -132,8 +133,12 @@ final class ParkingMeterManager: ObservableObject {
         let now = Date()
         guard force || now.timeIntervalSince(lastStatusAttempt ?? .distantPast) >= 60 else { return }
         fetchingStatus = true
+        statusRefreshing = true
         lastStatusAttempt = now
-        defer { fetchingStatus = false }
+        defer {
+            fetchingStatus = false
+            statusRefreshing = false
+        }
         do {
             var request = URLRequest(url: Self.occupancyURL, cachePolicy: .reloadIgnoringLocalCacheData)
             request.timeoutInterval = 25

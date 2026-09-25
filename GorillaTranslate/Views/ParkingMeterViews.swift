@@ -15,6 +15,7 @@ extension MeterDisplayState {
 
 final class MeterAnnotation: NSObject, MKAnnotation {
     let meter: ParkingMeter
+    var pendingAppearance = true
     dynamic var coordinate: CLLocationCoordinate2D
     var title: String? { "\(meter.street) \(meter.id)" }
     init(_ meter: ParkingMeter) {
@@ -80,8 +81,18 @@ final class MeterMapLayer {
     func sync(map: MKMapView, meters: [ParkingMeter], manager: ParkingMeterManager) {
         let wanted = Dictionary(uniqueKeysWithValues: meters.map { ($0.id, $0) })
         let removed = annotations.values.filter { wanted[$0.meter.id] != $0.meter }
-        map.removeAnnotations(removed)
-        for item in removed { annotations.removeValue(forKey: item.meter.id) }
+        for item in removed {
+            annotations.removeValue(forKey: item.meter.id)
+            if let view = map.view(for: item) {
+                UIView.animate(withDuration: 0.24, animations: {
+                    view.alpha = 0
+                }, completion: { [weak map] _ in
+                    map?.removeAnnotation(item)
+                })
+            } else {
+                map.removeAnnotation(item)
+            }
+        }
         let added = meters.filter { annotations[$0.id] == nil }.map(MeterAnnotation.init)
         for item in added { annotations[item.meter.id] = item }
         map.addAnnotations(added)
@@ -103,6 +114,22 @@ final class MeterMapLayer {
             ?? MeterAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
         view.annotation = annotation
         view.configure(meters, manager: manager)
+        let appearingMeters: [MeterAnnotation]
+        if let meter = annotation as? MeterAnnotation {
+            appearingMeters = meter.pendingAppearance ? [meter] : []
+        } else if let cluster = annotation as? MKClusterAnnotation {
+            appearingMeters = cluster.memberAnnotations.compactMap { $0 as? MeterAnnotation }
+                .filter(\.pendingAppearance)
+        } else {
+            appearingMeters = []
+        }
+        if !appearingMeters.isEmpty {
+            for meter in appearingMeters { meter.pendingAppearance = false }
+            view.alpha = 0
+            UIView.animate(withDuration: 0.28) { view.alpha = 1 }
+        } else {
+            view.alpha = 1
+        }
         return view
     }
 }
@@ -166,22 +193,96 @@ struct MeterDetailCapsule: View {
     let onClose: () -> Void
     let onNavigate: () -> Void
     let onPay: () -> Void
+    var horizontalLayout = false
+    var compactLayout = false
+
     var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("\(meter.street) · \(meter.id)").font(.headline)
-                Spacer(minLength: 8)
-                Button(action: onClose) { Image(systemName: "xmark") }
-                    .accessibilityLabel("關閉").frame(width: 32, height: 32)
+        let state = manager.state(meter)
+        Group {
+            if horizontalLayout {
+                HStack(alignment: .top, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 9) {
+                        capsuleHeader
+                        statusBlock(state)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    detailsBlock(state)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    VStack(spacing: 10) {
+                        actionButtons(vertical: true)
+                    }
+                    .frame(width: 160)
+                }
+            } else {
+                VStack(spacing: compactLayout ? 8 : 12) {
+                    capsuleHeader
+                    statusBlock(state)
+                    detailsBlock(state)
+                    actionButtons(vertical: false)
+                }
             }
-            Text(manager.state(meter).title)
-                .font(.system(size: 25, weight: .bold))
-                .foregroundStyle(manager.state(meter).color)
-                .multilineTextAlignment(.center)
-            if manager.vehicle != .unset && !meter.bayType.accepts(manager.vehicle), manager.state(meter) != .incompatible {
-                Text(meter.bayType == .unknown ? "適用車型未知" : "不適用所選車型")
-                    .foregroundStyle(.yellow).font(.subheadline.bold())
+        }
+        .padding(compactLayout || horizontalLayout ? 14 : 20)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+        .frame(maxWidth: horizontalLayout ? 760 : 420)
+        .padding(.horizontal, horizontalLayout ? 20 : 28)
+    }
+
+    private var capsuleHeader: some View {
+        HStack {
+            Text("\(meter.street) · \(meter.id)")
+                .font(.headline)
+                .lineLimit(horizontalLayout ? 2 : 1)
+            Spacer(minLength: 8)
+            Button {
+                Task { await manager.refreshStatus(force: true) }
+            } label: {
+                if manager.statusRefreshing {
+                    ProgressView().frame(width: 20, height: 20)
+                } else {
+                    Image(systemName: "arrow.clockwise").frame(width: 20, height: 20)
+                }
             }
+            .disabled(manager.statusRefreshing)
+            .accessibilityLabel("刷新佔用狀態")
+            .help("刷新佔用狀態")
+            .frame(width: 32, height: 32)
+            Button(action: onClose) { Image(systemName: "xmark") }
+                .accessibilityLabel("關閉")
+                .frame(width: 32, height: 32)
+        }
+    }
+
+    @ViewBuilder
+    private func statusBlock(_ state: MeterDisplayState) -> some View {
+        Text(state.title)
+            .font(.system(size: horizontalLayout || compactLayout ? 22 : 25, weight: .bold))
+            .foregroundStyle(state.color)
+            .multilineTextAlignment(horizontalLayout ? .leading : .center)
+            .contentTransition(.numericText())
+            .animation(.snappy(duration: 0.35), value: state)
+        if manager.vehicle != .unset && !meter.bayType.accepts(manager.vehicle), state != .incompatible {
+            Text(meter.bayType == .unknown ? "適用車型未知" : "不適用所選車型")
+                .foregroundStyle(.yellow)
+                .font(.subheadline.bold())
+        }
+        if let fetched = manager.lastStatusFetch {
+            Text("更新於 \(fetched.formatted(date: .omitted, time: .standard))")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+                .contentTransition(.numericText())
+                .animation(.snappy(duration: 0.35), value: fetched)
+        }
+        if let error = manager.errorMessage, error.hasPrefix("狀態") {
+            Text(error).font(.caption).foregroundStyle(.red)
+        }
+    }
+
+    @ViewBuilder
+    private func detailsBlock(_ state: MeterDisplayState) -> some View {
+        VStack(alignment: horizontalLayout ? .leading : .center, spacing: compactLayout || horizontalLayout ? 5 : 8) {
             Label(meter.bayType.title, systemImage: meter.bayType.symbol).font(.subheadline.bold())
             if meter.bayType == .general {
                 Text(meter.bayType.detail).font(.caption).foregroundStyle(.secondary)
@@ -189,12 +290,27 @@ struct MeterDetailCapsule: View {
             Text(meter.feeText).font(.headline)
             Text(meter.limitText).font(.subheadline)
             Text(meter.hoursText).font(.caption).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+                .multilineTextAlignment(horizontalLayout ? .leading : .center)
             Text("車型及泊車限制以現場標誌為準").font(.caption2).foregroundStyle(.secondary)
-            if let fetched = manager.lastStatusFetch {
-                Text("更新於 \(fetched.formatted(date: .omitted, time: .standard))")
-                    .font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: horizontalLayout ? .leading : .center)
+    }
+
+    @ViewBuilder
+    private func actionButtons(vertical: Bool) -> some View {
+        if vertical {
+            Button(action: onNavigate) {
+                Label("導航", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
+                    .frame(maxWidth: .infinity, minHeight: 44)
             }
+            .buttonStyle(.glass)
+            Button(action: onPay) {
+                Label("前往繳費", systemImage: "creditcard.fill")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
+        } else {
             HStack(spacing: 12) {
                 Button(action: onNavigate) {
                     Label("導航", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
@@ -207,10 +323,6 @@ struct MeterDetailCapsule: View {
                 .buttonStyle(.borderedProminent).tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
             }
         }
-        .padding(20)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-        .frame(maxWidth: 420)
-        .padding(.horizontal, 28)
     }
 }
 
@@ -230,6 +342,7 @@ struct MeterDetailOverlay: View {
     let onClose: () -> Void
     let onNavigate: () -> Void
     let onPay: () -> Void
+    var compactLayout = false
 
     static var popupTransition: AnyTransition {
         .asymmetric(
@@ -241,22 +354,23 @@ struct MeterDetailOverlay: View {
                 active: MeterPopupBlurSlideModifier(blur: 28, y: 0, scale: 0.985),
                 identity: MeterPopupBlurSlideModifier(blur: 0, y: 0, scale: 1)
             )
-        )
+        ).combined(with: .opacity)
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.001)
-                .ignoresSafeArea()
-                .onTapGesture(perform: onClose)
-            ScrollView {
+        GeometryReader { geo in
+            let horizontal = geo.size.width > geo.size.height
+            ZStack {
+                Color.black.opacity(0.001)
+                    .ignoresSafeArea()
+                    .onTapGesture(perform: onClose)
                 MeterDetailCapsule(meter: meter, manager: manager,
-                                   onClose: onClose, onNavigate: onNavigate, onPay: onPay)
-                    .padding(.vertical, 20)
+                                   onClose: onClose, onNavigate: onNavigate, onPay: onPay,
+                                   horizontalLayout: horizontal,
+                                   compactLayout: compactLayout)
+                    .padding(.vertical, horizontal ? 8 : 16)
+                    .offset(y: horizontal ? 10 : (compactLayout ? 18 : 56))
             }
-            .scrollIndicators(.hidden)
-            .frame(maxHeight: 500)
-            .offset(y: 56)
         }
     }
 }

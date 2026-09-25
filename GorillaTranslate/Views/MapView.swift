@@ -2,6 +2,34 @@ import SwiftUI
 import MapKit
 import Combine
 
+@MainActor
+final class MapCompassBridge: ObservableObject {
+    weak var mapView: MKMapView?
+    @Published private(set) var revision = 0
+
+    func connect(_ mapView: MKMapView) {
+        guard self.mapView !== mapView else { return }
+        self.mapView = mapView
+        revision &+= 1
+    }
+}
+
+struct MapCompassToolbarView: UIViewRepresentable {
+    @ObservedObject var bridge: MapCompassBridge
+
+    func makeUIView(context: Context) -> MKCompassButton {
+        let compass = MKCompassButton(mapView: bridge.mapView)
+        compass.compassVisibility = .visible
+        return compass
+    }
+
+    func updateUIView(_ compass: MKCompassButton, context: Context) {
+        _ = bridge.revision
+        compass.mapView = bridge.mapView
+        compass.compassVisibility = .visible
+    }
+}
+
 class NonAdjustingMapView: MKMapView {
     var allowCameraChange = false
     private var savedCameraBeforeLayout: MKMapCamera?
@@ -69,7 +97,9 @@ struct MapView: UIViewRepresentable {
     var mapStyleIndex: Int = 0
     var showSatellite: Bool = false
     var centerOffsetX: CGFloat = 0
+    var centerOffsetY: CGFloat = 0
     var hideCompass: Bool = false
+    var compassBridge: MapCompassBridge? = nil
     /// Called when the user taps an empty (annotation-free) area of the map.
     /// Used to collapse the expanded capsule without blocking map pan/zoom.
     var onMapBlankTap: (() -> Void)? = nil
@@ -113,6 +143,7 @@ struct MapView: UIViewRepresentable {
         }
         mapView.delegate = context.coordinator
         context.coordinator.mapView = mapView
+        compassBridge?.connect(mapView)
 
         // 預設定位到用戶所在城市；GPS 未就緒時退回香港，避免閃 San Jose
         let fallbackHK = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
@@ -171,6 +202,7 @@ struct MapView: UIViewRepresentable {
         // 更新指南針可見性
         if let compass = context.coordinator.compassButton {
             compass.compassVisibility = hideCompass ? .hidden : .visible
+            context.coordinator.compassTopConstraint?.constant = container.bounds.width > container.bounds.height ? 70 : 150
         }
 
         // 地圖模式切換（衛星3D）
@@ -206,10 +238,16 @@ struct MapView: UIViewRepresentable {
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
 
-        // 當 centerOffsetX 變化時，動畫移動 map view frame（視覺左移）
-        let targetFrame = CGRect(x: -centerOffsetX, y: 0, width: container.bounds.width + centerOffsetX, height: container.bounds.height)
-        if centerOffsetX != context.coordinator.centerOffsetX {
+        // 擴展相反方向嘅 map frame，將視覺中心移去可用區域中心。
+        let targetFrame = CGRect(
+            x: -centerOffsetX,
+            y: -centerOffsetY,
+            width: container.bounds.width + centerOffsetX,
+            height: container.bounds.height + centerOffsetY
+        )
+        if centerOffsetX != context.coordinator.centerOffsetX || centerOffsetY != context.coordinator.centerOffsetY {
             context.coordinator.centerOffsetX = centerOffsetX
+            context.coordinator.centerOffsetY = centerOffsetY
             UIView.animate(withDuration: 0.40, delay: 0, options: .curveEaseInOut) {
                 mapView.frame = targetFrame
             }
@@ -412,6 +450,7 @@ struct MapView: UIViewRepresentable {
         weak var compassButton: MKCompassButton?
         var compassTopConstraint: NSLayoutConstraint?
         var centerOffsetX: CGFloat = 0
+        var centerOffsetY: CGFloat = 0
         var lastHkDetailMode = false
         private var hkAnnotations: [MKPointAnnotation] = []
 
@@ -1769,7 +1808,9 @@ struct VignetteMapView: View {
     var mapStyleIndex: Int = 0
     var showSatellite: Bool = false
     var centerOffsetX: CGFloat = 0
+    var centerOffsetY: CGFloat = 0
     var hideCompass: Bool = false
+    var compassBridge: MapCompassBridge? = nil
     var onMapBlankTap: (() -> Void)? = nil
     var onSelectHKLocation: ((String, CLLocationCoordinate2D)?) -> Void = { _ in }
     @EnvironmentObject private var locationManager: LocationManager
@@ -1779,7 +1820,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, hideCompass: hideCompass, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, centerOffsetY: centerOffsetY, hideCompass: hideCompass, compassBridge: compassBridge, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

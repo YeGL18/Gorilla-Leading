@@ -8,6 +8,7 @@ final class SFXPlayer: ObservableObject {
     private var stationaryPlayer: AVAudioPlayer?
     private var drivingPlayer: AVAudioPlayer?
     private var accelerationPlayer: AVAudioPlayer?
+    private var meterDestinationPlayer: AVAudioPlayer?
     private var accelerationStopWork: DispatchWorkItem?
     private var accelerationFadeStartWork: DispatchWorkItem?
     private var accelerationFadeTimer: Timer?
@@ -42,6 +43,10 @@ final class SFXPlayer: ObservableObject {
 
     func playEnterDriving() {
         playOnce(&drivingPlayer, fallbackName: "sfx_enter_driving", volumeMultiplier: 1.5)
+    }
+
+    func playMeterDestinationNotice() {
+        playOnce(&meterDestinationPlayer, fallbackName: "sfx_meter_destination")
     }
     
     private static var launchPlayer: AVAudioPlayer?

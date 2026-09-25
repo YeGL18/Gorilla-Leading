@@ -2,6 +2,20 @@ import SwiftUI
 import MapKit
 import CoreMotion
 
+@available(iOS 27.1, *)
+private struct SpeedToolbarEdgeReader: View {
+    @Environment(\.toolbarVerticalEdge) private var edge
+    @Binding var isOnLeadingEdge: Bool
+
+    var body: some View {
+        Color.clear
+            .onAppear { isOnLeadingEdge = edge == .leading }
+            .onChange(of: edge) { _, value in
+                isOnLeadingEdge = value == .leading
+            }
+    }
+}
+
 struct SpeedView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @StateObject private var timePhaseManager = TimePhaseManager()
@@ -10,7 +24,7 @@ struct SpeedView: View {
     @StateObject private var gForceMotion = GForceParallaxMotion()
     @AppStorage("parallaxMode") private var parallaxMode: ParallaxMode = .tilt
     @State private var showParallaxToggle = false
-    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = true
+    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
 
     /// 當前視差 X 值（-1…1），根據模式切換來源
     private var parallaxX: Double {
@@ -54,6 +68,9 @@ struct SpeedView: View {
     let showMap: Bool
     let animationClock: AnimationClock
     @Binding var mapCamera: MKMapCamera?
+    let isDuoDevice: Bool
+    let isDuoInnerDisplay: Bool
+    let isDuoPartiallyOpen: Bool
 
     // 專注模式
     @Binding var focusMode: FocusModeLevel?
@@ -61,13 +78,28 @@ struct SpeedView: View {
     var onEnterFocus: (FocusModeLevel, FocusFrameRate) -> Void
     var onExitFocus: () -> Void
     @State private var showFocusSheet = false
+    @State private var isLandscapeLayout = false
+    @State private var safeAreaOnLeft = false
+    @State private var toolbarIsOnLeadingEdge = false
+
+    private var focusButtonInToolbar: Bool {
+        isDuoDevice && !isLandscapeLayout && toolbarIsOnLeadingEdge
+    }
 
     var body: some View {
         ZStack {
             if showMap {
                 ZStack {
-                    ReadOnlyMapView(camera: highAltitudeCamera, mapStyleIndex: mapStyleIndex)
-                        .ignoresSafeArea()
+                    GeometryReader { geo in
+                        let useUpperHalf = isDuoPartiallyOpen && geo.size.width <= geo.size.height
+                        ReadOnlyMapView(camera: highAltitudeCamera, mapStyleIndex: mapStyleIndex)
+                            .frame(
+                                width: geo.size.width,
+                                height: useUpperHalf ? geo.size.height * 1.5 : geo.size.height
+                            )
+                            .offset(y: useUpperHalf ? -geo.size.height / 2 : 0)
+                    }
+                    .ignoresSafeArea()
 
                     // Minecraft green tint overlay
                     if mapStyleIndex == 1 {
@@ -81,6 +113,7 @@ struct SpeedView: View {
                     GeometryReader { geo in
                         let w = geo.size.width
                         let h = geo.size.height
+                        let useUpperHalf = isDuoPartiallyOpen && w <= h
                         RadialGradient(
                             gradient: Gradient(stops: [
                                 .init(color: .clear, location: 0),
@@ -88,7 +121,7 @@ struct SpeedView: View {
                                 .init(color: .black.opacity(0.45), location: 0.7),
                                 .init(color: .black.opacity(0.75), location: 1)
                             ]),
-                            center: .center,
+                            center: useUpperHalf ? UnitPoint(x: 0.5, y: 0.25) : .center,
                             startRadius: min(w, h) * 0.25,
                             endRadius: max(w, h) * 0.65
                         )
@@ -104,6 +137,7 @@ struct SpeedView: View {
             }
 
             GeometryReader { dotGeo in
+                let useUpperHalf = isDuoPartiallyOpen && dotGeo.size.width <= dotGeo.size.height
                 // canvas 以 1.4 倍畫面尺寸居中（唔係放大：圓點大小／密度不變，
                 // 數量多咗近一倍），四邊各留 20% 緩衝 ——
                 // 視差旋轉＋位移任何角度都唔會露邊。
@@ -113,6 +147,7 @@ struct SpeedView: View {
                 ), canvasScale: 1.0)
                 .frame(width: dotGeo.size.width * 1.4, height: dotGeo.size.height * 1.4)
                 .position(x: dotGeo.size.width / 2, y: dotGeo.size.height / 2)
+                .offset(y: useUpperHalf ? -dotGeo.size.height / 4 : 0)
             }
             .ignoresSafeArea(edges: .all)
             // 陀螺儀視差（深層）：圓點平面朝傾斜反方向擺動並做 3D 透視旋轉，
@@ -123,6 +158,10 @@ struct SpeedView: View {
 
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
+                let useUpperHalf = isDuoPartiallyOpen && !landscape
+                let physicalCenterShift: CGFloat = isDuoDevice
+                    ? (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2
+                    : 0
                 let textColor: Color = colorScheme == .dark ? .white : .black
                 let speedText = "\(Int(lastKnownSpeed))"
                 let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
@@ -174,18 +213,68 @@ struct SpeedView: View {
                         }
                     }
                 }
-                .offset(y: landscape ? 20 : 0)
+                .offset(y: useUpperHalf ? -geo.size.height / 4 : (landscape ? 20 : 0))
+                .offset(x: physicalCenterShift)
             }
         }
-        .overlay(alignment: .bottomLeading) {
-            focusModeButton
+        .overlay {
+            if !focusButtonInToolbar {
+                GeometryReader { geo in
+                    let landscape = geo.size.width > geo.size.height
+                    let outerLandscapeWithLeadingBar = isDuoDevice && !isDuoInnerDisplay
+                        && landscape && (toolbarIsOnLeadingEdge || safeAreaOnLeft)
+                    let shouldAlignToPhysicalEdges = isDuoDevice && (
+                        (isDuoInnerDisplay && landscape)
+                        || (!isDuoInnerDisplay && !landscape)
+                        || (!isDuoInnerDisplay && landscape && geo.safeAreaInsets.trailing > geo.safeAreaInsets.leading)
+                    )
+                    let physicalLeftGap = geo.safeAreaInsets.leading + 16
+                    let physicalBottomGap = geo.safeAreaInsets.bottom + 12
+                    let downwardCorrection = shouldAlignToPhysicalEdges
+                        ? max(4, physicalBottomGap - physicalLeftGap)
+                        : 0
+
+                    if outerLandscapeWithLeadingBar {
+                        focusModeControl
+                            .padding(.trailing, 16)
+                            .padding(.bottom, 12)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                    } else {
+                        focusModeButton
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
+                            .offset(y: downwardCorrection)
+                    }
+                }
+            }
+        }
+        .toolbar {
+            if focusButtonInToolbar {
+                if #available(iOS 27.1, *) {
+                    ToolbarItem(placement: .bottomBar) {
+                        focusModeControl
+                    }
+                    .axisBehavior(.verticalPreferred)
+                } else {
+                    ToolbarItem(placement: .bottomBar) {
+                        focusModeControl
+                    }
+                }
+            }
         }
         .sheet(isPresented: $showFocusSheet) {
-            FocusModeSheet(initialLevel: focusMode, initialFrameRate: focusFrameRate) { level, fps in
+            FocusModeSheet(
+                initialLevel: focusMode,
+                initialFrameRate: focusFrameRate,
+                compactLayout: isLandscapeLayout || (isDuoDevice && !isDuoInnerDisplay)
+            ) { level, fps in
                 onEnterFocus(level, fps)
                 showFocusSheet = false
             }
-            .presentationDetents([.fraction(0.61), .large])
+            .presentationDetents(
+                isLandscapeLayout || (isDuoDevice && !isDuoInnerDisplay)
+                    ? [.large]
+                    : [.fraction(0.61), .large]
+            )
             .presentationDragIndicator(.visible)
         }
         .statusBarHidden(true)
@@ -199,12 +288,25 @@ struct SpeedView: View {
                         let angle: Double = isLandscape ? .pi / 2 : 0
                         tiltMotion.setScreenRotation(angle)
                         gForceMotion.setScreenRotation(angle)
+                        isLandscapeLayout = isLandscape
+                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
                     }
                     .onChange(of: isLandscape) { _, newValue in
                         let angle: Double = newValue ? .pi / 2 : 0
                         tiltMotion.setScreenRotation(angle)
                         gForceMotion.setScreenRotation(angle)
+                        isLandscapeLayout = newValue
+                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
                     }
+                    .onChange(of: geo.safeAreaInsets.leading) { _, _ in
+                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
+                    }
+                    .onChange(of: geo.safeAreaInsets.trailing) { _, _ in
+                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
+                    }
+            }
+            if #available(iOS 27.1, *) {
+                SpeedToolbarEdgeReader(isOnLeadingEdge: $toolbarIsOnLeadingEdge)
             }
         }
         .onAppear {
@@ -285,7 +387,7 @@ struct SpeedView: View {
 
     // MARK: - 專注模式按鈕（左下角）
 
-    private var focusModeButton: some View {
+    private var focusModeControl: some View {
         let active = focusMode != nil
         let glowColor = focusMode?.color ?? .green
         let baseColor: Color = colorScheme == .dark ? .white : .black
@@ -316,6 +418,10 @@ struct SpeedView: View {
             LongPressGesture(minimumDuration: 0.4)
                 .onEnded { _ in showFocusSheet = true }
         )
+    }
+
+    private var focusModeButton: some View {
+        focusModeControl
         .padding(.leading, 16)
         .padding(.bottom, 12)
     }
@@ -618,6 +724,7 @@ enum ParallaxMode: String {
 struct FocusModeSheet: View {
     let initialLevel: FocusModeLevel?
     let initialFrameRate: FocusFrameRate
+    let compactLayout: Bool
     var onEnter: (FocusModeLevel, FocusFrameRate) -> Void
 
     @State private var selectedLevel: FocusModeLevel = .balanced
@@ -626,60 +733,42 @@ struct FocusModeSheet: View {
     @State private var animatingLevel: FocusModeLevel?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 12) {
-                Text(String(localized: "專注模式"))
-                    .font(.title2.bold())
-                Text(String(localized: "閂走時速顯示以外嘅功能，減少耗電同發熱"))
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        GeometryReader { geo in
+            let horizontal = geo.size.width > geo.size.height
+            Group {
+                if horizontal {
+                    HStack(alignment: .top, spacing: 18) {
+                        VStack(alignment: .leading, spacing: 8) {
+                            heading
+                            ForEach(FocusModeLevel.allCases) { level in
+                                modeCard(level, compact: true)
+                            }
+                        }
+                        .frame(maxWidth: .infinity, alignment: .topLeading)
 
-                ForEach(FocusModeLevel.allCases) { level in
-                    modeCard(level)
-                }
-
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text(String(localized: "背景動畫幀率"))
-                            .font(.subheadline.weight(.semibold))
-                        Spacer()
-                        Text("\(Int(fpsSliderValue)) fps")
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.secondary)
-                            .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.15), value: fpsSliderValue)
+                        VStack(alignment: .leading, spacing: 16) {
+                            frameRateControls
+                            Spacer(minLength: 8)
+                            enterButton
+                        }
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     }
-                    Slider(value: $fpsSliderValue, in: 60...120, step: 30) {
-                        Text(String(localized: "背景動畫幀率"))
-                    } minimumValueLabel: {
-                        Text("60")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    } maximumValueLabel: {
-                        Text("120")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                    .padding(.horizontal, 24)
+                    .padding(.vertical, 16)
+                } else {
+                    VStack(alignment: .leading, spacing: compactLayout ? 8 : 12) {
+                        heading
+                        ForEach(FocusModeLevel.allCases) { level in
+                            modeCard(level, compact: compactLayout)
+                        }
+                        frameRateControls
+                        enterButton
                     }
-                    .tint(selectedLevel.color)
-                    Text(String(localized: "120 fps 只喺 ProMotion 機型有效，會稍微增加耗電"))
-                        .font(.caption2)
-                        .foregroundStyle(.tertiary)
+                    .padding(.horizontal, 20)
+                    .padding(.vertical, compactLayout ? 12 : 20)
                 }
-                .padding(.top, 4)
-
-                Button {
-                    onEnter(selectedLevel, FocusFrameRate(rawValue: Int(fpsSliderValue)) ?? .fps60)
-                } label: {
-                    Text(String(localized: "進入專注模式"))
-                        .font(.headline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 6)
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(selectedLevel.color)
-                .padding(.top, 6)
             }
-            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .onAppear {
             if let lvl = initialLevel { selectedLevel = lvl }
@@ -687,7 +776,58 @@ struct FocusModeSheet: View {
         }
     }
 
-    private func modeCard(_ level: FocusModeLevel) -> some View {
+    private var heading: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(String(localized: "專注模式"))
+                .font(.title2.bold())
+            Text(String(localized: "閂走時速顯示以外嘅功能，減少耗電同發熱"))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var frameRateControls: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(String(localized: "背景動畫幀率"))
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(Int(fpsSliderValue)) fps")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(.easeInOut(duration: 0.15), value: fpsSliderValue)
+            }
+            Slider(value: $fpsSliderValue, in: 60...120, step: 30) {
+                Text(String(localized: "背景動畫幀率"))
+            } minimumValueLabel: {
+                Text("60").font(.caption).foregroundStyle(.secondary)
+            } maximumValueLabel: {
+                Text("120").font(.caption).foregroundStyle(.secondary)
+            }
+            .tint(selectedLevel.color)
+            Text(String(localized: "120 fps 只喺 ProMotion 機型有效，會稍微增加耗電"))
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+        }
+        .padding(.top, 4)
+    }
+
+    private var enterButton: some View {
+        Button {
+            onEnter(selectedLevel, FocusFrameRate(rawValue: Int(fpsSliderValue)) ?? .fps60)
+        } label: {
+            Text(String(localized: "進入專注模式"))
+                .font(.headline)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 6)
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(selectedLevel.color)
+        .padding(.top, 4)
+    }
+
+    private func modeCard(_ level: FocusModeLevel, compact: Bool) -> some View {
         let selected = selectedLevel == level
         let c = level.color
         return Button {
@@ -723,7 +863,7 @@ struct FocusModeSheet: View {
                     .foregroundStyle(selected ? c : Color.secondary.opacity(0.4))
                     .contentTransition(.symbolEffect(.replace))
             }
-            .padding(12)
+            .padding(compact ? 8 : 12)
             .background(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
                     .fill(selected ? c.opacity(0.1) : Color.gray.opacity(0.08))
