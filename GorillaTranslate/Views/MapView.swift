@@ -14,19 +14,38 @@ final class MapCompassBridge: ObservableObject {
     }
 }
 
+final class CompassContainerView: UIView {
+    let compass: MKCompassButton
+    init(compass: MKCompassButton) {
+        self.compass = compass
+        super.init(frame: .zero)
+        backgroundColor = .clear
+        isOpaque = false
+        addSubview(compass)
+        compass.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            compass.topAnchor.constraint(equalTo: topAnchor),
+            compass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            compass.leadingAnchor.constraint(equalTo: leadingAnchor),
+            compass.trailingAnchor.constraint(equalTo: trailingAnchor),
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError() }
+}
+
 struct MapCompassToolbarView: UIViewRepresentable {
     @ObservedObject var bridge: MapCompassBridge
 
-    func makeUIView(context: Context) -> MKCompassButton {
+    func makeUIView(context: Context) -> CompassContainerView {
         let compass = MKCompassButton(mapView: bridge.mapView)
         compass.compassVisibility = .visible
-        return compass
+        return CompassContainerView(compass: compass)
     }
 
-    func updateUIView(_ compass: MKCompassButton, context: Context) {
+    func updateUIView(_ container: CompassContainerView, context: Context) {
         _ = bridge.revision
-        compass.mapView = bridge.mapView
-        compass.compassVisibility = .visible
+        container.compass.mapView = bridge.mapView
+        container.compass.compassVisibility = .visible
     }
 }
 
@@ -238,12 +257,13 @@ struct MapView: UIViewRepresentable {
         let landscapeChanged = context.coordinator.isLandscape != isLandscape
         context.coordinator.isLandscape = isLandscape
 
-        // 擴展相反方向嘅 map frame，將視覺中心移去可用區域中心。
+        // 擴展 map frame 覆蓋全屏，同時將視覺中心偏移。
+        // 用 min(0, …) 確保 frame 起點唔會離開容器左/上邊緣，避免留出空隙。
         let targetFrame = CGRect(
-            x: -centerOffsetX,
-            y: -centerOffsetY,
-            width: container.bounds.width + centerOffsetX,
-            height: container.bounds.height + centerOffsetY
+            x: min(0, -centerOffsetX),
+            y: min(0, -centerOffsetY),
+            width: container.bounds.width + abs(centerOffsetX),
+            height: container.bounds.height + abs(centerOffsetY)
         )
         if centerOffsetX != context.coordinator.centerOffsetX || centerOffsetY != context.coordinator.centerOffsetY {
             context.coordinator.centerOffsetX = centerOffsetX

@@ -699,14 +699,11 @@ struct ContentView: View {
                     .toolbar {
                         if #available(iOS 27.1, *), usesDuoToolbar {
                             if showMap || showSatellite {
-                                ToolbarItem(placement: .bottomBar) {
+                                ToolbarItem {
                                     MapCompassToolbarView(bridge: mapCompassBridge)
-                                        .frame(width: 44, height: 44)
-                                        .accessibilityLabel("指南針")
+                                        .background(.clear)
                                 }
-                                .visibilityPriority(.high)
                                 .axisBehavior(.verticalPreferred)
-                                ToolbarSpacer(.fixed, placement: .bottomBar)
                             }
                             ToolbarItem(placement: .bottomBar) {
                                 Button(action: cycleMapPresentation) {
@@ -1388,8 +1385,11 @@ struct ContentView: View {
                 if isDuoDevice && !isDuoInnerDisplay { return 13 }
                 return 0
             }()
-            let mapCenterOffsetX: CGFloat = (newLandscape && capsuleOnRight ? (isParkingMemoryExpanded ? 420 : 300) : 0)
-                + physicalCenterShift
+            // 地圖已有 .ignoresSafeArea() 覆蓋全屏，唔需要 physicalCenterShift 調整 frame。
+            // 只保留膠囊偏移（避免膠囊遮住用戶位置）。
+            let mapCenterOffsetX: CGFloat = (newLandscape && capsuleOnRight
+                ? (isParkingMemoryExpanded ? 420.0 : 300.0)
+                : 0)
             let mapCenterOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 2 : 0
             let hingeUpperOffsetY: CGFloat = isDuoSeatedMode ? -geo.size.height / 4 : 0
             let hingeLowerOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 4 : 0
