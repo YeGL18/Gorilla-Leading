@@ -4,6 +4,7 @@ struct TimeBasedOrbView: View {
     @ObservedObject var phaseManager: TimePhaseManager
     @ObservedObject var clock: AnimationClock
     var orbEnabled: Bool = true
+    var orbSizeMultiplier: CGFloat = 1.0
 
     private var starNightIntensity: Double {
         // 日出前要消失得夠快；入夜前要遲先出、慢啲淡入
@@ -115,8 +116,8 @@ struct TimeBasedOrbView: View {
                         .fill(colors.sunColor)
                         .blur(radius: sun.blur * 1.5)
                         .frame(
-                            width: 300 * sun.scale,
-                            height: 300 * sun.scale
+                            width: 300 * sun.scale * orbSizeMultiplier,
+                            height: 300 * sun.scale * orbSizeMultiplier
                         )
                         .offset(
                             x: (sun.x - 0.5) * w * 1.2,
@@ -129,8 +130,8 @@ struct TimeBasedOrbView: View {
                         .fill(colors.sunColor)
                         .blur(radius: sun.blur)
                         .frame(
-                            width: 180 * sun.scale,
-                            height: 180 * sun.scale
+                            width: 180 * sun.scale * orbSizeMultiplier,
+                            height: 180 * sun.scale * orbSizeMultiplier
                         )
                         .offset(
                             x: (sun.x - 0.5) * w * 1.2 + CGFloat(sin(elapsed * 0.8)) * 8,
@@ -143,8 +144,8 @@ struct TimeBasedOrbView: View {
                         .fill(colors.sunColor.opacity(0.9))
                         .blur(radius: sun.blur * 0.4)
                         .frame(
-                            width: 60 * sun.scale,
-                            height: 60 * sun.scale
+                            width: 60 * sun.scale * orbSizeMultiplier,
+                            height: 60 * sun.scale * orbSizeMultiplier
                         )
                         .offset(
                             x: (sun.x - 0.5) * w * 1.2 + CGFloat(sin(elapsed * 1.0)) * 12,

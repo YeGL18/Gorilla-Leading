@@ -12,6 +12,8 @@ struct SettingsView: View {
     @AppStorage("highFrequencyTracking") var highFrequencyTracking: Bool = true
     @AppStorage("mapTrackingAnimation") var mapTrackingAnimation: Int = 1
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
+    @AppStorage("speedBlurEnabled") private var speedBlurEnabled: Bool = true
+    @AppStorage("speedParallaxEnabled") private var speedParallaxEnabled: Bool = true
     @AppStorage("orbMasterEnabled") var orbMasterEnabled: Bool = true
     @AppStorage("orbCapsule") var orbCapsule: Bool = false
     @AppStorage("orbExpanded") var orbExpanded: Bool = false
@@ -285,6 +287,20 @@ struct SettingsView: View {
                         .foregroundStyle(.secondary)
                 } header: {
                     Label(String(localized: "泊車功能"), systemImage: "car")
+                }
+
+                // ── 6.5 時速顯示效果 ──
+                Section {
+                    Toggle(isOn: $speedBlurEnabled) {
+                        Label(String(localized: "時速模糊光暈"), systemImage: "aqi.medium")
+                    }
+                    Toggle(isOn: $speedParallaxEnabled) {
+                        Label(String(localized: "時速陀螺儀動畫"), systemImage: "gyroscope")
+                    }
+                } header: {
+                    Text("時速顯示效果")
+                } footer: {
+                    Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。")
                 }
 
                 // ── 6.5 黑武士模式 ──

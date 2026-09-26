@@ -117,36 +117,78 @@ private struct ParkingLotChangePanel: View {
     let onSelect: (UUID) -> Void
     let onCreate: () -> Void
 
-    private var flyTransition: AnyTransition {
-        .move(edge: .bottom)
-            .combined(with: .opacity)
-            .combined(with: .scale(scale: 0.96))
+    var body: some View {
+        // 先量度最終尺寸，令彈窗一開始就有足夠空間，避免逐行出現時佈局抖動
+        ZStack {
+            // 隱形佔位：包含所有可能出現嘅內容，鎖定最終尺寸
+            placeholderContent
+                .hidden()
+
+            // 實際顯示嘅內容，用 opacity 淡入
+            visibleContent
+        }
     }
 
-    var body: some View {
+    /// 隱形佔位，包含所有可能嘅行，用嚟鎖定最終高度
+    @ViewBuilder
+    private var placeholderContent: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if stage >= 1 {
-                Text("附近停車場")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .transition(flyTransition)
-            }
+            Text("附近停車場")
+                .font(.caption.weight(.semibold))
 
-            if stage >= 2 {
-                nearbyLotContent
-                    .transition(flyTransition)
-            }
-
-            if stage >= 3 {
-                Button(action: onCreate) {
-                    Label("新增停車場", systemImage: "plus")
-                        .frame(maxWidth: .infinity)
+            if nearbyLots.isEmpty {
+                Text("500 米內未有其他停車場")
+                    .font(.caption)
+            } else {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 8) {
+                        ForEach(nearbyLots.prefix(3), id: \.lot.id) { candidate in
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(candidate.lot.name ?? "未命名停車場")
+                                    .font(.caption.weight(.semibold))
+                                    .lineLimit(1)
+                                Text("\(Int(candidate.distance.rounded())) 米")
+                                    .font(.caption2)
+                            }
+                            .padding(.horizontal, 12)
+                            .frame(minHeight: 40)
+                        }
+                    }
                 }
+                .frame(height: 54)
+            }
+
+            Label("新增停車場", systemImage: "plus")
+                .frame(maxWidth: .infinity)
                 .buttonStyle(.glass)
                 .controlSize(.small)
-                .transition(flyTransition)
-            }
         }
+    }
+
+    /// 實際顯示嘅內容，用 offset + opacity 上浮淡入
+    @ViewBuilder
+    private var visibleContent: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("附近停車場")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .offset(y: stage >= 1 ? 0 : 8)
+                .opacity(stage >= 1 ? 1 : 0)
+
+            nearbyLotContent
+                .offset(y: stage >= 2 ? 0 : 8)
+                .opacity(stage >= 2 ? 1 : 0)
+
+            Button(action: onCreate) {
+                Label("新增停車場", systemImage: "plus")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.glass)
+            .controlSize(.small)
+            .offset(y: stage >= 3 ? 0 : 8)
+            .opacity(stage >= 3 ? 1 : 0)
+        }
+        .animation(.easeOut(duration: 0.22), value: stage)
     }
 
     @ViewBuilder
@@ -224,6 +266,7 @@ struct ContentView: View {
     @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     
     @State private var selectedTab: Int = 1
+    @State private var settingsSheetVisible = false
     @State private var showVehiclePicker: Bool = false
     @State private var selectedVehicleBrand: String = "BMW"
     @State private var selectedVehicleModel: String = "X5"
@@ -265,6 +308,11 @@ struct ContentView: View {
 
     private var isDuoInnerLandscape: Bool {
         isDuoInnerDisplay && isLandscape
+    }
+
+    private static func sheetCornerRadius() -> CGFloat {
+        let r = (UIScreen.main.value(forKey: "displayCornerRadius") as? CGFloat) ?? 55
+        return r > 12 ? r - 12 : 12
     }
 
     private var isDuoSeatedMode: Bool {
@@ -729,15 +777,38 @@ struct ContentView: View {
             Group {
                         if isDuoInnerDisplay {
                     GeometryReader { geo in
-                        if geo.size.width > geo.size.height {
-                            HStack(spacing: 0) {
+                        let isLandscapeGeo = geo.size.width > geo.size.height
+                        let fullW = geo.size.width + geo.safeAreaInsets.leading + geo.safeAreaInsets.trailing
+                        let sheetW: CGFloat = isLandscapeGeo ? (fullW / 2 - 12) : (geo.size.width - 24)
+                        let cornerR = Self.sheetCornerRadius()
+                        ZStack(alignment: .trailing) {
+                            if isLandscapeGeo {
                                 homeContent
-                                    .frame(width: geo.size.width / 2)
-                                SettingsView()
-                                    .frame(width: geo.size.width / 2)
+                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                             }
-                        } else {
-                            SettingsView()
+                            // Sheet overlay — 獨立 ignoresSafeArea，唔影響 homeContent
+                            ZStack(alignment: .trailing) {
+                                Color.black.opacity(settingsSheetVisible ? 0.3 : 0)
+                                SettingsView()
+                                    .frame(width: sheetW)
+                                    .frame(maxHeight: .infinity)
+                                    .background(.ultraThinMaterial)
+                                    .clipShape(RoundedRectangle(cornerRadius: cornerR, style: .continuous))
+                                    .shadow(color: .black.opacity(0.25), radius: 20, x: -6, y: 0)
+                                    .padding(.top, 12)
+                                    .padding(.bottom, 12)
+                                    .padding(.trailing, 12)
+                                    .opacity(settingsSheetVisible ? 1 : 0)
+                                    .blur(radius: settingsSheetVisible ? 0 : 16)
+                                    .offset(x: settingsSheetVisible ? 0 : 80)
+                                    .scaleEffect(settingsSheetVisible ? 1 : 0.92)
+                            }
+                            .ignoresSafeArea()
+                        }
+                        .onAppear {
+                            withAnimation(.smooth(duration: 0.4)) {
+                                settingsSheetVisible = true
+                            }
                         }
                     }
                 } else {
@@ -1290,13 +1361,31 @@ struct ContentView: View {
             let windowMidX = appWindowBounds.isEmpty ? globalFrame.midX : appWindowBounds.midX
             let physicalCenterShift = isDuoDevice
                 ? windowMidX - globalFrame.midX : 0
-            let capsuleRightShift: CGFloat = newLandscape && capsuleOnRight
+            let isInnerPortraitDuo = isDuoInnerDisplay && !newLandscape
+            let duoAnchorToBar = isDuoDevice && duoVerticalBarEdge != nil && !outerLandscape && !isInnerPortraitDuo
+            let duoBarOffsetX: CGFloat = {
+                guard duoAnchorToBar else { return 0 }
+                let barInset = duoVerticalBarEdge == .trailing ? geo.safeAreaInsets.trailing : geo.safeAreaInsets.leading
+                let gap: CGFloat = -34
+                let compactHalfWidth: CGFloat = 135  // compact width 270 / 2
+                if duoVerticalBarEdge == .trailing {
+                    // 膠囊置中對齊（左右對稱擴展），整體 offset 去欄旁邊
+                    let centeredRightEdge = geo.size.width / 2 + compactHalfWidth
+                    let targetRightEdge = geo.size.width - barInset - gap
+                    return targetRightEdge - centeredRightEdge
+                } else {
+                    let centeredLeftEdge = geo.size.width / 2 - compactHalfWidth
+                    let targetLeftEdge = barInset + gap
+                    return targetLeftEdge - centeredLeftEdge
+                }
+            }()
+            let capsuleRightShift: CGFloat = (newLandscape && capsuleOnRight && !duoAnchorToBar)
                 ? (isParkingMemoryExpanded ? 135 : 210)
                 : 0
             let duoHeaderOffsetY: CGFloat = {
-                if innerLandscape { return 4 }
+                if isDuoInnerLandscape { return 13 }
                 if outerLandscape { return 11 }
-                if isDuoDevice && !isDuoInnerDisplay { return 3 }
+                if isDuoDevice && !isDuoInnerDisplay { return 13 }
                 return 0
             }()
             let mapCenterOffsetX: CGFloat = (newLandscape && capsuleOnRight ? (isParkingMemoryExpanded ? 420 : 300) : 0)
@@ -1495,7 +1584,7 @@ struct ContentView: View {
             } else if darkKnightMode {
                 Color.black.ignoresSafeArea()
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0)
                     .ignoresSafeArea()
             }
 
@@ -1888,8 +1977,8 @@ struct ContentView: View {
             addressCapsule
                 .blur(radius: capsuleAppeared ? 0 : 30)
                 .opacity(capsuleAppeared ? 1 : 0)
-                .padding(.bottom, 20)
-                .offset(x: capsuleRightShift)
+                .padding(.bottom, (isDuoInnerDisplay && !isLandscape) ? 20 : -9)
+                .offset(x: outerLandscape ? (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2 : (capsuleRightShift + duoBarOffsetX))
                 .animation(.spring(response: 0.4, dampingFraction: 0.85), value: capsuleOnRight)
                 .simultaneousGesture(
                     DragGesture(minimumDistance: 30)
@@ -3525,11 +3614,12 @@ struct ContentView: View {
     private var orbBackground: some View {
         if effectiveOrbOpacity > 0 {
             let colors = orbPresetColors()
+            let duoOrbMul: CGFloat = isDuoDevice ? 2.0 : 1.0
             GeometryReader { geo in
                 let w = geo.size.width
                 let h = geo.size.height
                 let t = animationClock.elapsed
-                let orbScale = sqrt(h / 44.0)
+                let orbScale = sqrt(h / 44.0) * duoOrbMul
 
                 ZStack {
                     Color.black.opacity(0.2)
@@ -4947,7 +5037,7 @@ struct ContentView: View {
             .padding(.vertical, 16)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
             .padding(.horizontal, 28)
-            .offset(y: isLandscape ? 50 : 56)
+            .offset(y: isLandscape ? 38 : 56)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         }
         .alert("新增停車場", isPresented: $showNewParkingLotAlert) {
@@ -4979,9 +5069,7 @@ struct ContentView: View {
         for stage in stages {
             DispatchQueue.main.asyncAfter(deadline: .now() + stage.delay) {
                 guard changingParkingLotPointID == pointID else { return }
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.84)) {
-                    parkingLotExpansionStage = stage.value
-                }
+                parkingLotExpansionStage = stage.value
             }
         }
     }

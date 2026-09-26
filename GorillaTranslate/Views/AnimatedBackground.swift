@@ -7,6 +7,7 @@ struct AnimatedBackground: View {
     var orbEnabled: Bool = true
     var useTimeBasedOrb: Bool = false
     var phaseManager: TimePhaseManager? = nil
+    var orbSizeMultiplier: CGFloat = 1.0
     @Environment(\.colorScheme) private var colorScheme
     
     private var isDark: Bool {
@@ -53,7 +54,7 @@ struct AnimatedBackground: View {
 
     var body: some View {
         if useTimeBasedOrb, let phaseManager = phaseManager {
-            TimeBasedOrbView(phaseManager: phaseManager, clock: clock, orbEnabled: orbEnabled)
+            TimeBasedOrbView(phaseManager: phaseManager, clock: clock, orbEnabled: orbEnabled, orbSizeMultiplier: orbSizeMultiplier)
         } else {
             legacyOrbView
         }
@@ -77,7 +78,7 @@ struct AnimatedBackground: View {
                 Circle()
                     .fill(Color(hex: colors[0].hex).opacity(colors[0].opacity * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
-                    .frame(width: 450, height: 450)
+                    .frame(width: 450 * orbSizeMultiplier, height: 450 * orbSizeMultiplier)
                     .offset(
                         x: w * 0.05 + CGFloat(sin(elapsed * 0.449)) * w * 0.45,
                         y: h * 0.1 + CGFloat(cos(elapsed * 0.35)) * h * 0.3
@@ -86,7 +87,7 @@ struct AnimatedBackground: View {
                 Circle()
                     .fill(Color(hex: colors[1].hex).opacity(colors[1].opacity * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
-                    .frame(width: 500, height: 500)
+                    .frame(width: 500 * orbSizeMultiplier, height: 500 * orbSizeMultiplier)
                     .offset(
                         x: w * 0.05 + CGFloat(sin(elapsed * 0.393 + 2.1)) * w * 0.35,
                         y: h * 0.05 + CGFloat(cos(elapsed * 0.31 + 2.1)) * h * 0.3
@@ -95,7 +96,7 @@ struct AnimatedBackground: View {
                 Circle()
                     .fill(Color(hex: colors[2].hex).opacity(colors[2].opacity * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
-                    .frame(width: 420, height: 420)
+                    .frame(width: 420 * orbSizeMultiplier, height: 420 * orbSizeMultiplier)
                     .offset(
                         x: -w * 0.05 + CGFloat(sin(elapsed * 0.524 + 4.2)) * w * 0.4,
                         y: h * 0.02 + CGFloat(cos(elapsed * 0.42 + 4.2)) * h * 0.32

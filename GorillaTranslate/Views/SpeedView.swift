@@ -25,6 +25,10 @@ struct SpeedView: View {
     @AppStorage("parallaxMode") private var parallaxMode: ParallaxMode = .tilt
     @State private var showParallaxToggle = false
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
+    /// 時速數字底下嘅模糊光暈層
+    @AppStorage("speedBlurEnabled") private var speedBlurEnabled: Bool = true
+    /// 時速數字嘅陀螺儀傾斜 / G 值視差動畫
+    @AppStorage("speedParallaxEnabled") private var speedParallaxEnabled: Bool = true
 
     /// 當前視差 X 值（-1…1），根據模式切換來源
     private var parallaxX: Double {
@@ -132,7 +136,7 @@ struct SpeedView: View {
             } else if darkKnightMode {
                 Color.black.ignoresSafeArea()
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0)
                     .ignoresSafeArea()
             }
 
@@ -152,9 +156,12 @@ struct SpeedView: View {
             .ignoresSafeArea(edges: .all)
             // 陀螺儀視差（深層）：圓點平面朝傾斜反方向擺動並做 3D 透視旋轉，
             // 同前景文字形成前後深度。G 值模式效果更強。
-            .rotation3DEffect(.degrees(parallaxX * 12 * parallaxMultiplier), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
-            .rotation3DEffect(.degrees(parallaxY * 12 * parallaxMultiplier), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
-            .offset(x: parallaxX * -20 * parallaxMultiplier, y: parallaxY * -20 * parallaxMultiplier)
+            .modifier(SpeedParallaxModifier(
+                enabled: speedParallaxEnabled,
+                parallaxX: parallaxX,
+                parallaxY: parallaxY,
+                multiplier: parallaxMultiplier
+            ))
 
             GeometryReader { geo in
                 let landscape = geo.size.width > geo.size.height
@@ -168,23 +175,25 @@ struct SpeedView: View {
                 ZStack {
                     // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
                     // 膠囊彈出時模糊陰影更強
-                    ForEach([20, 10, 4], id: \.self) { blurRadius in
-                        let baseOpacity = blurRadius == 20 ? 0.08 : blurRadius == 10 ? 0.12 : 0.2
-                        let opacity = baseOpacity * blurShadowMultiplier
-                        let adjustedBlur = CGFloat(blurRadius) * blurShadowMultiplier
-                        VStack(spacing: 4) {
-                            Spacer()
-                            Text(speedText)
-                                .font(.system(size: 96, weight: .heavy, design: .rounded))
-                                .foregroundColor(textColor.opacity(opacity * speedOpacity))
-                            Text("km/h")
-                                .font(.title3)
-                                .foregroundColor(textColor.opacity(opacity * 0.6 * speedOpacity))
-                            Spacer()
+                    if speedBlurEnabled {
+                        ForEach([20, 10, 4], id: \.self) { blurRadius in
+                            let baseOpacity = blurRadius == 20 ? 0.08 : blurRadius == 10 ? 0.12 : 0.2
+                            let opacity = baseOpacity * blurShadowMultiplier
+                            let adjustedBlur = CGFloat(blurRadius) * blurShadowMultiplier
+                            VStack(spacing: 4) {
+                                Spacer()
+                                Text(speedText)
+                                    .font(.system(size: 96, weight: .heavy, design: .rounded))
+                                    .foregroundColor(textColor.opacity(opacity * speedOpacity))
+                                Text("km/h")
+                                    .font(.title3)
+                                    .foregroundColor(textColor.opacity(opacity * 0.6 * speedOpacity))
+                                Spacer()
+                            }
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            .blur(radius: adjustedBlur)
+                            .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier + (showParallaxToggle ? -10 : 0))
                         }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .blur(radius: adjustedBlur)
-                        .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier + (showParallaxToggle ? -10 : 0))
                     }
                     // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大。G 值模式效果更強。
                     VStack(spacing: 4) {
@@ -205,7 +214,10 @@ struct SpeedView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .offset(x: parallaxX * 24 * parallaxMultiplier, y: parallaxY * 24 * parallaxMultiplier)
+                    .offset(
+                        x: speedParallaxEnabled ? parallaxX * 24 * parallaxMultiplier : 0,
+                        y: speedParallaxEnabled ? parallaxY * 24 * parallaxMultiplier : 0
+                    )
                     // 雙擊時速數字：彈出視差模式切換膠囊
                     .onTapGesture(count: 2) {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -313,8 +325,10 @@ struct SpeedView: View {
             if orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb {
                 timePhaseManager.start()
             }
-            startActiveParallax()
-            syncParallaxFrameRate()
+            if speedParallaxEnabled {
+                startActiveParallax()
+                syncParallaxFrameRate()
+            }
         }
         .onDisappear {
             timePhaseManager.stop()
@@ -335,6 +349,15 @@ struct SpeedView: View {
         }
         .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
         .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
+        .onChange(of: speedParallaxEnabled) { _, enabled in
+            if enabled {
+                startActiveParallax()
+                syncParallaxFrameRate()
+            } else {
+                tiltMotion.stop()
+                gForceMotion.stop()
+            }
+        }
         .onChange(of: locationManager.smoothedSpeed) { _, newSpeed in
             // GPS 正常時持續更新最後已知時速（用 Double 驅動平滑漸變）
             let gpsLost = locationManager.gpsQuality == .bad || locationManager.gpsQuality == .unknown
@@ -483,6 +506,7 @@ struct SpeedView: View {
 
     /// 根據當前模式啟動對應嘅 motion manager
     private func startActiveParallax() {
+        guard speedParallaxEnabled else { return }
         if parallaxMode == .gforce {
             tiltMotion.stop()
             gForceMotion.start()
@@ -875,5 +899,25 @@ struct FocusModeSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 時速數字視差條件修飾器
+
+private struct SpeedParallaxModifier: ViewModifier {
+    let enabled: Bool
+    let parallaxX: Double
+    let parallaxY: Double
+    let multiplier: Double
+
+    func body(content: Content) -> some View {
+        if enabled {
+            content
+                .rotation3DEffect(.degrees(parallaxX * 12 * multiplier), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
+                .rotation3DEffect(.degrees(parallaxY * 12 * multiplier), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
+                .offset(x: parallaxX * -20 * multiplier, y: parallaxY * -20 * multiplier)
+        } else {
+            content
+        }
     }
 }
