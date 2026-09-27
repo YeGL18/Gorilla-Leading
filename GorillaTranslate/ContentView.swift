@@ -286,9 +286,13 @@ struct ContentView: View {
         if #available(iOS 27.1, *), showMap || showSatellite {
             ToolbarItem(placement: .bottomBar) {
                 MapCompassToolbarView(bridge: mapCompassBridge)
-                    .background(Color.clear)
+                    .frame(width: 44, height: 44)
+                    .accessibilityLabel("指南針")
             }
+            .visibilityPriority(.high)
             .axisBehavior(.verticalPreferred)
+            .sharedBackgroundVisibility(.hidden)
+            ToolbarSpacer(.fixed, placement: .bottomBar)
         }
     }
     @State private var showSatellite = false  // 三態：光球→地圖→衛星3D→光球
@@ -1488,7 +1492,7 @@ struct ContentView: View {
 
                     ZStack {
                         // 底層：模糊版地圖（邊緣模糊效果）
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, onMapBlankTap: {}, onSelectHKLocation: { _ in })
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, radialVignetteOuterOpacity: 1, onMapBlankTap: {}, onSelectHKLocation: { _ in })
                         .blur(radius: 25)
                         .mask(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius).inset(by: 28).blur(radius: 22))
                         .allowsHitTesting(false)
@@ -1500,7 +1504,7 @@ struct ContentView: View {
                             }
                         }, onMoveParkingPoint: { id, coordinate in
                             parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
-                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, onMapBlankTap: {
+                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, radialVignetteOuterOpacity: 1, onMapBlankTap: {
                             guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                 isCapsuleExpanded = false

@@ -15,19 +15,29 @@ final class MapCompassBridge: ObservableObject {
 }
 
 final class CompassContainerView: UIView {
+    private static let itemSize = CGSize(width: 44, height: 44)
     let compass: MKCompassButton
+
+    override var intrinsicContentSize: CGSize { Self.itemSize }
+
     init(compass: MKCompassButton) {
         self.compass = compass
         super.init(frame: .zero)
         backgroundColor = .clear
         isOpaque = false
+        setContentHuggingPriority(.required, for: .horizontal)
+        setContentHuggingPriority(.required, for: .vertical)
+        setContentCompressionResistancePriority(.required, for: .horizontal)
+        setContentCompressionResistancePriority(.required, for: .vertical)
         addSubview(compass)
         compass.translatesAutoresizingMaskIntoConstraints = false
         NSLayoutConstraint.activate([
-            compass.topAnchor.constraint(equalTo: topAnchor),
-            compass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            compass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            compass.trailingAnchor.constraint(equalTo: trailingAnchor),
+            compass.centerXAnchor.constraint(equalTo: centerXAnchor),
+            compass.centerYAnchor.constraint(equalTo: centerYAnchor),
+            compass.widthAnchor.constraint(equalToConstant: 44),
+            compass.heightAnchor.constraint(equalToConstant: 44),
+            widthAnchor.constraint(equalToConstant: Self.itemSize.width),
+            heightAnchor.constraint(equalToConstant: Self.itemSize.height),
         ])
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -1831,6 +1841,7 @@ struct VignetteMapView: View {
     var centerOffsetY: CGFloat = 0
     var hideCompass: Bool = false
     var compassBridge: MapCompassBridge? = nil
+    var radialVignetteOuterOpacity: Double = 0.75
     var onMapBlankTap: (() -> Void)? = nil
     var onSelectHKLocation: ((String, CLLocationCoordinate2D)?) -> Void = { _ in }
     @EnvironmentObject private var locationManager: LocationManager
@@ -1861,7 +1872,7 @@ struct VignetteMapView: View {
                         .init(color: .clear, location: 0),
                         .init(color: .clear, location: 0.45),
                         .init(color: .black.opacity(0.45), location: 0.7),
-                        .init(color: .black.opacity(0.75), location: 1)
+                        .init(color: .black.opacity(radialVignetteOuterOpacity), location: 1)
                     ]),
                     center: .center,
                     startRadius: min(w, h) * 0.25,
