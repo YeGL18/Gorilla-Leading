@@ -29,7 +29,7 @@ struct SettingsView: View {
     @AppStorage("floorConvention") private var floorConvention: Int = 2  // 0=香港, 1=內地, 2=自動
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = true
     @AppStorage("launchAnimationEnabled") var launchAnimationEnabled: Bool = true
-    @AppStorage("parkingTimerColorHex") var parkingTimerColorHex: String = "46ADB8"
+    @AppStorage("parkingTimerColorHex") var parkingTimerColorHex: String = "12D2C2"
     @AppStorage("bestRouteColorHex") var bestRouteColorHex: String = "BCBA1E"
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
     @State private var isAutoPlaying = false
@@ -48,7 +48,7 @@ struct SettingsView: View {
     // Color bindings
     private var parkingColor: Binding<Color> {
         Binding<Color>(
-            get: { Color(hex: parkingTimerColorHex) ?? Color(red: 0.275, green: 0.678, blue: 0.722) },
+            get: { Color(hex: parkingTimerColorHex) ?? Color(hex: "12D2C2") ?? .cyan },
             set: { newColor in
                 parkingTimerColorHex = newColor.hexString
             }
@@ -63,7 +63,7 @@ struct SettingsView: View {
         )
     }
     private func resetParkingColor() {
-        parkingTimerColorHex = "46ADB8"
+        parkingTimerColorHex = "12D2C2"
     }
     private func resetRouteColor() {
         bestRouteColorHex = "BCBA1E"
@@ -198,7 +198,7 @@ struct SettingsView: View {
                 // ── 4. 自定義顏色 ──
                 Section {
                     HStack {
-                        Text("泊車計顏色")
+                        Text("泊車記憶顏色")
                             .foregroundStyle(.primary)
                         Spacer()
                         ColorPicker("", selection: parkingColor, supportsOpacity: false)
@@ -331,24 +331,24 @@ struct SettingsView: View {
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
                         // 圓點顏色選擇
                         Picker(String(localized: "圓點顏色"), selection: $orbColorPreset) {
-                            HStack(spacing: 4) {
-                                Circle().fill(Color(hex: "BEBC3F")).frame(width: 10, height: 10)
+                            HStack(spacing: 6) {
+                                Circle().fill(Color(hex: "BEBC3F")).frame(width: 16, height: 16)
                                 Text("金黃色")
                             }.tag(0)
-                            HStack(spacing: 4) {
-                                Circle().fill(Color(hex: "FF8C00")).frame(width: 10, height: 10)
+                            HStack(spacing: 6) {
+                                Circle().fill(Color(hex: "FF8C00")).frame(width: 16, height: 16)
                                 Text("動態橙")
                             }.tag(1)
-                            HStack(spacing: 4) {
-                                Circle().fill(Color(hex: "9BF783")).frame(width: 10, height: 10)
+                            HStack(spacing: 6) {
+                                Circle().fill(Color(hex: "9BF783")).frame(width: 16, height: 16)
                                 Text("#9BF783")
                             }.tag(2)
-                            HStack(spacing: 4) {
-                                Circle().fill(Color(hex: "99E695")).frame(width: 10, height: 10)
+                            HStack(spacing: 6) {
+                                Circle().fill(Color(hex: "99E695")).frame(width: 16, height: 16)
                                 Text("#99E695")
                             }.tag(3)
-                            HStack(spacing: 4) {
-                                Circle().fill(Color(hex: "97D5AB")).frame(width: 10, height: 10)
+                            HStack(spacing: 6) {
+                                Circle().fill(Color(hex: "97D5AB")).frame(width: 16, height: 16)
                                 Text("#97D5AB")
                             }.tag(4)
                         }

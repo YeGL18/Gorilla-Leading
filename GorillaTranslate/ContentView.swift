@@ -276,6 +276,21 @@ struct ContentView: View {
     @State private var revealedCount = 0
     @State private var sparklePhase = false
     @State private var showMap = false
+    @State private var duoBaseSafeTop: CGFloat = 0
+
+    // 指南針 toolbar 項目（顯示地圖時加入 Duo 直立工具列）
+    // 注意：必須用 .bottomBar placement（同其他 Duo 工具列掣一致），
+    // 用預設 placement 會整出隱形 nav bar、脹大 safe area，令成個版面下移。
+    @ToolbarContentBuilder
+    private var mapCompassToolbarItem: some ToolbarContent {
+        if #available(iOS 27.1, *), showMap || showSatellite {
+            ToolbarItem(placement: .bottomBar) {
+                MapCompassToolbarView(bridge: mapCompassBridge)
+                    .background(Color.clear)
+            }
+            .axisBehavior(.verticalPreferred)
+        }
+    }
     @State private var showSatellite = false  // 三態：光球→地圖→衛星3D→光球
     @State private var mapRegion: MKCoordinateRegion?
     @State private var mapCamera: MKMapCamera?
@@ -562,7 +577,7 @@ struct ContentView: View {
     @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
     @State private var darkKnightActivatedByFocus = false  // 是否由極致專注模式自動開啟
     /// 黑武士模式地圖圓角（橫屏更大）
-    private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 50 : 44 }
+    private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 120 : 100 }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("parkingTimerColorHex") private var parkingTimerColorHex: String = "46ADB8"
@@ -658,7 +673,22 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-        TabView(selection: $selectedTab) {
+        TabView(selection: Binding(
+            get: { selectedTab },
+            set: { newTab in
+                if selectedTab == 2 && newTab != 2 && isDuoInnerDisplay {
+                    // 退出動畫：先收起設置頁再切換 tab
+                    withAnimation(.smooth(duration: 0.3)) {
+                        settingsSheetVisible = false
+                    }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+                        selectedTab = newTab
+                    }
+                } else {
+                    selectedTab = newTab
+                }
+            }
+        )) {
             NavigationStack {
                 SpeedView(
                     showMap: (showMap || showSatellite) && !focusActive,
@@ -697,14 +727,9 @@ struct ContentView: View {
                         }
                     }
                     .toolbar {
+                            mapCompassToolbarItem
+
                         if #available(iOS 27.1, *), usesDuoToolbar {
-                            if showMap || showSatellite {
-                                ToolbarItem {
-                                    MapCompassToolbarView(bridge: mapCompassBridge)
-                                        .background(.clear)
-                                }
-                                .axisBehavior(.verticalPreferred)
-                            }
                             ToolbarItem(placement: .bottomBar) {
                                 Button(action: cycleMapPresentation) {
                                     Label("切換地圖模式", systemImage: globeToggleIcon)
@@ -779,14 +804,14 @@ struct ContentView: View {
                         let sheetW: CGFloat = isLandscapeGeo ? (fullW / 2 - 12) : (geo.size.width - 24)
                         let cornerR = Self.sheetCornerRadius()
                         ZStack(alignment: .trailing) {
-                            if isLandscapeGeo {
-                                homeContent
-                                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            }
-                            // Sheet overlay — 獨立 ignoresSafeArea，唔影響 homeContent
+                            homeContent
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                            // Sheet overlay
                             ZStack(alignment: .trailing) {
                                 Color.black.opacity(settingsSheetVisible ? 0.3 : 0)
-                                SettingsView()
+                                NavigationStack {
+                                    SettingsView()
+                                }
                                     .frame(width: sheetW)
                                     .frame(maxHeight: .infinity)
                                     .background(.ultraThinMaterial)
@@ -797,15 +822,10 @@ struct ContentView: View {
                                     .padding(.trailing, 12)
                                     .opacity(settingsSheetVisible ? 1 : 0)
                                     .blur(radius: settingsSheetVisible ? 0 : 16)
-                                    .offset(x: settingsSheetVisible ? 0 : 80)
-                                    .scaleEffect(settingsSheetVisible ? 1 : 0.92)
+                                    .offset(x: settingsSheetVisible ? 0 : (isLandscapeGeo ? 80 : 0))
+                                    .scaleEffect(settingsSheetVisible ? 1 : 0.92, anchor: isLandscapeGeo ? .trailing : .center)
                             }
                             .ignoresSafeArea()
-                        }
-                        .onAppear {
-                            withAnimation(.smooth(duration: 0.4)) {
-                                settingsSheetVisible = true
-                            }
                         }
                     }
                 } else {
@@ -825,6 +845,14 @@ struct ContentView: View {
             WindowBoundsReader(bounds: $appWindowBounds)
         }
         .preferredColorScheme(resolvedColorScheme)
+        .onChange(of: selectedTab) { _, newTab in
+            if newTab == 2 && isDuoInnerDisplay {
+                settingsSheetVisible = false
+                withAnimation(.smooth(duration: 0.4)) {
+                    settingsSheetVisible = true
+                }
+            }
+        }
         .modifier(DuoHingeStateReader(isPartiallyOpen: $isDuoPartiallyOpen))
         .onReceive(meterTick) { _ in
             meterManager.tick(location: locationManager.lastLocation, speed: locationManager.speed,
@@ -843,7 +871,7 @@ struct ContentView: View {
         }
         .sheet(isPresented: $meterManager.needsVehicleSelection) { MeterVehiclePicker() }
         .modifier(MeterPaymentHelp(manager: meterManager))
-        .alert("未能取得路線", isPresented: Binding(get: { meterRouteError != nil }, set: { if !$0 { meterRouteError = nil } })) {
+        .alert("未能取得路線", isPresented: Binding<Bool>(get: { meterRouteError != nil }, set: { if !$0 { meterRouteError = nil } })) {
             Button("確定", role: .cancel) { meterRouteError = nil }
         } message: { Text(meterRouteError ?? "") }
         .onAppear {
@@ -1385,6 +1413,7 @@ struct ContentView: View {
                 if isDuoDevice && !isDuoInnerDisplay { return 13 }
                 return 0
             }()
+            let duoSafeTopBase: CGFloat = duoBaseSafeTop > 0 ? duoBaseSafeTop : geo.safeAreaInsets.top
             // 地圖已有 .ignoresSafeArea() 覆蓋全屏，唔需要 physicalCenterShift 調整 frame。
             // 只保留膠囊偏移（避免膠囊遮住用戶位置）。
             let mapCenterOffsetX: CGFloat = (newLandscape && capsuleOnRight
@@ -1394,6 +1423,7 @@ struct ContentView: View {
             let hingeUpperOffsetY: CGFloat = isDuoSeatedMode ? -geo.size.height / 4 : 0
             let hingeLowerOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 4 : 0
             Color.clear.onAppear {
+                if duoBaseSafeTop < 1 { duoBaseSafeTop = geo.safeAreaInsets.top }
                 isLandscape = newLandscape
                 if selectedTab != 2 {
                     duoInnerGeometryDetected = geometryLooksLikeDuoInner
@@ -1454,12 +1484,13 @@ struct ContentView: View {
                 if darkKnightMode {
                     // 黑武士模式：地圖喺圓角容器內，邊緣模糊+暗邊，向中心減弱
                     Color.black.ignoresSafeArea()
+                        .transition(.opacity.animation(.easeInOut(duration: 0.8)))
 
                     ZStack {
                         // 底層：模糊版地圖（邊緣模糊效果）
                         VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, onMapBlankTap: {}, onSelectHKLocation: { _ in })
                         .blur(radius: 25)
-                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
+                        .mask(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius).inset(by: 28).blur(radius: 22))
                         .allowsHitTesting(false)
 
                         // 頂層：清晰地圖（中心區域，邊緣透明）
@@ -1483,78 +1514,19 @@ struct ContentView: View {
                                 selectedHKLocation = loc
                             }
                         })
-                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
-                        // 徑向遮罩：中心清晰，邊緣透明（露出底層模糊版）
+                        // 圓角漸變 mask：中心清晰，向圓角邊緣軟化淡出（露出模糊層，冇硬描邊）
                         .mask(
-                            RadialGradient(
-                                colors: [
-                                    .white,
-                                    .white,
-                                    .white.opacity(0.7),
-                                    .white.opacity(0.3),
-                                    .clear,
-                                ],
-                                center: .center,
-                                startRadius: 60,
-                                endRadius: 280
-                            )
+                            RoundedRectangle(cornerRadius: darkKnightMapCornerRadius)
+                                .inset(by: 51)
+                                .blur(radius: 45)
                         )
 
-                        // 暗邊層：圓角矩形同心描邊（由外到內漸變）
-                        let cr = darkKnightMapCornerRadius
-                        ZStack {
-                            RoundedRectangle(cornerRadius: cr + 16).stroke(Color.black, lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr + 10).stroke(Color.black.opacity(0.9), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr + 4).stroke(Color.black.opacity(0.8), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr - 2).stroke(Color.black.opacity(0.65), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr - 8).stroke(Color.black.opacity(0.5), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr - 14).stroke(Color.black.opacity(0.35), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr - 20).stroke(Color.black.opacity(0.2), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr - 26).stroke(Color.black.opacity(0.1), lineWidth: 5)
-                            RoundedRectangle(cornerRadius: cr - 32).stroke(Color.black.opacity(0.0), lineWidth: 5)
-                        }
-                        .allowsHitTesting(false)
-
-                        // 直暗邊：上
-                        VStack(spacing: 0) {
-                            LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 60)
-                            Spacer()
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
-                        .allowsHitTesting(false)
-
-                        // 直暗邊：下
-                        VStack(spacing: 0) {
-                            Spacer()
-                            LinearGradient(colors: [.clear, .black], startPoint: .top, endPoint: .bottom)
-                                .frame(height: 60)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
-                        .allowsHitTesting(false)
-
-                        // 直暗邊：左
-                        HStack(spacing: 0) {
-                            LinearGradient(colors: [.black, .clear], startPoint: .leading, endPoint: .trailing)
-                                .frame(width: 60)
-                            Spacer()
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
-                        .allowsHitTesting(false)
-
-                        // 直暗邊：右
-                        HStack(spacing: 0) {
-                            Spacer()
-                            LinearGradient(colors: [.clear, .black], startPoint: .leading, endPoint: .trailing)
-                                .frame(width: 60)
-                        }
-                        .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
-                        .allowsHitTesting(false)
                     }
-                    .clipShape(RoundedRectangle(cornerRadius: isLandscape ? 50 : 44))
+                    .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
                     .padding(.horizontal, isLandscape ? 80 : 20)
                     .padding(.top, isLandscape ? 50 : 100)
                     .padding(.bottom, isLandscape ? 10 : 120)
+                    .ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
                 } else {
                     // 正常模式：全屏地圖
@@ -1583,9 +1555,11 @@ struct ContentView: View {
                 }
             } else if darkKnightMode {
                 Color.black.ignoresSafeArea()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.8)))
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset)
                     .ignoresSafeArea()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             }
 
             // 冇開地圖時嘅收縮膠囊 fallback（開咗地圖就由 MKMapView 自己嘅
@@ -1622,7 +1596,7 @@ struct ContentView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 6)
                         .frame(height: 104, alignment: .top)
-                        .offset(y: -max(geo.safeAreaInsets.top - 8, 24))
+                        .offset(y: -max(duoSafeTopBase - 8, 24))
                     } else {
                         HStack(alignment: .center) {
                             gorillaTitleView
@@ -1630,7 +1604,7 @@ struct ContentView: View {
                             gpsStatusBadge
                         }
                         .padding(.horizontal, isDuoDevice ? 20 : 16)
-                        .padding(.top, isDuoDevice ? geo.safeAreaInsets.top + 16 : (isLandscape ? 43 : 30))
+                        .padding(.top, isDuoDevice ? (duoSafeTopBase + 16) : (isLandscape ? 43 : 30))
                         .frame(height: 52)
                         .offset(y: duoHeaderOffsetY)
                     }

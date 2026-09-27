@@ -50,6 +50,7 @@ struct SpeedView: View {
     }
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
+    @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
     @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
@@ -136,7 +137,7 @@ struct SpeedView: View {
             } else if darkKnightMode {
                 Color.black.ignoresSafeArea()
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset)
                     .ignoresSafeArea()
             }
 
