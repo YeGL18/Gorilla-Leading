@@ -7,7 +7,8 @@ import WidgetKit
 enum GorillaLADesign {
     static let timerColor = Color(red: 234/255, green: 234/255, blue: 234/255)  // #EAEAEA
     static let pauseGlyph = Color(red: 29/255,  green: 27/255,  blue: 32/255)   // #1D1B20
-    /// Rainbow gradient for the parking detail text (look-screen 1.svg paint0_linear)
+    /// Rainbow gradient from the reference design (look-screen 1.svg paint0_linear).
+    /// Kept as a design token for reference — info-row texts currently render white.
     static let infoGradient = LinearGradient(
         colors: [
             Color(red: 190/255, green: 190/255, blue: 190/255),  // #BEBEBE
@@ -103,20 +104,22 @@ struct GorillaLiveActivity: Widget {
             .background(state.color, in: RoundedRectangle(cornerRadius: size * 9 / 34, style: .continuous))
     }
 
-    /// Live-updating monospaced timer — native .timer with English locale (pure numbers, no 時/分/秒).
+    /// Live-updating timer — SF Rounded semibold + tabular digits, native .timer
+    /// with English locale (pure numbers, no 時/分/秒).
     private func timerText(_ state: GorillaActivityAttributes.ContentState, size: CGFloat, color: Color) -> some View {
         Text(state.startDate, style: .timer)
-            .font(.system(size: size, weight: .bold, design: .monospaced))
+            .font(.system(size: size, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(color)
             .multilineTextAlignment(.trailing)
             .environment(\.locale, Locale(identifier: "en"))
     }
 
-    /// Compact timer — native .timer with English locale (pure numbers, no 時/分/秒).
+    /// Compact timer — SF Rounded semibold + tabular digits, native .timer
+    /// with English locale (pure numbers, no 時/分/秒).
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
         Text(state.startDate, style: .timer)
-            .font(.system(size: 14, weight: .bold, design: .monospaced))
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(state.state.color)
             .lineLimit(1)
@@ -126,7 +129,8 @@ struct GorillaLiveActivity: Widget {
     }
 }
 
-// MARK: - Shared timer text (native .timer, English locale — pure numbers, no 時/分/秒)
+// MARK: - Shared timer text (SF Rounded semibold + tabular digits,
+// native .timer, English locale — pure numbers, no 時/分/秒)
 
 struct GorillaTimerText: View {
     let startDate: Date
@@ -135,7 +139,7 @@ struct GorillaTimerText: View {
 
     var body: some View {
         Text(startDate, style: .timer)
-            .font(.system(size: size, weight: .bold, design: .monospaced))
+            .font(.system(size: size, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(color)
             .lineLimit(1)
@@ -191,13 +195,14 @@ struct GorillaInfoRow: View {
     var body: some View {
         switch state.state {
         case .parking:
-            // location white · rainbow-gradient area/floor/spot, left aligned.
+            // location + area/floor/spot all white, left aligned.
             // Missing recognition data renders as "-".
             HStack(spacing: 20) {
                 Text(state.location ?? "-")
                     .foregroundStyle(.white)
                 Text(parkingDetailText)
-                    .foregroundStyle(GorillaLADesign.infoGradient)
+                    .foregroundStyle(.white)
+                    .bold()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }
@@ -210,7 +215,8 @@ struct GorillaInfoRow: View {
                 Text(state.location ?? "-")
                     .foregroundStyle(.white)
                 Text(state.area ?? "-")
-                    .foregroundStyle(GorillaLADesign.infoGradient)
+                    .foregroundStyle(.white)
+                    .bold()
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
             }

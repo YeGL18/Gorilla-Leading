@@ -11,7 +11,8 @@ struct LiveActivityPreviewTestView: View {
 
     private let timerColor = Color(red: 234/255, green: 234/255, blue: 234/255)  // #EAEAEA
     private let pauseGlyph = Color(red: 29/255,  green: 27/255,  blue: 32/255)   // #1D1B20
-    /// Rainbow gradient for "P1區域 B2 · B1258" (look-screen 1.svg paint0_linear)
+    /// Rainbow gradient from the reference design (look-screen 1.svg paint0_linear).
+    /// Kept as a design token for reference — info-row texts currently render white.
     private let infoGradient = LinearGradient(
         colors: [
             Color(red: 190/255, green: 190/255, blue: 190/255),  // #BEBEBE
@@ -219,12 +220,13 @@ struct LiveActivityPreviewTestView: View {
     private func bottomRow(state: GorillaActivityState) -> some View {
         switch state {
         case .parking:
-            // 台北101 white · rainbow-gradient info, left aligned with 30pt gap
+            // 台北101 + info both white, left aligned with 30pt gap
             HStack(spacing: 30) {
                 Text("台北101")
                     .foregroundStyle(.white)
                 Text("P1區域\u{2003}\u{2003}B2 · B1258")
-                    .foregroundStyle(infoGradient)
+                    .foregroundStyle(.white)
+                    .bold()
                     .lineLimit(1)
             }
             .font(.system(size: 16))
@@ -267,7 +269,8 @@ struct LiveActivityPreviewTestView: View {
                 Text("中央公園")
                     .foregroundStyle(.white)
                 Text("入口廣場")
-                    .foregroundStyle(infoGradient)
+                    .foregroundStyle(.white)
+                    .bold()
                     .lineLimit(1)
             }
             .font(.system(size: 16))

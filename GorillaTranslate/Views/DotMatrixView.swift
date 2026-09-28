@@ -67,6 +67,7 @@ struct DotMatrixWebView: UIViewRepresentable {
     var canvasScale: CGFloat = 1.15
     /// 黑武士模式下的動態顏色（hex string，例如 "#ffd700"）
     var dynamicColorHex: String = "#ffd700"
+    @Environment(\.scenePhase) private var scenePhase
 
     func makeUIView(context: Context) -> WKWebView {
         let config = WKWebViewConfiguration()
@@ -75,6 +76,7 @@ struct DotMatrixWebView: UIViewRepresentable {
         webView.backgroundColor = .clear
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
+        webView.navigationDelegate = context.coordinator
         webView.loadHTMLString(htmlContent, baseURL: nil)
         return webView
     }
@@ -82,6 +84,15 @@ struct DotMatrixWebView: UIViewRepresentable {
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        // 回前景自癒：後台掛起之後 WebKit 有機會停咗 rAF 唔再 fire，
+        // 甚至成個 web content process 被系統收埋（canvas 變空白）——
+        // 圓點動畫就會「消失」到成個 app 重開。JS 答到就踢返條動畫鏈；
+        // 答唔到就成頁重新載入。
+        if scenePhase == .active, let prev = context.coordinator.lastPhase, prev != .active {
+            heal(webView, context: context)
+        }
+        context.coordinator.lastPhase = scenePhase
+
         let target = Int(speed)
         let colorChanged = context.coordinator.lastColor != dynamicColorHex
         let speedChanged = context.coordinator.lastSentTarget != target
@@ -98,9 +109,38 @@ struct DotMatrixWebView: UIViewRepresentable {
         }
     }
 
-    final class Coordinator {
+    /// 回前景探測：JS 應答到就只係 rAF 鏈斷咗，kick 返就得；
+    /// 應答唔到（error）代表 web content process 死咗，成頁重新載入。
+    private func heal(_ webView: WKWebView, context: Context) {
+        let html = htmlContent
+        let color = dynamicColorHex
+        let target = Int(speed)
+        webView.evaluateJavaScript("window.heal ? window.heal() : 0") { _, error in
+            guard error != nil else { return }
+            // JS 答唔到 = web content process 死咗，成頁重新載入先救得返。
+            // 載入完成（didFinish）會經 pendingRestore 補送目標時速／顏色。
+            context.coordinator.lastSentTarget = nil
+            context.coordinator.lastColor = "#ffd700"
+            context.coordinator.pendingRestore = (color: color, target: target)
+            webView.loadHTMLString(html, baseURL: nil)
+        }
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
         var lastSentTarget: Int?
         var lastColor: String = "#ffd700"
+        var lastPhase: ScenePhase?
+        /// 重新載入後要補送嘅狀態（等 didFinish 先送，唔係 JS 未 ready）
+        var pendingRestore: (color: String, target: Int)?
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            guard let restore = pendingRestore else { return }
+            pendingRestore = nil
+            webView.evaluateJavaScript("updateColor('\(restore.color)')")
+            webView.evaluateJavaScript("target=\(restore.target)")
+            lastColor = restore.color
+            lastSentTarget = restore.target
+        }
     }
 
     private var htmlContent: String {
@@ -124,7 +164,7 @@ struct DotMatrixWebView: UIViewRepresentable {
         <script>
         var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
         var blurCanvas=document.getElementById('blur'),bCtx=blurCanvas.getContext('2d');
-        var dots=[],cx,cy,mr,target=0,display=0,raf=null,lastTs=0,accumPhase=0;
+        var dots=[],cx,cy,mr,target=0,display=0,raf=null,lastTs=0,accumPhase=0,lastFrameAt=0;
         var dpr=Math.min(2,window.devicePixelRatio||1);
         var activeColor='#ffd700', idleColor='#b8860b';
 
@@ -254,10 +294,28 @@ struct DotMatrixWebView: UIViewRepresentable {
         }
 
         function loop(ts){
+            lastFrameAt=performance.now();
             var diff=target-display;
             display+=Math.abs(diff)>0.3?diff*0.12:diff*0.5;
             draw(ts||0);raf=requestAnimationFrame(loop);
         }
+
+        // 自癒：切背景／回前景之後 WebKit 有機會停咗 rAF 唔再 fire，
+        // 圓點動畫會就咁「消失」到成個 app 重開。見到鏈斷咗就即刻重起。
+        function kickLoop(){
+            if(raf)cancelAnimationFrame(raf);
+            lastTs=0;
+            lastFrameAt=performance.now();
+            raf=requestAnimationFrame(loop);
+        }
+        // native 回前景時叫一次：順手 resize（防止 canvas 尺寸卡住）＋重起動畫鏈
+        window.heal=function(){resize();kickLoop();return 1;};
+        document.addEventListener('visibilitychange',function(){
+            if(!document.hidden&&performance.now()-lastFrameAt>250)kickLoop();
+        });
+        setInterval(function(){
+            if(performance.now()-lastFrameAt>500)kickLoop();
+        },500);
 
         window.addEventListener('resize',function(){resize();});
         resize();raf=requestAnimationFrame(loop);

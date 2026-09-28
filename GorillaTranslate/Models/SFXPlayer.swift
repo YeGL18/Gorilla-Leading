@@ -9,6 +9,7 @@ final class SFXPlayer: ObservableObject {
     private var drivingPlayer: AVAudioPlayer?
     private var accelerationPlayer: AVAudioPlayer?
     private var meterDestinationPlayer: AVAudioPlayer?
+    private var destinationPredictPlayer: AVAudioPlayer?
     private var accelerationStopWork: DispatchWorkItem?
     private var accelerationFadeStartWork: DispatchWorkItem?
     private var accelerationFadeTimer: Timer?
@@ -47,6 +48,11 @@ final class SFXPlayer: ObservableObject {
 
     func playMeterDestinationNotice() {
         playOnce(&meterDestinationPlayer, fallbackName: "sfx_meter_destination")
+    }
+
+    /// 預測目的地提示音：彈出確認卡／自動切換 toast 時播放
+    func playDestinationPredict() {
+        playOnce(&destinationPredictPlayer, fallbackName: "sfx_destination_predict")
     }
     
     private static var launchPlayer: AVAudioPlayer?

@@ -34,6 +34,7 @@
 		AM10008 /* LightDistortion.metal in Sources */ = {isa = PBXBuildFile; fileRef = AM20008 /* LightDistortion.metal */; };
 		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
+		E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
 		C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A001HK0001 /* HKTaxiExamLocations.swift */; };
@@ -114,6 +115,7 @@
 		AM20008 /* LightDistortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = LightDistortion.metal; path = GorillaTranslate/Shaders/LightDistortion.metal; sourceTree = "<group>"; };
 		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
+		E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberRoller.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
 		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
@@ -275,6 +277,7 @@
 				A20022 /* LanguageManager.swift */,
 				A20019 /* AnimationClock.swift */,
 				B20001 /* LocationManager.swift */,
+				E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */,
 				C2A001HK0001 /* HKTaxiExamLocations.swift */,
 				D20001 /* Destination.swift */,
 				E20001 /* ParkingPhoto.swift */,
@@ -564,6 +567,7 @@
 				A10016 /* SettingsView.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
+				E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */,
 				C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,
 				B10002 /* SpeedView.swift in Sources */,

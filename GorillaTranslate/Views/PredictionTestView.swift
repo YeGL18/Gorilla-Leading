@@ -22,7 +22,7 @@ struct PredictionTestView: View {
                             .font(.subheadline.bold())
                         Spacer()
                         VStack(alignment: .trailing) {
-                            Text("≥ 3 次樣本")
+                            Text("≥ 1 次樣本")
                             Text("≥ 60% 信心度")
                         }
                         .font(.caption)
@@ -33,7 +33,7 @@ struct PredictionTestView: View {
                             .font(.subheadline.bold())
                         Spacer()
                         VStack(alignment: .trailing) {
-                            Text("≥ 6 次樣本")
+                            Text("≥ 3 次樣本")
                             Text("≥ 85% 信心度")
                         }
                         .font(.caption)
@@ -103,13 +103,19 @@ struct PredictionTestView: View {
                 } else {
                     ForEach(Array(predictor.patterns.values.sorted(by: { $0.updatedAt > $1.updatedAt })), id: \.id) { record in
                         VStack(alignment: .leading, spacing: 6) {
-                            // Pattern key
+                            // Pattern key + 成個 pattern 嘅信心度（頭名有效分 ÷ 有效分總和）＋總樣本
                             HStack {
                                 Image(systemName: "arrow.triangle.branch")
                                     .foregroundColor(.purple)
                                     .font(.caption)
                                 Text(patternKeyDescription(record.key))
                                     .font(.subheadline.bold())
+                                Spacer()
+                                let stats = patternStats(record)
+                                confidenceBadge(stats.confidence)
+                                Text("樣本\(stats.samples)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
                             }
 
                             // Candidates
@@ -248,6 +254,16 @@ struct PredictionTestView: View {
             .padding(.horizontal, 8)
             .padding(.vertical, 2)
             .background(Capsule().fill(color.opacity(0.15)))
+    }
+
+    /// 成個 pattern 嘅信心度：頭名候選有效分 ÷ 全部有效分總和；樣本 = 命中總數
+    /// （信心度係 pattern 級別，唔係單一候選嘅欄位，所以要喺呢度計出嚟顯示）
+    private func patternStats(_ record: TripPatternRecord) -> (confidence: Double, samples: Int) {
+        let candidates = Array(record.candidates.values)
+        let samples = candidates.reduce(0) { $0 + $1.hitCount }
+        let sum = candidates.reduce(0.0) { $0 + max(0, $1.effectiveScore) }
+        let top = candidates.map(\.effectiveScore).max() ?? 0
+        return (sum > 0 ? top / sum : 0, samples)
     }
 
     // MARK: - Helpers

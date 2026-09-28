@@ -281,11 +281,11 @@ final class TripPredictor: ObservableObject {
             }
         }
 
-        // thresholds
+        // thresholds：≥3 樣本 && 信心 ≥85% 自動切換；≥1 樣本 && 信心 ≥60% 彈確認卡
         var action: TripPredictionAction = .ignore
-        if totalHits >= 6 && conf >= 0.85 {
+        if totalHits >= 3 && conf >= 0.85 {
             action = .autoSwitchToast(place: bestPlace, confidence: conf, totalSamples: totalHits, twoStepAhead: twoStepAhead)
-        } else if totalHits >= 3 && conf >= 0.6 {
+        } else if totalHits >= 1 && conf >= 0.6 {
             action = .askConfirm(place: bestPlace, confidence: conf, totalSamples: totalHits, twoStepAhead: twoStepAhead)
         }
 

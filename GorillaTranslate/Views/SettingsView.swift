@@ -14,6 +14,7 @@ struct SettingsView: View {
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
     @AppStorage("speedBlurEnabled") private var speedBlurEnabled: Bool = true
     @AppStorage("speedParallaxEnabled") private var speedParallaxEnabled: Bool = true
+    @AppStorage("speedNumberHidden") private var speedNumberHidden: Bool = false
     @AppStorage("orbMasterEnabled") var orbMasterEnabled: Bool = true
     @AppStorage("orbCapsule") var orbCapsule: Bool = false
     @AppStorage("orbExpanded") var orbExpanded: Bool = false
@@ -273,10 +274,17 @@ struct SettingsView: View {
                         : String(localized: "速度低於 20 km/h 且偵測到海拔變化時才展開膠囊。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Picker(String(localized: "樓層慣例"), selection: $floorConvention) {
-                        Text(String(localized: "香港 (G, 1, 2…)")).tag(0)
-                        Text(String(localized: "內地 (1, 2, 3…)")).tag(1)
-                        Text(String(localized: "自動偵測")).tag(2)
+                    HStack(spacing: 8) {
+                        Picker(String(localized: "樓層慣例"), selection: $floorConvention) {
+                            Text(String(localized: "香港 (G, 1, 2…)")).tag(0)
+                            Text(String(localized: "內地 (1, 2, 3…)")).tag(1)
+                            Text(String(localized: "自動偵測")).tag(2)
+                        }
+                        // 自動模式旁顯示當前實際生效嘅慣例（跟最新 GPS 位置判定），
+                        // 等 user 唔使估：以前淨係「自動偵測」四個字，出到去先知用錯慣例
+                        if floorConvention == 2 {
+                            FloorConventionBadge(compact: true)
+                        }
                     }
                     Text(floorConvention == 0
                         ? String(localized: "地面為 G 樓，上方為 1 樓、2 樓。")
@@ -297,10 +305,13 @@ struct SettingsView: View {
                     Toggle(isOn: $speedParallaxEnabled) {
                         Label(String(localized: "時速陀螺儀動畫"), systemImage: "gyroscope")
                     }
+                    Toggle(isOn: $speedNumberHidden) {
+                        Label(String(localized: "隱藏時速數字"), systemImage: "eye.slash")
+                    }
                 } header: {
                     Text("時速顯示效果")
                 } footer: {
-                    Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。")
+                    Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。\n隱藏時速數字：連 km/h 單位一齊隱藏，其他顯示照舊。")
                 }
 
                 // ── 6.5 黑武士模式 ──
@@ -329,28 +340,32 @@ struct SettingsView: View {
                         Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
-                        // 圓點顏色選擇
-                        Picker(String(localized: "圓點顏色"), selection: $orbColorPreset) {
-                            HStack(spacing: 6) {
-                                Circle().fill(Color(hex: "BEBC3F")).frame(width: 16, height: 16)
-                                Text("金黃色")
-                            }.tag(0)
-                            HStack(spacing: 6) {
-                                Circle().fill(Color(hex: "FF8C00")).frame(width: 16, height: 16)
-                                Text("動態橙")
-                            }.tag(1)
-                            HStack(spacing: 6) {
-                                Circle().fill(Color(hex: "9BF783")).frame(width: 16, height: 16)
-                                Text("#9BF783")
-                            }.tag(2)
-                            HStack(spacing: 6) {
-                                Circle().fill(Color(hex: "99E695")).frame(width: 16, height: 16)
-                                Text("#99E695")
-                            }.tag(3)
-                            HStack(spacing: 6) {
-                                Circle().fill(Color(hex: "97D5AB")).frame(width: 16, height: 16)
-                                Text("#97D5AB")
-                            }.tag(4)
+                        // 圓點顏色：一行色點直接點選（控制圓點動畫嘅圓點顏色，選中加高亮圈）
+                        HStack(spacing: 12) {
+                            Text(String(localized: "圓點顏色"))
+                            Spacer()
+                            ForEach(Array(["FFD700", "FF8C00", "9BF783", "99E695", "97D5AB"].enumerated()), id: \.offset) { index, hex in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        orbColorPreset = index
+                                    }
+                                } label: {
+                                    Circle()
+                                        .fill(Color(hex: hex))
+                                        .frame(width: 26, height: 26)
+                                        .overlay(
+                                            Circle()
+                                                .strokeBorder(
+                                                    orbColorPreset == index
+                                                        ? Color.primary.opacity(0.9)
+                                                        : Color.primary.opacity(0.15),
+                                                    lineWidth: orbColorPreset == index ? 2.5 : 1
+                                                )
+                                        )
+                                        .scaleEffect(orbColorPreset == index ? 1.15 : 1.0)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                         if useTimeBasedOrb {
                             VStack(spacing: 12) {
@@ -866,6 +881,7 @@ struct ParkingFlowTestView: View {
                     Text(floor)
                         .font(.system(size: 16, weight: .semibold))
                         .monospacedDigit()
+                    FloorConventionBadge(coordinate: point.coordinate, compact: true)
                     Text("信心 \(conf)")
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
@@ -897,10 +913,13 @@ struct ParkingFlowTestView: View {
             }
             .buttonStyle(.plain)
             
-            Text(ParkingFloorStore.formatFloor(current ?? 0))
-                .font(.system(size: 14, weight: .semibold))
-                .frame(minWidth: 26)
-                .monospacedDigit()
+            VStack(spacing: 2) {
+                Text(ParkingFloorStore.formatFloor(current ?? 0, coordinate: point.coordinate))
+                    .font(.system(size: 14, weight: .semibold))
+                    .frame(minWidth: 26)
+                    .monospacedDigit()
+                FloorConventionBadge(coordinate: point.coordinate, compact: true)
+            }
             
             Button {
                 let next = (current ?? 0) + 1
@@ -981,8 +1000,11 @@ struct ParkingLotDetailView: View {
                                     .font(.system(size: 12))
                                     .foregroundStyle(.secondary)
                                 Spacer()
-                                Text("樓層 \(ParkingFloorStore.formatFloor(item.manualFloorIndex))")
-                                    .font(.system(size: 12, weight: .semibold))
+                                HStack(spacing: 4) {
+                                    Text("樓層 \(ParkingFloorStore.formatFloor(item.manualFloorIndex, coordinate: liveLot.points.first?.coordinate))")
+                                        .font(.system(size: 12, weight: .semibold))
+                                    FloorConventionBadge(coordinate: liveLot.points.first?.coordinate, compact: true)
+                                }
                             }
                             HStack(spacing: 16) {
                                 keyValue("高度差", String(format: "%.2fm", item.altitudeDeltaMeters))
@@ -1050,6 +1072,7 @@ struct ParkingLotDetailView: View {
                     Text(point.displayFloor ?? "未知")
                         .font(.system(size: 15, weight: .semibold))
                         .monospacedDigit()
+                    FloorConventionBadge(coordinate: point.coordinate, compact: true)
                     Text(floorSource)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
@@ -1064,9 +1087,10 @@ struct ParkingLotDetailView: View {
             .foregroundStyle(.secondary)
             
             HStack(spacing: 16) {
-                keyValue("手動樓層", point.manualFloorIndex.map { ParkingFloorStore.formatFloor($0) } ?? "—")
-                keyValue("預判樓層", point.predictedFloorIndex.map { ParkingFloorStore.formatFloor($0) } ?? "—")
+                keyValue("手動樓層", point.manualFloorIndex.map { ParkingFloorStore.formatFloor($0, coordinate: point.coordinate) } ?? "—")
+                keyValue("預判樓層", point.predictedFloorIndex.map { ParkingFloorStore.formatFloor($0, coordinate: point.coordinate) } ?? "—")
                 keyValue("信心度", confText)
+                FloorConventionBadge(coordinate: point.coordinate, compact: true)
             }
             
             VStack(alignment: .leading, spacing: 6) {
@@ -2318,9 +2342,25 @@ struct VisitRecordsTestView: View {
             } else {
                 let visits = filteredVisits
                 ForEach(Array(visits.enumerated()), id: \.element.id) { idx, visit in
+                    // 一條記錄一個白色容器
                     visitCard(visit)
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(EdgeInsets(top: 5, leading: 16, bottom: 5, trailing: 16))
+                        .listRowSeparator(.hidden)
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            editTransportType = visit.transportType
+                            editIsAutomotive = visit.isAutomotive
+                            editingVisitID = visit.id
+                            showEditSheet = true
+                        }
+                    // 行程行：冇容器（淨係左側連接線）
                     if idx < visits.count - 1 {
                         tripRow(from: visit, to: visits[idx + 1])
+                            .listRowBackground(Color.clear)
+                            .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
+                            .listRowSeparator(.hidden)
+                            .allowsHitTesting(false)
                     }
                 }
             }
@@ -2370,7 +2410,13 @@ struct VisitRecordsTestView: View {
         let startOfDay = selectedDate
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
         return locationManager.visits
-            .filter { $0.arrivalDate >= startOfDay && $0.arrivalDate < endOfDay }
+            .filter { visit in
+                // 跨日記錄兩日都要顯示（27 號尾條＋28 號頭條），所以用「重疊」篩選
+                // 而唔係淨看到達日；兩邊嘅跨日時間再用 +1/-1 標注
+                let start = visit.arrivalDate
+                let end = visit.departureDate ?? Date()
+                return start < endOfDay && end > startOfDay
+            }
             .sorted { $0.arrivalDate < $1.arrivalDate }
     }
 
@@ -2514,122 +2560,171 @@ struct VisitRecordsTestView: View {
         locationManager.saveVisits()
     }
 
-    // MARK: - 到訪記錄卡片
+    // MARK: - 到訪記錄卡片（一條記錄一個白色容器）
     @ViewBuilder
     private func visitCard(_ visit: LocationManager.VisitRecord) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .top) {
-                // 左側：交通方式圖標
-                ZStack {
-                    Circle()
-                        .fill(visit.isAutomotive ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: transportIcon(visit.transportType))
-                        .font(.system(size: 16))
-                        .foregroundStyle(visit.isAutomotive ? .green : .orange)
-                }
+        HStack(alignment: .top, spacing: 12) {
+            // 左側：交通方式圖標
+            ZStack {
+                Circle()
+                    .fill(visit.isAutomotive ? Color.green.opacity(0.15) : Color.orange.opacity(0.15))
+                    .frame(width: 36, height: 36)
+                Image(systemName: transportIcon(visit.transportType))
+                    .font(.system(size: 16))
+                    .foregroundStyle(visit.isAutomotive ? .green : .orange)
+            }
 
-                VStack(alignment: .leading, spacing: 2) {
-                    // 地點名
-                    Text(visit.address.isEmpty ? "未知地點" : visit.address)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                // 地點名
+                Text(visit.address.isEmpty ? "未知地點" : visit.address)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
 
-                    // 時間範圍
-                    HStack(spacing: 4) {
-                        Text(visit.arrivalDate, format: .dateTime.hour().minute())
+                // 時間範圍（跨日時間加 +1/-1 標注）
+                HStack(spacing: 4) {
+                    Text(timeOnly(visit.arrivalDate))
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                    dayOffsetBadge(for: visit.arrivalDate)
+                    Text("→")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                    if let dep = visit.departureDate {
+                        Text(timeOnly(dep))
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
-                        Text("→")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.secondary.opacity(0.5))
-                        if let dep = visit.departureDate {
-                            Text(dep, format: .dateTime.hour().minute())
-                                .font(.system(size: 13))
-                                .foregroundStyle(.secondary)
-                        } else {
-                            Text("至今")
-                                .font(.system(size: 13))
-                                .foregroundStyle(.blue)
-                        }
-                    }
-
-                    // 判定結果
-                    HStack(spacing: 4) {
-                        Circle()
-                            .fill(visit.isAutomotive ? .green : .red)
-                            .frame(width: 6, height: 6)
-                        Text(visit.isAutomotive ? "開車到達" : "非開車到達")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(visit.isAutomotive ? .green : .red)
-                    }
-                }
-
-                Spacer()
-
-                // 右側：停留時長
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(visit.duration)
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(.secondary.opacity(0.1))
-                        .clipShape(Capsule())
-
-                    // 編輯按鈕
-                    Button {
-                        editTransportType = visit.transportType
-                        editIsAutomotive = visit.isAutomotive
-                        editingVisitID = visit.id
-                        showEditSheet = true
-                    } label: {
-                        Image(systemName: "pencil.circle")
-                            .font(.system(size: 18))
+                        dayOffsetBadge(for: dep)
+                    } else {
+                        Text("至今")
+                            .font(.system(size: 13))
                             .foregroundStyle(.blue)
                     }
                 }
+
+                // 判定結果
+                HStack(spacing: 4) {
+                    Circle()
+                        .fill(visit.isAutomotive ? .green : .red)
+                        .frame(width: 6, height: 6)
+                    Text(visit.isAutomotive ? "開車到達" : "非開車到達")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(visit.isAutomotive ? .green : .red)
+                }
             }
+
+            Spacer(minLength: 8)
+
+            // 右側：停留時長
+            Text(visit.duration)
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.secondary.opacity(0.1))
+                .clipShape(Capsule())
         }
-        .padding(.vertical, 4)
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color(uiColor: .secondarySystemGroupedBackground))
+        )
     }
 
-    // MARK: - 行程記錄（兩個到訪之間）
+    private func timeOnly(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter.string(from: date)
+    }
+
+    /// 跨日標注：時間唔屬於顯示日就加個 +1/-1 小膠囊
+    /// （27 號睇 `00:52 [+1]`、28 號睇 `22:35 [-1]`）
+    @ViewBuilder
+    private func dayOffsetBadge(for date: Date) -> some View {
+        let calendar = Calendar.current
+        let viewDay = calendar.startOfDay(for: selectedDate)
+        let dateDay = calendar.startOfDay(for: date)
+        if dateDay != viewDay {
+            let days = -(calendar.dateComponents([.day], from: dateDay, to: viewDay).day ?? 0)
+            Text(days > 0 ? "+\(days)" : "\(days)")
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 5)
+                .padding(.vertical, 1)
+                .background(Capsule().fill(.secondary.opacity(0.15)))
+                .offset(y: -3)
+        }
+    }
+
+    // MARK: - 行程記錄（兩個到訪之間，冇容器）
     @ViewBuilder
     private func tripRow(from: LocationManager.VisitRecord, to: LocationManager.VisitRecord) -> some View {
-        let depDate = from.departureDate ?? to.arrivalDate
-        let tripDuration = to.arrivalDate.timeIntervalSince(depDate)
-        let tripMinutes = Int(tripDuration / 60)
-        let tripHours = tripMinutes / 60
-        let tripMins = tripMinutes % 60
-        let tripText: String = {
-            if tripHours > 0 { return "\(tripHours)h\(tripMins)m" }
-            return "\(tripMins)m"
-        }()
+        // 行程窗口：上一筆記錄嘅離場 → 下一筆記錄嘅到達
+        let gapStart = from.departureDate ?? to.arrivalDate
+        let gap = to.arrivalDate.timeIntervalSince(gapStart)
+        // 重疊／壞數據（負數）就唔顯示行程行
+        if gap > 0 {
+            let items = tripSegmentItems(from: gapStart, to: to.arrivalDate, fallback: to)
+            HStack(alignment: .top, spacing: 24) {
+                // 左側連接線
+                Rectangle()
+                    .fill(.secondary.opacity(0.25))
+                    .frame(width: 2)
+                    .frame(minHeight: 30)
 
-        HStack(spacing: 10) {
-            // 左側連接線
-            VStack(spacing: 0) {
-                Rectangle()
-                    .fill(.secondary.opacity(0.2))
-                    .frame(width: 2, height: 12)
-                Image(systemName: transportIcon(to.transportType))
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
-                Rectangle()
-                    .fill(.secondary.opacity(0.2))
-                    .frame(width: 2, height: 12)
+                // 分段流式：🚗33min ▶ 🚶1min ▶ 🚗3min ▶ 🚶12min（一行唔夠位自然換行）
+                FlowLayout(spacing: 10, lineSpacing: 10) {
+                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                        if index > 0 {
+                            Image(systemName: "triangle.fill")
+                                .font(.system(size: 7))
+                                .foregroundStyle(.secondary.opacity(0.45))
+                                .padding(.top, 3)
+                        }
+                        HStack(spacing: 6) {
+                            Image(systemName: item.icon)
+                                .font(.system(size: 13, weight: .medium))
+                            Text(item.text)
+                                .font(.system(size: 14))
+                        }
+                        .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer(minLength: 0)
             }
-
-            Text("行程 \(tripText)")
-                .font(.system(size: 12))
-                .foregroundStyle(.secondary)
-
-            Spacer()
+            .padding(.leading, 34)
+            .padding(.vertical, 10)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 2)
+    }
+
+    /// 行程分段：新記錄有 CMMotionActivity 分段數據 → 多段 `🚗33min ▶ 🚶1min ▶…`；
+    /// 舊記錄冇分段數據 → 單行 `🚗30min`
+    private func tripSegmentItems(from: Date, to: Date, fallback: LocationManager.VisitRecord) -> [TripSegmentItem] {
+        let segs = locationManager.tripSegments(from: from, to: to)
+        guard !segs.isEmpty else {
+            return [TripSegmentItem(
+                icon: transportIcon(fallback.transportType),
+                text: LocationManager.VisitRecord.formatSpan(to.timeIntervalSince(from))
+            )]
+        }
+        return segs.map {
+            TripSegmentItem(
+                icon: tripSegmentIcon($0.mode),
+                text: LocationManager.VisitRecord.formatSpan($0.resolvedEnd.timeIntervalSince($0.start))
+            )
+        }
+    }
+
+    private func tripSegmentIcon(_ mode: String) -> String {
+        switch mode {
+        case "Driving": return "car.fill"
+        case "Walking": return "figure.walk"
+        case "Cycling": return "bicycle"
+        case "Running": return "figure.run"
+        default: return "car.fill"
+        }
     }
 
     // MARK: - 編輯 Sheet
@@ -2732,6 +2827,57 @@ struct VisitRecordsTestView: View {
         case "Passing": return "arrow.triangle.swap"
         default: return "mappin.circle.fill"
         }
+    }
+}
+
+/// 行程分段顯示項目（參考圖：🚗33min ▶ 🚶1min ▶ 🚗3min ▶ 🚶12min）
+private struct TripSegmentItem: Identifiable {
+    let id = UUID()
+    let icon: String
+    let text: String
+}
+
+/// 簡單換行流式佈局：行程分段一行唔夠位就自然換行（同參考圖一致）
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 10
+    var lineSpacing: CGFloat = 10
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        layout(subviews: subviews, maxWidth: proposal.width ?? .infinity).size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = layout(subviews: subviews, maxWidth: bounds.width)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(
+                at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y),
+                anchor: .topLeading,
+                proposal: ProposedViewSize(result.sizes[index])
+            )
+        }
+    }
+
+    private func layout(subviews: Subviews, maxWidth: CGFloat) -> (size: CGSize, positions: [CGPoint], sizes: [CGSize]) {
+        var positions: [CGPoint] = []
+        var sizes: [CGSize] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var lineHeight: CGFloat = 0
+        var totalWidth: CGFloat = 0
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x > 0, x + size.width > maxWidth {
+                x = 0
+                y += lineHeight + lineSpacing
+                lineHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            sizes.append(size)
+            x += size.width + spacing
+            lineHeight = max(lineHeight, size.height)
+            totalWidth = max(totalWidth, x - spacing)
+        }
+        return (CGSize(width: min(totalWidth, maxWidth), height: y + lineHeight), positions, sizes)
     }
 }
 
@@ -5726,9 +5872,12 @@ struct ParkingRecognitionTestView: View {
                     .font(.system(size: 32))
                     .foregroundStyle(tintColor)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(floorText)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text(floorText)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
+                        FloorConventionBadge(onDark: true)
+                    }
                     Text("樓層指數：\(floorIndex)")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.68))
@@ -6428,30 +6577,8 @@ struct ParkingLLMRecognitionTestView: View {
     }
 
     private static func parseFloorIndex(_ text: String) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // "B2" → -2
-        if let regex = try? NSRegularExpression(pattern: "^[Bb](\\d+)$", options: []),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
-           let range = Range(match.range(at: 1), in: trimmed),
-           let num = Int(trimmed[range]) {
-            return -num
-        }
-        // "-2樓" or "2樓"
-        if let regex = try? NSRegularExpression(pattern: "^(-?)(\\d+)\\s*樓$", options: []),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
-           let numRange = Range(match.range(at: 2), in: trimmed),
-           let num = Int(trimmed[numRange]) {
-            let hasMinus = match.range(at: 1).length > 0
-            return hasMinus ? -num : num
-        }
-        // "地下2層"
-        if let regex = try? NSRegularExpression(pattern: "地下(\\d+)層", options: []),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
-           let range = Range(match.range(at: 1), in: trimmed),
-           let num = Int(trimmed[range]) {
-            return -num
-        }
-        return nil
+        // 統一交俾 ParkingFloorStore：牌面樓層文字按當前樓層慣例（香港/內地）換算成內部指數
+        ParkingFloorStore.parseFloorIndex(text)
     }
 
     // MARK: - Camera Section
@@ -6854,9 +6981,12 @@ struct ParkingLLMRecognitionTestView: View {
                     .font(.system(size: 32))
                     .foregroundStyle(tintColor)
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(floorText)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text(floorText)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
+                        FloorConventionBadge(onDark: true)
+                    }
                     Text("樓層指數：\(floorIndex)")
                         .font(.callout)
                         .foregroundStyle(.white.opacity(0.68))

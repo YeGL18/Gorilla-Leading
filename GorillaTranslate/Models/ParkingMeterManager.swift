@@ -18,6 +18,18 @@ struct MeterNotice: Identifiable {
         case .stationary: return "檢測到旁邊的咪錶位"
         }
     }
+    /// 彈窗主動作：空置咪錶（附近／目的地）→ 導航去個錶位；
+    /// 人就喺個錶位隔離 → 前往繳費
+    var actionTitle: String {
+        switch kind {
+        case .destination: return "前往咪錶位"
+        case .nearby: return "導航"
+        case .stationary: return "前往繳費"
+        }
+    }
+    var actionSymbol: String {
+        kind == .stationary ? "creditcard.fill" : "arrow.triangle.turn.up.right.diamond.fill"
+    }
 }
 
 @MainActor

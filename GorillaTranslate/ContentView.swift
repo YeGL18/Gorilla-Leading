@@ -346,10 +346,22 @@ struct ContentView: View {
         UIDevice.current.userInterfaceIdiom == .phone && (isDuoInnerLandscape || hasDuoVerticalBar)
     }
 
+    /// 地址膠囊底部間距：普通手機用 Duo 適配前嘅 20（比 -9 高 29pt，直橫屏一致）；
+    /// Duo 所有狀態保持原樣唔郁。
+    private var capsuleBottomPadding: CGFloat {
+        guard isDuoDevice else { return 20 }
+        return (isDuoInnerDisplay && !isLandscape) ? 20 : -9
+    }
+
     private var parkingMemoryUsesLandscapeLayout: Bool {
         isLandscape
     }
     @State private var drivingDistanceText: String?
+    /// 離目的地距離（米）：米數顯示時用嚟做逐格滾動插值
+    @State private var drivingDistanceMeters: Double?
+    /// 距離回報時間（外推基準）
+    @State private var drivingDistanceUpdatedAt: Date?
+    @AppStorage("kalmanSmoothingEnabled") private var kalmanSmoothingEnabled: Bool = true
     @State private var capsuleScale: CGFloat = 1.0
     @State private var capsuleOnRight: Bool = false
     @State private var orbOpacity: Double = 1.0
@@ -368,6 +380,10 @@ struct ContentView: View {
     // 地址輪播（POI名稱 ↔ 街道名）
     @State private var showPOIName: Bool = true
     @State private var addressAlternatingTimer: Timer?
+    /// 輪播節奏指紋（見 startAddressAlternatingIfNeeded）
+    @State private var addressCarouselState: Int = -1
+    /// 輪播世代：重起時 +1，令舊嘅延遲切換自動作廢
+    @State private var addressCarouselGeneration: Int = 0
     @State private var parkingEntryTime: Date = Date()
     @State private var parkingTimer: Timer?
     @State private var parkingElapsed: TimeInterval = 0
@@ -473,9 +489,10 @@ struct ContentView: View {
     @State private var gpsTapResetTimer: Timer?    // 重置計數的 timer
     @State private var stationaryTrackingTrigger = 0
     @State private var northOverrideTrackingToken = 0
-    @State private var showSpeedInfo = false
-    @State private var speedInfoTimer: Timer?
-    @State private var randomInfoTimer: Timer?
+    // 緊湊態三格輪播：速度+ETA → 地址 → 狀態 循環
+    @State private var compactSlot: CompactSlot = .speed
+    @State private var compactSlotTimer: Timer?
+    @State private var compactSlotGeneration: Int = 0
     @State private var lastGPSLocation: CLLocation?
     @State private var lastMovementTime: Date?
     @State private var preDepartureDriving = false
@@ -515,6 +532,7 @@ struct ContentView: View {
     @State private var editSpotNumber: String = ""
     @State private var editAreaCode: String = ""
     @State private var editFloorText: String = ""
+    @State private var editFloorTextInitial: String = ""  // 開檔時嘅樓層值：冇郁過就唔好保存樓層
     @State private var parkingPhotoContributions: [UUID: [String: String]] = [:]
     @State private var currentRecognizingPhotoID: UUID? = nil
     @State private var parkingOrbBoost: Double = 1.0
@@ -556,6 +574,10 @@ struct ContentView: View {
     @State private var drivingETASeconds: TimeInterval?
     @State private var visitStatus: String = "已停留"
     @State private var visitSecondaryStatus: String?
+    /// 開車音效：時速 0→5+ 觸發狀態（true = 時速已經回到 0，等緊再加速）
+    @State private var speedBelowDrivingTrigger = true
+    /// 開車音效冷卻：兩次播放之間至少隔 10 秒（避免塞車頻密起步太嘈）
+    @State private var lastEnterDrivingSFXAt: Date = .distantPast
     /// 非開車到達時為 true（步行/跑步/騎行到達），控制 UI 標籤和靈動島狀態
     @State private var isNonAutomotiveArrival: Bool = false
     @State private var selectedParkingPointID: UUID?
@@ -914,6 +936,13 @@ struct ContentView: View {
                     locationManager.resetSpeedFilter()
                     locationManager.startLocationServicesIfNeeded()
                     refreshVisitAndTimersForForeground()
+                    // 背景回來 CADisplayLink 可能已被系統停掉 —— orb 動畫會
+                    // 靜止到成個 app 重開。重新起過（順手重置 lastDate，
+                    // 唔係回前景第一幀 elapsed 會大跳）
+                    animationClock.start()
+                    if orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
+                        timePhaseManager.start()
+                    }
                     // Force the Live Activity to re-render with the latest
                     // widget build — the system keeps the archived render of
                     // the previous build until the next content update.
@@ -977,6 +1006,8 @@ struct ContentView: View {
                     departureTime = lastVisit.departureDate
                     showDepartedLabel = true
                     clearParkingContributions()
+                    // 離場自動認定：全程冇手動調過樓層就把自動判斷當正確答案
+                    parkingFloorStore.acceptPredictedFloorAtDeparture()
                     // 清理樓層曲線鎖定狀態
                     parkingFloorStore.floorCurveLockedFloor = nil
                     parkingFloorStore.lastStationaryCoordinate = nil
@@ -1043,7 +1074,7 @@ struct ContentView: View {
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
-                    parkingFloorStore.recordParkingPoint(from: lastVisit)
+                    parkingFloorStore.recordParkingPoint(from: lastVisit, defaultLotName: defaultNewLotName(visitAddress: lastVisit.address))
                     // Bug 1 修復：強制 SwiftUI 重新渲染地圖（確保停車點標記出現）
                     parkingFloorStore.objectWillChange.send()
                     // Show parking info on new arrival
@@ -1141,76 +1172,76 @@ struct ContentView: View {
     }
 
     // MARK: - 地址輪播（POI名稱 ↔ 街道名）
-    private func startAddressAlternatingIfNeeded() {
+    /// 輪播節奏指紋：只喺呢個值變咗先重起 Timer —— geocode 帶嚟嘅名字更新
+    /// 唔可以重置輪播相位，唔係就會永遠輪唔到下一個。
+    /// 0 = 停車輪播、1 = 開車輪播、2 = 高速釘死街道名、3 = 得一邊唔輪播。
+    private var addressCarouselFingerprint: Int {
+        let hasPOI = !locationManager.currentPOIName.isEmpty
+        let street = locationManager.currentStreetName
+        let canRotate = hasPOI && !street.isEmpty && street != locationManager.currentPOIName
+        guard canRotate else { return 3 }
+        let speed = locationManager.speed
+        return speed >= 60 ? 2 : (speed >= 8 ? 1 : 0)
+    }
+
+    /// 啟動／重起 POI↔街道輪播相位。回傳相位有冇重起
+    /// （地址格顯示緊時重起咗就要重計「一輪」長度）。
+    /// force = 唔理指紋都重起相位：地址格入格時要由循環開頭開始數「一輪」。
+    @discardableResult
+    private func startAddressAlternatingIfNeeded(force: Bool = false) -> Bool {
+        let fp = addressCarouselFingerprint
+        if !force, fp == addressCarouselState { return false }
+        addressCarouselState = fp
+        addressCarouselGeneration += 1
+        let gen = addressCarouselGeneration
         addressAlternatingTimer?.invalidate()
         addressAlternatingTimer = nil
 
-        let hasPOI = !locationManager.currentPOIName.isEmpty
-        let hasAddress = !locationManager.currentAddress.isEmpty
-        let streetName = hasPOI ? locationManager.currentAddress : ""
-
-        guard hasPOI && hasAddress && streetName != locationManager.currentPOIName else {
+        // 2 = 高速釘死街道名；3 = 得一邊 —— 兩個都唔輪播
+        guard fp <= 1 else {
             showPOIName = false
-            return
+            return true
         }
 
-        let isDriving = locationManager.speed >= 8
+        let isDriving = fp == 1
+        // 開車（8..<60）：街道名 5 秒 → POI 名 5 秒 → 循環（開場先街道名）
+        // 停車（<8）：POI 名 10 秒 → 街道名 5 秒 → 循環（開場先 POI 名）
+        showPOIName = !isDriving
 
-        // 開車時：街道名 10 秒 → POI 名 2 秒 → 循環
-        // 停車瞬間：切換到 POI，然後 POI 2 秒 → 街道名 10 秒 → 循環
-        showPOIName = isDriving ? false : true
+        // 一個循環：開車 5+5=10 秒；停車 10+5=15 秒
+        let cycle: TimeInterval = isDriving ? 10 : 15
+        // 循環入面第二次切換嘅時點：開車 +5 秒；停車 +10 秒
+        let secondFlip: TimeInterval = isDriving ? 5 : 10
 
-        addressAlternatingTimer = Timer.scheduledTimer(withTimeInterval: 12, repeats: true) { _ in
+        addressAlternatingTimer = Timer.scheduledTimer(withTimeInterval: cycle, repeats: true) { _ in
             DispatchQueue.main.async {
-                let driving = self.locationManager.speed >= 8
-                if driving {
-                    // 開車：街道名 10 秒 → POI 2 秒
+                guard self.addressCarouselGeneration == gen else { return }
+                withAnimation(.easeInOut(duration: 0.4)) {
+                    self.showPOIName = !isDriving
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + secondFlip) {
+                    guard self.addressCarouselGeneration == gen else { return }
                     withAnimation(.easeInOut(duration: 0.4)) {
-                        self.showPOIName = false
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                        guard self.addressAlternatingTimer != nil else { return }
-                        withAnimation(.easeInOut(duration: 0.4)) {
-                            self.showPOIName = true
-                        }
-                    }
-                } else {
-                    // 停車：POI 2 秒 → 街道名 10 秒
-                    withAnimation(.easeInOut(duration: 0.4)) {
-                        self.showPOIName = true
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        guard self.addressAlternatingTimer != nil else { return }
-                        withAnimation(.easeInOut(duration: 0.4)) {
-                            self.showPOIName = false
-                        }
+                        self.showPOIName = isDriving
                     }
                 }
             }
         }
 
         // 第一個切換
-        if isDriving {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 10) {
-                guard self.addressAlternatingTimer != nil else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    self.showPOIName = true
-                }
-            }
-        } else {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                guard self.addressAlternatingTimer != nil else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
-                    self.showPOIName = false
-                }
+        DispatchQueue.main.asyncAfter(deadline: .now() + secondFlip) {
+            guard self.addressCarouselGeneration == gen else { return }
+            withAnimation(.easeInOut(duration: 0.4)) {
+                self.showPOIName = isDriving
             }
         }
+        return true
     }
 
     /// 當前顯示嘅地址文字（考慮輪播）
     private var displayAddress: String {
         let hasPOI = !locationManager.currentPOIName.isEmpty
-        let streetName = locationManager.currentAddress
+        let streetName = locationManager.currentStreetName
 
         if hasPOI && !streetName.isEmpty && streetName != locationManager.currentPOIName {
             return showPOIName ? locationManager.currentPOIName : streetName
@@ -1371,11 +1402,71 @@ struct ContentView: View {
                     startPoint: .topLeading, endPoint: .bottomTrailing))
                 .blendMode(.screen)
                 .opacity(0.6)
+            // 光澤掃過層：亮光帶沿對角線（左下→右上）循環掃過，
+            // 前景漸變框死喺字形入面，光只會喺 Gorilla 字內流動。
+            // 黑武士模式反轉做「變暗帶」（黑色 multiply，似影掃過字面）。
+            // 節奏：掃 5 秒 → 隨機停頓一陣再掃（7 個唔同停頓長度循環，感覺隨機）
+            TimelineView(.animation(minimumInterval: 1.0 / 120.0)) { context in
+                let state = Self.sheenState(at: context.date)
+                titleText
+                    .foregroundStyle(Self.sheenSweepGradient(
+                        phase: state.phase,
+                        darkening: darkKnightMode))
+                    .blendMode(darkKnightMode ? .multiply : .screen)
+                    .opacity(state.sweeping ? (darkKnightMode ? 0.8 : 0.45) : 0)
+            }
         }
         .compositingGroup()
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.5)) { showDemoAnimation = true }
         }
+    }
+
+    /// 標題光澤掃過節奏：每循環 = 掃 5 秒 + 停頓。
+    /// 停頓用 7 個唔同長度循環（1.4–5.2 秒），感覺隨機但可重現（同一時間永遠同一畫面）
+    private static let sheenSweepDuration: Double = 5.0
+    private static let sheenPausePattern: [Double] = [2.2, 4.6, 1.4, 3.4, 2.8, 5.2, 1.8]
+
+    /// 計算某時刻嘅掃過狀態：sweeping=true 時 phase 由 0→1（光帶掃過），false = 停頓中
+    private static func sheenState(at date: Date) -> (phase: Double, sweeping: Bool) {
+        let block = sheenSweepDuration * Double(sheenPausePattern.count)
+            + sheenPausePattern.reduce(0, +)
+        var elapsed = date.timeIntervalSinceReferenceDate
+            .truncatingRemainder(dividingBy: block)
+        for pause in sheenPausePattern {
+            if elapsed < sheenSweepDuration {
+                return (elapsed / sheenSweepDuration, true)
+            }
+            elapsed -= sheenSweepDuration
+            if elapsed < pause {
+                return (1, false)  // 停頓：光帶保持喺字外
+            }
+            elapsed -= pause
+        }
+        return (1, false)
+    }
+
+    /// 標題掃過漸變：闊光帶中心由字外左下掃入、穿過字形、再掃出右上（phase 0→1 一次掃過）。
+    /// darkening=true（黑武士模式）：黑色變暗帶（配 multiply）；false：白光帶（配 screen）
+    private static func sheenSweepGradient(phase: Double, darkening: Bool) -> LinearGradient {
+        let band: Double = 0.34
+        let p = -band + phase * (1 + band * 2)
+        func stop(_ at: Double, _ color: Color) -> Gradient.Stop {
+            Gradient.Stop(color: color, location: Swift.max(0, Swift.min(1, at)))
+        }
+        let mid: Color = darkening ? Color.black.opacity(0.28) : Color.white.opacity(0.28)
+        let core: Color = darkening ? Color.black.opacity(0.65) : Color.white.opacity(0.65)
+        return LinearGradient(
+            stops: [
+                stop(p - 0.30, .clear),
+                stop(p - 0.12, mid),
+                stop(p, core),
+                stop(p + 0.12, mid),
+                stop(p + 0.30, .clear),
+            ],
+            startPoint: .bottomLeading,
+            endPoint: .topTrailing
+        )
     }
 
     // MARK: - Home Content
@@ -1445,16 +1536,6 @@ struct ContentView: View {
                         roseLoopSpeed = 8.0
                         withAnimation(.easeInOut(duration: 0.45)) {
                             addressRevealProgress = 1
-                            // Force address display for 5s when it first loads
-                            if showSpeedInfo {
-                                showSpeedInfo = false
-                                stopRandomInfoTimer()
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 5.0) {
-                                    withAnimation(.easeInOut(duration: 0.3)) {
-                                        showSpeedInfo = true
-                                    }
-                                }
-                            }
                         }
                     } else {
                         roseLoopSpeed = 1.0
@@ -1464,24 +1545,27 @@ struct ContentView: View {
                             addressRevealProgress = 0
                         }
                     }
-                    // 啟動/停止地址輪播
-                    startAddressAlternatingIfNeeded()
+                    refreshAddressCarousel()
                 }
-                .onChange(of: locationManager.currentPOIName) { _, _ in
-                    startAddressAlternatingIfNeeded()
+                .onChange(of: locationManager.currentPOIName) { oldPOI, newPOI in
+                    refreshAddressCarousel()
+                    // 只有「新 POI 出現」先打斷輪播：地址格顯示一輪，之後順序繼續
+                    if !newPOI.isEmpty && newPOI != oldPOI {
+                        interruptForNewPOI()
+                    }
                 }
                 .onChange(of: locationManager.currentLocality) { _, newLocality in
                     if !newLocality.isEmpty {
                         parkingFloorStore.updateMissingLocalities(currentLocality: newLocality)
                     }
                 }
-                .onChange(of: locationManager.speed) { _, newSpeed in
-                    // 時速跨越 8 km/h 閾值時重新啟動輪播
-                    let wasDriving = showPOIName == false  // 之前顯示街道名 = 開車中
-                    let isNowDriving = newSpeed >= 8
-                    if wasDriving != isNowDriving {
-                        startAddressAlternatingIfNeeded()
-                    }
+                .onChange(of: locationManager.currentStreetName) { _, _ in
+                    refreshAddressCarousel()
+                }
+                .onChange(of: locationManager.speed) { _, _ in
+                    // 跨越 8 / 60 km/h 閾值會切換輪播節奏；
+                    // 指紋保護咗相位，未跨檻就唔會白重啟
+                    refreshAddressCarousel()
                 }
             ZStack {
             if showMap || showSatellite {
@@ -1866,8 +1950,9 @@ struct ContentView: View {
                         presentedMeterNotice = nil
                     }
                     meterManager.dismissNotice()
-                    if notice.kind == .destination { startNavigationToMeter(notice.meter) }
-                    else { MeterPayment.open(manager: meterManager) }
+                    // 空置咪錶（附近／目的地）→ 導航去個錶位；旁邊咪錶 → 前往繳費
+                    if notice.kind == .stationary { MeterPayment.open(manager: meterManager) }
+                    else { startNavigationToMeter(notice.meter) }
                 })
                 .offset(y: hingeUpperOffsetY)
                 .transition(
@@ -1934,7 +2019,7 @@ struct ContentView: View {
             }
 
             if showFloorConfirm, let floor = recognizedFloorToConfirm {
-                floorConfirmCard(floorIndex: floor, floorText: recognizedFloorText ?? "\(floor)" + String(localized: "樓"))
+                floorConfirmCard(floorIndex: floor, floorText: recognizedFloorText ?? ParkingFloorStore.formatFloor(floor))
                     .frame(maxWidth: min(400, geo.size.width - 44))
                     .transition(
                         .asymmetric(
@@ -1955,7 +2040,7 @@ struct ContentView: View {
             addressCapsule
                 .blur(radius: capsuleAppeared ? 0 : 30)
                 .opacity(capsuleAppeared ? 1 : 0)
-                .padding(.bottom, (isDuoInnerDisplay && !isLandscape) ? 20 : -9)
+                .padding(.bottom, capsuleBottomPadding)
                 .offset(x: outerLandscape ? (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2 : (capsuleRightShift + duoBarOffsetX))
                 .animation(.spring(response: 0.4, dampingFraction: 0.85), value: capsuleOnRight)
                 .simultaneousGesture(
@@ -1996,17 +2081,27 @@ struct ContentView: View {
                 spotNumber: $editSpotNumber,
                 areaCode: $editAreaCode,
                 floorText: $editFloorText,
+                coordinate: activeParkingPoint?.coordinate,
                 onSave: {
                     llmSpotNumber = editSpotNumber.isEmpty ? nil : editSpotNumber
                     llmAreaCode = editAreaCode.isEmpty ? nil : editAreaCode
-                    llmFloorText = editFloorText.isEmpty ? nil : editFloorText
-                    if let idx = Self.parseFloorIndex(editFloorText) {
-                        llmFloorIndex = idx
+                    // 樓層只喺**真係郁過**嗰陣先保存 —— 唔係嘅話，淨係改車位／區域，
+                    // 一個默認 0 嘅樓層值會寫埋落去，B3 就咁變咗 G
+                    if editFloorText != editFloorTextInitial {
+                        let floorStr = ParkingFloorStore.cleanFloorText(editFloorText, coordinate: activeParkingPoint?.coordinate)
+                        let idx = ParkingFloorStore.parseFloorIndex(editFloorText, coordinate: activeParkingPoint?.coordinate)
+                        llmFloorText = floorStr
+                        llmFloorIndex = idx ?? llmFloorIndex
+                        parkingFloorStore.updateLLMData(
+                            spotNumber: llmSpotNumber, areaCode: llmAreaCode,
+                            floorText: llmFloorText, floorIndex: idx
+                        )
+                    } else {
+                        parkingFloorStore.updateLLMData(
+                            spotNumber: llmSpotNumber, areaCode: llmAreaCode,
+                            floorText: llmFloorText, floorIndex: nil
+                        )
                     }
-                    parkingFloorStore.updateLLMData(
-                        spotNumber: llmSpotNumber, areaCode: llmAreaCode,
-                        floorText: llmFloorText, floorIndex: llmFloorIndex
-                    )
                 }
             )
         }
@@ -2016,6 +2111,7 @@ struct ContentView: View {
                 tripConfirmPrediction = p
                 tripToastPrediction = nil
                 showingTripConfirm = true
+                sfxPlayer.playDestinationPredict()
             } else if showingTripConfirm && tripConfirmPrediction == nil {
                 showingTripConfirm = false
             }
@@ -2024,6 +2120,7 @@ struct ContentView: View {
             if let p = newValue {
                 tripToastAutoDismiss?.cancel()
                 tripToastPrediction = p
+                sfxPlayer.playDestinationPredict()
                 // auto switch destination 即刻生效
                 Task { @MainActor in
                     let _ = DestinationManager.shared.applyAutoPrediction(p)
@@ -2189,9 +2286,12 @@ struct ContentView: View {
                     .font(.system(size: 24))
                     .foregroundStyle(tintColor)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(floorText)
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+                    HStack(spacing: 6) {
+                        Text(floorText)
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(.white)
+                        FloorConventionBadge(onDark: true)
+                    }
                     Text(String(localized: "樓層指數：") + "\(floorIndex)")
                         .font(.caption)
                         .foregroundStyle(.white.opacity(0.68))
@@ -2205,15 +2305,16 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 Button {
                     // User confirmed — write the deferred floor now
-                    llmFloorText = pendingFloorText ?? floorText
+                    let confirmedFloorText = ParkingFloorStore.cleanFloorText(pendingFloorText ?? floorText)
+                    llmFloorText = confirmedFloorText
                     llmFloorIndex = pendingFloorIndex ?? floorIndex
                     parkingFloorStore.updateLLMData(
                         spotNumber: llmSpotNumber, areaCode: llmAreaCode,
-                        floorText: pendingFloorText ?? floorText,
+                        floorText: confirmedFloorText,
                         floorIndex: pendingFloorIndex ?? floorIndex
                     )
                     if let photoID = currentRecognizingPhotoID ?? parkingPhotoContributions.keys.first {
-                        parkingPhotoContributions[photoID, default: [:]]["floor"] = pendingFloorText ?? floorText
+                        parkingPhotoContributions[photoID, default: [:]]["floor"] = confirmedFloorText ?? floorText
                     }
                     pendingOriginalFloorIndex = nil
                     pendingFloorText = nil
@@ -2614,6 +2715,7 @@ struct ContentView: View {
                             .transition(.scale.combined(with: .opacity))
                             .blur(radius: floorCurveLockAnimating ? 0 : 6)
                             .opacity(floorCurveLockAnimating ? 1 : 0)
+                        FloorConventionBadge(compact: true)
                     }
                 }
                 if floorCurveLocked {
@@ -2694,12 +2796,12 @@ struct ContentView: View {
                     .monospacedDigit()
                     .padding(.leading, 5)
                 Spacer()
-                Text(locationManager.currentAddress)
+                Text(displayAddress)
                     .font(.body.bold())
                     .foregroundStyle(adaptiveTextColor())
                     .lineLimit(1)
-                    .contentTransition(.numericText())
-                    .animation(.easeInOut(duration: 0.15), value: locationManager.currentAddress)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.4), value: displayAddress)
                 Spacer()
                 Text(etaText ?? "--")
                     .font(.body.bold())
@@ -2754,6 +2856,7 @@ struct ContentView: View {
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundStyle(.teal)
                                 .transition(.scale.combined(with: .opacity))
+                            FloorConventionBadge(compact: true)
                         }
                     }
                 }
@@ -3296,11 +3399,11 @@ struct ContentView: View {
             if newStatus == "已停留", oldStatus != "已停留" {
                 sfxPlayer.playEnterStationary()
             } else if newStatus == "已開車", oldStatus != "已開車" {
-                sfxPlayer.playEnterDriving()
+                playEnterDrivingSFX()
             } else if newStatus == "已步行", oldStatus != "已步行" {
-                sfxPlayer.playEnterDriving()  // 步行也用開車音效（移動狀態切換）
+                playEnterDrivingSFX()  // 步行也用開車音效（移動狀態切換）
             } else if newStatus == "已騎車", oldStatus != "已騎車" {
-                sfxPlayer.playEnterDriving()  // 騎車也用開車音效（移動狀態切換）
+                playEnterDrivingSFX()  // 騎車也用開車音效（移動狀態切換）
             }
             guard hasDeparted else {
                 stopStationaryTimer()
@@ -3318,7 +3421,17 @@ struct ContentView: View {
         }
         .onChange(of: visitSecondaryStatus) { oldStatus, newStatus in
             if newStatus == "已開車（未離場）", oldStatus != "已開車（未離場）" {
-                sfxPlayer.playEnterDriving()
+                playEnterDrivingSFX()
+            }
+        }
+        .onChange(of: locationManager.speed) { _, newSpeed in
+            // 時速 0→5+ 觸發開車音效（平時變成開車中嘅識別邏輯），每次一下；
+            // 要先回到 0 先會重新武裝，配合 10 秒冷卻避免塞車起步太嘈
+            if newSpeed < 0.5 {
+                speedBelowDrivingTrigger = true
+            } else if newSpeed >= 5, speedBelowDrivingTrigger {
+                speedBelowDrivingTrigger = false
+                playEnterDrivingSFX()
             }
         }
         .onChange(of: hasDeparted) { _, departed in
@@ -3328,25 +3441,19 @@ struct ContentView: View {
         }
         .onChange(of: isCapsuleExpanded) { _, expanded in
             if expanded {
-                stopRandomInfoTimer()
-            } else {
-                if !isParkingMemoryExpanded {
-                    startRandomInfoTimer()
-                }
+                stopCompactRotation()
+            } else if !isParkingMemoryExpanded {
+                startCompactRotation(openingByState: true)
             }
         }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
             if expanded {
-                stopRandomInfoTimer()
+                stopCompactRotation()
             } else if !isCapsuleExpanded {
-                startRandomInfoTimer()
+                startCompactRotation(openingByState: true)
             }
         }
-        .onChange(of: visitStatus) { _, _ in
-            restartRandomInfoTimerIfNeeded()
-        }
         .onChange(of: hasDeparted) { _, _ in
-            restartRandomInfoTimerIfNeeded()
             syncLiveActivity()
         }
         .onChange(of: drivingETASeconds) { _, _ in
@@ -3354,9 +3461,7 @@ struct ContentView: View {
         }
         .onChange(of: parkingFloorStore.lots) { _, _ in syncLiveActivity() }
         .onAppear {
-            if !isCapsuleExpanded && !isParkingMemoryExpanded {
-                startRandomInfoTimer()
-            }
+            startCompactRotation(openingByState: true)
         }
     }
 
@@ -3393,10 +3498,7 @@ struct ContentView: View {
             }
             .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
                 Button(String(localized: "編輯")) {
-                    editSpotNumber = llmSpotNumber ?? ""
-                    editAreaCode = llmAreaCode ?? ""
-                    editFloorText = llmFloorText ?? ""
-                    showSpotEditor = true
+                    openSpotEditor()
                 }
                 Button(String(localized: "清除車位"), role: .destructive) {
                     withAnimation(.easeInOut(duration: 0.4)) {
@@ -3438,7 +3540,7 @@ struct ContentView: View {
             .padding(.horizontal, 6)
 
             ZStack {
-                if compactModeShowStatus {
+                if compactSlot == .status {
                     HStack(spacing: 8) {
                         Text(compactStatusTitle)
                             .font(.body.bold())
@@ -3453,7 +3555,7 @@ struct ContentView: View {
                             .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     }
                     .transition(.blurReplace())
-                } else if showSpeedInfo {
+                } else if compactSlot == .speed {
                     HStack(spacing: 16) {
                         Text("\(Int(locationManager.smoothedSpeed)) km/h")
                             .font(.body.bold())
@@ -3481,8 +3583,7 @@ struct ContentView: View {
             }
             .opacity(addressReveal)
             .blur(radius: 20 * (1 - addressReveal))
-            .animation(.easeInOut(duration: 0.3), value: showSpeedInfo)
-            .animation(.easeInOut(duration: 0.3), value: compactModeShowStatus)
+            .animation(.easeInOut(duration: 0.3), value: compactSlot)
         }
         .transition(AnyTransition.blurFade)
     }
@@ -3499,8 +3600,7 @@ struct ContentView: View {
     private func orbPresetColors() -> [(hex: String, opacity: Double)] {
         switch orbColorPreset {
         case 1: // 動態橙：隨時速變化，越快越橙紅
-            let speed = locationManager.speed  // m/s
-            let kmh = max(0, speed * 3.6)
+            let kmh = max(0, locationManager.speed)  // locationManager.speed 已係 km/h
             // 低速(0-60): 橙色 FF8C00 → 中速(60-120): 深橙 FF6B00 → 高速(120+): 紅橙 FF4500
             let t = min(max((kmh - 30) / 90, 0), 1)  // 30kmh=0, 120kmh=1
             let hex: String
@@ -3642,12 +3742,16 @@ struct ContentView: View {
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                             .contentTransition(.opacity)
                             .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: distanceLabel)
-                        Text(drivingDistanceText ?? "--")
+                        // 米數時逐格連續滾動（兩次路線更新之間按車速倒數，同卡爾曼開關綁定），公里時直接顯示
+                        RollingDistanceText(
+                            targetMeters: drivingDistanceMeters,
+                            updatedAt: drivingDistanceUpdatedAt,
+                            speedKmh: { locationManager.speed },
+                            displayText: drivingDistanceText,
+                            rolling: kalmanSmoothingEnabled
+                        )
                             .font(.system(size: 22, weight: .bold))
                             .foregroundStyle(adaptiveTextColor())
-                            .contentTransition(.numericText())
-                            .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: drivingDistanceText)
-                            .monospacedDigit()
                             .blur(radius: capsuleDragState.active ? 6 : 0)
                             .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     }
@@ -3828,13 +3932,13 @@ struct ContentView: View {
                         .foregroundStyle(adaptiveTextColor(opacity: 0.6))
                 }
                 Spacer()
-                Text(locationManager.currentAddress)
+                Text(displayAddress)
                     .font(.body.bold())
                     .foregroundStyle(adaptiveTextColor())
                     .lineLimit(1)
                     .padding(.horizontal, 6)
-                    .contentTransition(.numericText())
-                    .animation(.easeInOut(duration: 0.15), value: locationManager.currentAddress)
+                    .contentTransition(.opacity)
+                    .animation(.easeInOut(duration: 0.4), value: displayAddress)
                 Spacer()
                 Text(etaText ?? "--")
                     .font(.body.bold())
@@ -3934,10 +4038,7 @@ struct ContentView: View {
             parkingDepartureButton(width: 161, height: 70, countdownSize: 40, labelSize: 22)
             // 入场计时
             parkingTimerOrb(width: 161, height: 70, orbBaseSize: 100, titleSize: 16, elapsedSize: 32, labelWidth: 28, labelSize: 11, onLongPress: {
-                editSpotNumber = llmSpotNumber ?? ""
-                editAreaCode = llmAreaCode ?? ""
-                editFloorText = llmFloorText ?? ""
-                showSpotEditor = true
+                openSpotEditor()
             })
         }
         .padding(.bottom, 20)
@@ -4189,6 +4290,7 @@ struct ContentView: View {
                     HStack(spacing: 4) {
                         Text(String(localized: "樓層")).frame(width: labelWidth, alignment: .trailing)
                         Text(session?.floorDisplay ?? "-")
+                        FloorConventionBadge(onDark: true, compact: true)
                     }
                 }
                 .font(.system(size: labelSize, weight: .medium))
@@ -4222,6 +4324,15 @@ struct ContentView: View {
         let mins = Int(interval.truncatingRemainder(dividingBy: 3600) / 60)
         let secs = Int(interval.truncatingRemainder(dividingBy: 60))
         return String(format: "%d:%02d:%02d", hours, mins, secs)
+    }
+
+    /// 開車音效：停留/泊車→開車狀態切換，或時速 0→5+ 觸發，每次一下；
+    /// 10 秒冷卻（避免塞車頻密起步太嘈，亦避免狀態切換＋時速觸發同時雙響）
+    private func playEnterDrivingSFX() {
+        let now = Date()
+        guard now.timeIntervalSince(lastEnterDrivingSFXAt) >= 10 else { return }
+        lastEnterDrivingSFXAt = now
+        sfxPlayer.playEnterDriving()
     }
 
     private func formatCapsuleDuration() -> String {
@@ -4258,7 +4369,9 @@ struct ContentView: View {
         return remainMins > 0 ? "\(hrs)h\(remainMins)m" : "\(hrs)h"
     }
 
-    private var compactModeShowStatus: Bool {
+    /// 泊車／停留狀態 —— 三格輪播「開場跟狀態」用嚟決定第一格
+    /// （泊車／停留 → 狀態格先；開車／步行／騎車 → 速度+ETA 先）
+    private var isParkedOrStationary: Bool {
         if !hasDeparted { return true }
         return visitStatus == "已停留"
     }
@@ -4439,9 +4552,9 @@ struct ContentView: View {
             focusMode = level
         }
         if level == .balanced || level == .extreme {
-            stopRandomInfoTimer()
+            stopCompactRotation()
         } else if wasActive {
-            restartRandomInfoTimerIfNeeded()
+            startCompactRotation(openingByState: true)
         }
         // 極致專注模式：自動開啟黑武士模式
         if level == .extreme && !darkKnightMode {
@@ -4462,7 +4575,7 @@ struct ContentView: View {
             focusMode = nil
         }
         animationClock.setFrameRate(60)
-        restartRandomInfoTimerIfNeeded()
+        startCompactRotation(openingByState: true)
         refreshVisitAndTimersForForeground()
         syncLiveActivity(forceRefresh: true)
     }
@@ -4549,6 +4662,8 @@ struct ContentView: View {
         } else {
             let dep = lastVisit.departureDate!
             hasDeparted = true
+            // 離場自動認定：全程冇手動調過樓層就把自動判斷當正確答案
+            parkingFloorStore.acceptPredictedFloorAtDeparture()
             timerRunning = false
             parkingTimer?.invalidate()
             parkingTimer = nil
@@ -4643,6 +4758,8 @@ struct ContentView: View {
                 showCheckmarkAnimation = true
                 hasDeparted = true
                 manualDeparted = true
+                // 注意：手動離場係用戶自己嘅離場決定，唔寫入到訪記錄；
+                // 到訪記錄完全跟 iOS 系統（CLVisit）嘅到訪/離場事件
                 departureTime = Date()
                 showDepartedLabel = true
                 departureTimerID = UUID()
@@ -4658,6 +4775,8 @@ struct ContentView: View {
                 parkingTimer?.invalidate()
                 parkingTimer = nil
                 lastKnownArrivalDate = nil
+                // 離場自動認定：全程冇手動調過樓層就把自動判斷當正確答案
+                parkingFloorStore.acceptPredictedFloorAtDeparture()
                 saveParkingState()
                 WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
                 photoStorage.deleteAll()
@@ -4828,59 +4947,94 @@ struct ContentView: View {
         capsuleUpdateTimer = nil
     }
 
-    // MARK: - Random Speed Info Display
-    private func startRandomInfoTimer() {
-        stopRandomInfoTimer()
-        // 專注模式（平衡／極致）：唔再彈資訊／定時 refreshETA
+    // MARK: - 緊湊態三格輪播（速度+ETA → 地址 → 狀態 循環）
+    private enum CompactSlot: Equatable {
+        case speed    // 速度 + ETA
+        case address  // 地址（內部 POI↔街道輪播一輪）
+        case status   // 已泊車／已開車／已停留 + 計時
+    }
+
+    /// 開始三格輪播。openingByState：輪播（重）起嗰陣第一格跟狀態 ——
+    /// 開車／步行／騎車就速度+ETA 先，泊車／停留就狀態格先。
+    private func startCompactRotation(openingByState: Bool = false) {
+        guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
+        // 專注模式（平衡／極致）：維持完全唔輪播，唔干擾駕駛
         guard !focusCutsInfoAndETA else { return }
-        if compactModeShowStatus {
-            return
+        if openingByState {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                compactSlot = isParkedOrStationary ? .status : .speed
+            }
         }
-        showSpeedInfo = true
-        scheduleNextRandomInfo()
+        scheduleCompactSlot()
     }
 
-    private func stopRandomInfoTimer() {
-        randomInfoTimer?.invalidate()
-        randomInfoTimer = nil
-        speedInfoTimer?.invalidate()
-        speedInfoTimer = nil
-        showSpeedInfo = false
+    private func stopCompactRotation() {
+        compactSlotTimer?.invalidate()
+        compactSlotTimer = nil
+        compactSlotGeneration += 1
     }
 
-    private func scheduleNextRandomInfo() {
-        if compactModeShowStatus {
-            return
-        }
-        let interval = Double.random(in: 40...60)
-        randomInfoTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { [self] _ in
+    /// 排當前格嘅切換：時間到就順序跳下一格
+    /// （速度+ETA → 地址 → 狀態 → 循環）
+    private func scheduleCompactSlot() {
+        compactSlotTimer?.invalidate()
+        compactSlotGeneration += 1
+        let gen = compactSlotGeneration
+        let duration = compactSlotDuration()
+        compactSlotTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
             DispatchQueue.main.async {
-                guard !compactModeShowStatus else { return }
-                // 排程期間開咗專注模式 → 直接唔彈，退出時會重新排
-                guard !focusCutsInfoAndETA else { return }
-                refreshETA()
+                guard self.compactSlotGeneration == gen else { return }
                 withAnimation(.easeInOut(duration: 0.3)) {
-                    showSpeedInfo = false
+                    self.compactSlot = self.nextCompactSlot()
                 }
-                speedInfoTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: false) { [self] _ in
-                    DispatchQueue.main.async {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showSpeedInfo = true
-                        }
-                        scheduleNextRandomInfo()
-                    }
+                if self.compactSlot == .address {
+                    // 地址格 = POI↔街道由循環開頭顯示一輪
+                    self.startAddressAlternatingIfNeeded(force: true)
                 }
+                self.scheduleCompactSlot()
             }
         }
     }
 
-    private func restartRandomInfoTimerIfNeeded() {
-        guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
-        if compactModeShowStatus {
-            stopRandomInfoTimer()
-            return
+    private func nextCompactSlot() -> CompactSlot {
+        switch compactSlot {
+        case .speed: return .address
+        case .address: return .status
+        case .status: return .speed
         }
-        startRandomInfoTimer()
+    }
+
+    /// 每格時長：速度／狀態格 random 10-20 秒；
+    /// 地址格 = POI↔街道一輪（開車 5+5=10 秒、停車 10+5=15 秒），
+    /// ≥60 釘死街道名冇循環可言，當普通格 random 10-20 秒。
+    private func compactSlotDuration() -> TimeInterval {
+        switch compactSlot {
+        case .speed, .status:
+            return Double.random(in: 10...20)
+        case .address:
+            let speed = locationManager.speed
+            if speed >= 60 { return Double.random(in: 10...20) }
+            return speed >= 8 ? 10 : 15
+        }
+    }
+
+    /// 新 POI 出現：打斷輪播切去地址格顯示一輪，之後順序繼續（地址 → 狀態 → …）
+    private func interruptForNewPOI() {
+        guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
+        guard !focusCutsInfoAndETA else { return }
+        withAnimation(.easeInOut(duration: 0.3)) {
+            compactSlot = .address
+        }
+        startAddressAlternatingIfNeeded(force: true)
+        scheduleCompactSlot()
+    }
+
+    /// POI↔街道輪播節奏變咗（跨 8/60 閾值、有冇得輪播改變）：
+    /// 地址格顯示緊就重計「一輪」長度
+    private func refreshAddressCarousel() {
+        if startAddressAlternatingIfNeeded(), compactSlot == .address {
+            scheduleCompactSlot()
+        }
     }
 
     private var selectedParkingPoint: ParkingPointRecord? {
@@ -4910,12 +5064,15 @@ struct ContentView: View {
                         .foregroundStyle(.primary)
                         .lineLimit(2)
 
-                    Text(String(localized: "樓層") + " \(ParkingFloorStore.formatFloor(currentFloor))")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                        .animation(.easeInOut(duration: 0.18), value: currentFloor)
+                    HStack(spacing: 6) {
+                        Text(String(localized: "樓層") + " \(ParkingFloorStore.formatFloor(currentFloor, coordinate: point.coordinate))")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .animation(.easeInOut(duration: 0.18), value: currentFloor)
+                        FloorConventionBadge(coordinate: point.coordinate, compact: true)
+                    }
 
                     if !hasFloor {
                         HStack(spacing: 4) {
@@ -5515,8 +5672,10 @@ struct ContentView: View {
 
             // Extract floor — simplified "楼层" / traditional "樓層"
             var needsFloorConfirm = false
-            if let floorStr = extractValue(from: trimmed, keywords: ["楼层", "樓層"]) {
+            if let rawFloorStr = extractValue(from: trimmed, keywords: ["楼层", "樓層"]) {
                 hasParkingSpotData = true
+                // 正規化 VLM 文字（「地面1」→「1」）—— 唔清走「地面」雜字會跟住落地圖標籤
+                let floorStr = ParkingFloorStore.cleanFloorText(rawFloorStr) ?? rawFloorStr
                 if let index = Self.parseFloorIndex(floorStr) {
                     // 與氣壓計預測比較，觸發確認彈窗
                     if let current = parkingFloorStore.allPoints.first,
@@ -5703,30 +5862,32 @@ struct ContentView: View {
     }
 
     private static func parseFloorIndex(_ text: String) -> Int? {
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        // "B2" → -2
-        if let regex = try? NSRegularExpression(pattern: "^[Bb](\\d+)$", options: []),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
-           let range = Range(match.range(at: 1), in: trimmed),
-           let num = Int(trimmed[range]) {
-            return -num
+        // 統一交俾 ParkingFloorStore：牌面樓層文字按當前樓層慣例（香港/內地）換算成內部指數
+        ParkingFloorStore.parseFloorIndex(text)
+    }
+
+    /// 當前活躍停車點（updateLLMData 寫嘅都係佢）—— 換算樓層慣例同編輯器初始值用
+    private var activeParkingPoint: ParkingPointRecord? {
+        if let id = parkingFloorStore.activeLotID, let lot = parkingFloorStore.lots.first(where: { $0.id == id }) {
+            return lot.points.first
         }
-        // "-2樓/楼" or "2樓/楼" (traditional & simplified)
-        if let regex = try? NSRegularExpression(pattern: "^(-?)(\\d+)\\s*[樓楼]$", options: []),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
-           let numRange = Range(match.range(at: 2), in: trimmed),
-           let num = Int(trimmed[numRange]) {
-            let hasMinus = match.range(at: 1).length > 0
-            return hasMinus ? -num : num
-        }
-        // "地下2層/层" (traditional & simplified)
-        if let regex = try? NSRegularExpression(pattern: "地下(\\d+)[層层]", options: []),
-           let match = regex.firstMatch(in: trimmed, options: [], range: NSRange(location: 0, length: trimmed.utf16.count)),
-           let range = Range(match.range(at: 1), in: trimmed),
-           let num = Int(trimmed[range]) {
-            return -num
-        }
-        return nil
+        return parkingFloorStore.lots.first?.points.first
+    }
+
+    /// 新停車場預設名：POI／大廈名 > 街道名（visit 地址）> 地區名
+    private func defaultNewLotName(visitAddress: String) -> String {
+        if !locationManager.currentPOIName.isEmpty { return locationManager.currentPOIName }
+        if !visitAddress.isEmpty && visitAddress != "Unknown" { return visitAddress }
+        return locationManager.currentLocality
+    }
+
+    /// 開編輯器：樓層欄初始值用**當前顯示緊嘅樓層**（牌面文字優先，其次手動／預測指數格式化）
+    private func openSpotEditor() {
+        editSpotNumber = llmSpotNumber ?? ""
+        editAreaCode = llmAreaCode ?? ""
+        editFloorText = activeParkingPoint?.displayFloor ?? llmFloorText ?? ""
+        editFloorTextInitial = editFloorText
+        showSpotEditor = true
     }
 
     private func buildRecognitionLogicText() -> String {
@@ -5855,6 +6016,8 @@ struct ContentView: View {
             if moved > 2000 {
                 // 偏移太遠，清空舊結果
                 drivingDistanceText = nil
+                drivingDistanceMeters = nil
+                drivingDistanceUpdatedAt = nil
                 etaText = nil
                 drivingETASeconds = nil
                 lastETASuccessLocation = nil
@@ -5873,6 +6036,8 @@ struct ContentView: View {
                     } else {
                         drivingDistanceText = String(format: "%.1f km", distance / 1000)
                     }
+                    drivingDistanceMeters = distance
+                    drivingDistanceUpdatedAt = Date()
                     lastETASuccessLocation = loc
                 }
                 if let time = time {
@@ -6232,6 +6397,32 @@ struct ContentView: View {
             EmptyView()
             cameraButton
                 .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
+
+            // VLM 車位識別開關（照片預覽框左下角細玻璃鈕）
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    vlmRecognitionEnabled.toggle()
+                }
+            } label: {
+                ZStack {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                    if !vlmRecognitionEnabled {
+                        // 關閉態：手畫斜線（避免靠唔確定存唔存在嘅 slash symbol）
+                        Capsule()
+                            .fill(Color.white)
+                            .frame(width: 2, height: 17)
+                            .rotationEffect(.degrees(-45))
+                    }
+                }
+                .frame(width: 30, height: 30)
+                .glassEffect(.regular, in: .circle)
+                .opacity(vlmRecognitionEnabled ? 0.95 : 0.5)
+            }
+            .buttonStyle(.plain)
+            .position(x: 26, y: camH - 26)
+            .accessibilityLabel(vlmRecognitionEnabled ? "VLM 車位識別（已開啟）" : "VLM 車位識別（已關閉）")
 
             // Delete button on selected photo (positioned at photo's top-left corner)
             if let idx = selectedPhotoIndex, idx < photoStorage.photos.count,
@@ -7171,9 +7362,19 @@ struct SpotEditorSheet: View {
     @Binding var spotNumber: String
     @Binding var areaCode: String
     @Binding var floorText: String
+    /// 停車點座標 —— 樓層慣例（香港／內地）跟點所在地判定，換算先啱
+    var coordinate: CLLocationCoordinate2D? = nil
     var onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
-    @State private var floorIndex: Int = 0
+
+    /// 樓層只係一個值：文字輸入係牌面寫法，+/- 係同一個值嘅指數增減。
+    /// 兩者互相同步 —— 以前「樓層文字」「樓層指數」分開兩行，係兩個獨立值，好易唔一致。
+    private var floorIndexBinding: Binding<Int> {
+        Binding(
+            get: { ParkingFloorStore.parseFloorIndex(floorText, coordinate: coordinate) ?? 0 },
+            set: { floorText = ParkingFloorStore.formatFloor($0, coordinate: coordinate) }
+        )
+    }
 
     var body: some View {
         NavigationStack {
@@ -7193,18 +7394,17 @@ struct SpotEditorSheet: View {
                     }
                 }
 
-                Section(header: Label("樓層", systemImage: "building.2")) {
+                Section(header: HStack {
+                    Label("樓層", systemImage: "building.2")
+                    Spacer()
+                    FloorConventionBadge(coordinate: coordinate, compact: true)
+                }) {
                     HStack {
-                        Text("樓層文字")
-                            .frame(width: 70, alignment: .leading)
                         TextField("例如 B2", text: $floorText)
                             .textInputAutocapitalization(.characters)
-                    }
-
-                    HStack {
-                        Text("樓層指數")
-                            .frame(width: 70, alignment: .leading)
-                        Stepper("\(floorIndex)", value: $floorIndex, in: -10...50)
+                        Spacer()
+                        Stepper("", value: floorIndexBinding, in: -10...50)
+                            .labelsHidden()
                     }
                 }
             }
@@ -7216,30 +7416,14 @@ struct SpotEditorSheet: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("確認") {
-                        floorText = floorText.isEmpty ? "\(floorIndex)" : floorText
                         onSave()
                         dismiss()
                     }
                     .fontWeight(.semibold)
                 }
             }
-            .onAppear {
-                let parsed = Self.parseFloorText(floorText)
-                floorIndex = parsed
-            }
         }
         .presentationDetents([.medium])
-    }
-
-    private static func parseFloorText(_ text: String) -> Int {
-        let trimmed = text.trimmingCharacters(in: .whitespaces).uppercased()
-        if trimmed == "G" || trimmed == "GF" || trimmed == "LG" { return 0 }
-        if trimmed.hasPrefix("B") {
-            let num = trimmed.dropFirst()
-            if let n = Int(num) { return -n }
-        }
-        if let n = Int(trimmed) { return n }
-        return 0
     }
 }
 

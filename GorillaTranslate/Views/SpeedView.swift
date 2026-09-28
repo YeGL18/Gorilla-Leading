@@ -18,6 +18,7 @@ private struct SpeedToolbarEdgeReader: View {
 
 struct SpeedView: View {
     @EnvironmentObject private var locationManager: LocationManager
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var timePhaseManager = TimePhaseManager()
     @StateObject private var sfxPlayer = SFXPlayer()
     @StateObject private var tiltMotion = TiltParallaxMotion()
@@ -29,6 +30,13 @@ struct SpeedView: View {
     @AppStorage("speedBlurEnabled") private var speedBlurEnabled: Bool = true
     /// 時速數字嘅陀螺儀傾斜 / G 值視差動畫
     @AppStorage("speedParallaxEnabled") private var speedParallaxEnabled: Bool = true
+    /// 隱藏時速數字（數字原位隱形，其他照舊）
+    @AppStorage("speedNumberHidden") private var speedNumberHidden: Bool = false
+    /// 卡爾曼濾波：開啟時時速數字逐格滾動插值
+    @AppStorage("kalmanSmoothingEnabled") private var kalmanSmoothingEnabled: Bool = true
+
+    /// 時速數字逐格滾動插值器（120Hz，獨立物件令只有數字 Text 重繪）
+    @StateObject private var speedRoller = NumberRoller()
 
     /// 當前視差 X 值（-1…1），根據模式切換來源
     private var parallaxX: Double {
@@ -48,6 +56,29 @@ struct SpeedView: View {
     private var blurShadowMultiplier: Double {
         showParallaxToggle ? 1.6 : 1.0
     }
+
+    /// 「圓點顏色」設定 → 圓點動畫 hex。
+    /// 0=金黃（維持現有 #ffd700 照舊）、1=動態橙（30→120 km/h 橙→橙紅）、2-4=指定綠系。
+    private var dotMatrixColorHex: String {
+        switch orbColorPreset {
+        case 1:
+            let kmh = max(0, locationManager.speed)  // locationManager.speed 已係 km/h
+            let t = min(max((kmh - 30) / 90, 0), 1)
+            if t < 0.5 {
+                // FF8C00 → FF6B00
+                let u = t * 2
+                return String(format: "#%02X%02X%02X", 255, Int(140 - 33 * u), 0)
+            } else {
+                // FF6B00 → FF4500
+                let u = (t - 0.5) * 2
+                return String(format: "#%02X%02X%02X", 255, Int(107 - 38 * u), 0)
+            }
+        case 2: return "#9BF783"
+        case 3: return "#99E695"
+        case 4: return "#97D5AB"
+        default: return "#ffd700"
+        }
+    }
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0
@@ -66,6 +97,11 @@ struct SpeedView: View {
     @State private var lastKnownSpeed: Double = 0
     /// GPS 失聯動畫狀態（用於透明度漸變）
     @State private var gpsLostAnim: Bool = false
+    /// GPS 失聯巡邏定時器（每 0.5 秒用「冇新 fix」年齡判定一次）。
+    /// 用 @State 保存係因為 Timer.publish 喺 app 切過背景之後有機會靜止
+    /// 唔再 fire，令 gpsLostAnim 卡喺 true（時速數字變半透明唔識翻生）；
+    /// 所以每次回前景都換個新 timer（見 onChange(of: scenePhase)）。
+    @State private var gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     /// 呼吸動畫：true/false 交替驅動透明度脈動
     @State private var breatheIn = false
@@ -149,7 +185,7 @@ struct SpeedView: View {
                 DotMatrixWebView(speed: Binding(
                     get: { locationManager.speed },
                     set: { _ in }
-                ), canvasScale: 1.0)
+                ), canvasScale: 1.0, dynamicColorHex: dotMatrixColorHex)
                 .frame(width: dotGeo.size.width * 1.4, height: dotGeo.size.height * 1.4)
                 .position(x: dotGeo.size.width / 2, y: dotGeo.size.height / 2)
                 .offset(y: useUpperHalf ? -dotGeo.size.height / 4 : 0)
@@ -171,7 +207,6 @@ struct SpeedView: View {
                     ? (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2
                     : 0
                 let textColor: Color = colorScheme == .dark ? .white : .black
-                let speedText = "\(Int(lastKnownSpeed))"
                 let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
                 ZStack {
                     // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
@@ -183,12 +218,17 @@ struct SpeedView: View {
                             let adjustedBlur = CGFloat(blurRadius) * blurShadowMultiplier
                             VStack(spacing: 4) {
                                 Spacer()
-                                Text(speedText)
-                                    .font(.system(size: 96, weight: .heavy, design: .rounded))
-                                    .foregroundColor(textColor.opacity(opacity * speedOpacity))
+                                SpeedDigitsText(
+                                    roller: speedRoller,
+                                    rolling: kalmanSmoothingEnabled,
+                                    fallback: lastKnownSpeed,
+                                    color: textColor.opacity(opacity * speedOpacity),
+                                    hidden: speedNumberHidden
+                                )
                                 Text("km/h")
                                     .font(.title3)
                                     .foregroundColor(textColor.opacity(opacity * 0.6 * speedOpacity))
+                                    .opacity(speedNumberHidden ? 0 : 1)
                                 Spacer()
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -199,14 +239,17 @@ struct SpeedView: View {
                     // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大。G 值模式效果更強。
                     VStack(spacing: 4) {
                         Spacer()
-                        Text(speedText)
-                            .font(.system(size: 96, weight: .heavy, design: .rounded))
-                            .foregroundColor(textColor.opacity(0.6 * speedOpacity))
-                            .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.25), value: Int(lastKnownSpeed))
+                        SpeedDigitsText(
+                            roller: speedRoller,
+                            rolling: kalmanSmoothingEnabled,
+                            fallback: lastKnownSpeed,
+                            color: textColor.opacity(0.6 * speedOpacity),
+                            hidden: speedNumberHidden
+                        )
                         Text("km/h")
                             .font(.title3)
                             .foregroundColor(textColor.opacity(0.6 * speedOpacity))
+                            .opacity(speedNumberHidden ? 0 : 1)
                         // 視差模式切換膠囊
                         if showParallaxToggle {
                             parallaxToggleCapsule
@@ -330,11 +373,29 @@ struct SpeedView: View {
                 startActiveParallax()
                 syncParallaxFrameRate()
             }
+            // 時速數字逐格滾動：卡爾曼開關開啟時以螢幕最高刷新率插值
+            speedRoller.setDisplay(max(0, locationManager.smoothedSpeed))
+            speedRoller.targetProvider = { [lm = locationManager] in
+                // 失聯就回傳 nil 凍結顯示（隧道入面靠 lastLocation 年齡判定，
+                // 唔係靠 gpsQuality——冇定位回調時 quality 唔會變）
+                return lm.isGPSLost ? nil : lm.predictedSpeed()
+            }
+            if kalmanSmoothingEnabled {
+                speedRoller.start()
+            }
         }
         .onDisappear {
             timePhaseManager.stop()
             tiltMotion.stop()
             gForceMotion.stop()
+            speedRoller.stop()
+        }
+        .onChange(of: kalmanSmoothingEnabled) { _, enabled in
+            if enabled {
+                speedRoller.start()
+            } else {
+                speedRoller.stop()
+            }
         }
         // 視差取樣率跟背景動畫幀率對齊：進出專注模式／改幀率都即時生效
         .onChange(of: focusMode) { _, newMode in
@@ -360,24 +421,41 @@ struct SpeedView: View {
             }
         }
         .onChange(of: locationManager.smoothedSpeed) { _, newSpeed in
-            // GPS 正常時持續更新最後已知時速（用 Double 驅動平滑漸變）
-            let gpsLost = locationManager.gpsQuality == .bad || locationManager.gpsQuality == .unknown
-            if !gpsLost {
+            // GPS 正常時持續更新最後已知時速（用 Double 驅動平滑漸變）；
+            // 失聯時唔更新 = 凍結喺最後已知時速
+            if !locationManager.isGPSLost {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     lastKnownSpeed = max(0, newSpeed)
                 }
             }
         }
-        .onChange(of: locationManager.gpsQuality) { _, newQuality in
-            let gpsLost = newQuality == .bad || newQuality == .unknown
-            if !gpsLost {
-                withAnimation(.easeInOut(duration: 0.25)) {
-                    lastKnownSpeed = max(0, locationManager.smoothedSpeed)
-                }
+        // GPS 失聯巡邏：隧道入面一個定位回調都冇，gpsQuality 唔會變、
+        // smoothedSpeed 亦唔會變，所以要定時用「冇新 fix」年齡判定失聯，
+        // 先可以喺冇 callback 嘅情況下照樣凍結顯示＋變暗
+        .onReceive(gpsLostProbe) { _ in
+            syncGpsLostState()
+        }
+        // 有新 fix 都校正一次：就算巡邏 timer 失效，
+        // 開緊車有數據就唔會俾半透明狀態困住
+        .onReceive(locationManager.$lastLocation) { _ in
+            syncGpsLostState()
+        }
+        // 回前景：換個新巡邏 timer（舊嗰個懸停後可能已靜止）＋即刻校正一次；
+        // 仲有 CADisplayLink／CoreMotion 懸停之後有機會唔再 fire
+        // （orb 動畫靜止、滾動數字停），全部重新起過
+        .onChange(of: scenePhase) { _, phase in
+            guard phase == .active else { return }
+            gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+            syncGpsLostState()
+            if orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb {
+                timePhaseManager.start()
             }
-            // GPS 狀態切換時播放透明度漸變動畫
-            withAnimation(.easeInOut(duration: 0.5)) {
-                gpsLostAnim = gpsLost
+            if kalmanSmoothingEnabled {
+                speedRoller.restart()
+            }
+            if speedParallaxEnabled {
+                startActiveParallax()
+                syncParallaxFrameRate()
             }
         }
         .onReceive(locationManager.$speed) { newSpeed in
@@ -497,10 +575,29 @@ struct SpeedView: View {
         }
     }
 
-    /// 陀螺儀視差取樣率 = 背景動畫幀率：專注模式開住就用所選幀率，
-    /// 否則預設 60Hz，同動畫時鐘保持一致。
+    /// 校正 GPS 失聯顯示狀態（時速透明度＋凍結值）。
+    /// 巡邏 timer、回前景、任何新定位都經呢度一次過同步，
+    /// 唔會俾單一途徑失效就困住個顯示狀態。
+    private func syncGpsLostState() {
+        let lost = locationManager.isGPSLost
+        if lost != gpsLostAnim {
+            withAnimation(.easeInOut(duration: 0.5)) {
+                gpsLostAnim = lost
+            }
+        }
+        if !lost, lastKnownSpeed != max(0, locationManager.smoothedSpeed) {
+            withAnimation(.easeInOut(duration: 0.25)) {
+                lastKnownSpeed = max(0, locationManager.smoothedSpeed)
+            }
+        }
+    }
+
+    /// 陀螺儀視差取樣率：專注模式開住就用所選幀率，
+    /// 否則唔限制 —— 跟螢幕最高刷新率（ProMotion = 120Hz）。
     private func syncParallaxFrameRate() {
-        let fps: Double = focusMode != nil ? Double(focusFrameRate.rawValue) : 60
+        let fps: Double = focusMode != nil
+            ? Double(focusFrameRate.rawValue)
+            : Double(max(UIScreen.main.maximumFramesPerSecond, 60))
         tiltMotion.setUpdateRate(fps)
         gForceMotion.setUpdateRate(fps)
     }
@@ -900,6 +997,38 @@ struct FocusModeSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
         .buttonStyle(.plain)
+    }
+}
+
+// MARK: - 時速數字（逐格滾動插值）
+
+/// 時速數字 Text：卡爾曼開關開啟時由 NumberRoller 以螢幕最高刷新率
+/// 逐格滾動插值（數字 1→2→3→… 逐格滾上去，同「卡爾曼濾波測試」頁一致），
+/// 關閉時跟隨顯示值直接跳變（保留 0.25s 漸變）。
+/// 獨立葉子 View：滾動時只有呢個 Text 重繪，唔會重算成個 SpeedView。
+///
+/// 數字顯示要穩定唔抖：font 用 monospacedDigit（每個數字位闊度一致，
+/// 數字轉變唔會成串「微微位移」），而且唔加 .numericText() 轉場 ——
+/// NumberRoller 本身已經逐格滾緊，再疊轉場會令每個整數變化都打斷重播，
+/// 數字會喺原位不停抖（每次轉邊個位、向邊個方向都唔同：上下／左下右上）。
+private struct SpeedDigitsText: View {
+    @ObservedObject var roller: NumberRoller
+    /// true = 逐格滾動插值；false = 直接跳變
+    let rolling: Bool
+    /// 滾動關閉時顯示嘅值
+    let fallback: Double
+    var font: Font = .system(size: 96, weight: .heavy, design: .rounded)
+    let color: Color
+    /// 隱藏時速數字（原位隱形，佈局照舊）
+    let hidden: Bool
+
+    private var value: Int { Int(rolling ? roller.display : fallback) }
+
+    var body: some View {
+        Text("\(value)")
+            .font(font.monospacedDigit())
+            .foregroundColor(color)
+            .opacity(hidden ? 0 : 1)
     }
 }
 

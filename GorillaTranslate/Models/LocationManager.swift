@@ -1,5 +1,6 @@
 import Foundation
 import UIKit
+import SwiftUI
 import CoreLocation
 import CoreMotion
 
@@ -99,6 +100,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var recentQualities: [GPSQuality] = []
     private let requiredSamples = 5
     private var lastGeocodeLocation: CLLocation?
+    private var lastGeocodeTime: Date?
     private var locationServicesStarted = false
 
     // MARK: - CMMotionActivity 交通模式偵測
@@ -159,44 +161,59 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
 
         var duration: String {
-            let departure: Date
-            if let d = departureDate, d.timeIntervalSince(arrivalDate) < 7 * 24 * 3600 {
-                departure = d
-            } else {
-                let elapsed = Date().timeIntervalSince(arrivalDate)
-                if elapsed < 60 { return "< 1 min" }
-                else if elapsed < 3600 { return "\(Int(elapsed / 60)) min" }
-                else {
-                    let h = Int(elapsed / 3600)
-                    let m = Int(elapsed.truncatingRemainder(dividingBy: 3600) / 60)
-                    return "\(h)h \(m)m"
-                }
+            // 修復「舊記錄顯示至今」：有離場時間就用離場時間計固定時長；
+            // 淨係真係仲停留緊（departureDate == nil）先用即時累加
+            if let d = departureDate, d >= arrivalDate {
+                return Self.formatSpan(d.timeIntervalSince(arrivalDate))
             }
-            let interval = departure.timeIntervalSince(arrivalDate)
-            if interval < 60 {
-                return "< 1 min"
-            } else if interval < 3600 {
-                return "\(Int(interval / 60)) min"
-            } else {
-                let hours = Int(interval / 3600)
-                let mins = Int((interval.truncatingRemainder(dividingBy: 3600)) / 60)
-                return "\(hours)h \(mins)m"
-            }
+            return Self.formatSpan(Date().timeIntervalSince(arrivalDate))
+        }
+
+        /// 時長格式（同參考 UI 一致）：< 1min / 29min / 1hr 36min
+        static func formatSpan(_ interval: TimeInterval) -> String {
+            let minutes = Int(max(0, interval) / 60)
+            if minutes < 1 { return "< 1min" }
+            if minutes < 60 { return "\(minutes)min" }
+            let h = minutes / 60
+            let m = minutes % 60
+            return m == 0 ? "\(h)hr" : "\(h)hr \(m)min"
         }
     }
 
     @Published var speed: Double = 0
     @Published var smoothedSpeed: Double = 0
 
+    /// 逐格滾動插值用：卡爾曼速度外推預測值（GPS 更新之間會持續平滑推進，
+    /// 數字逐格滾動）。關閉卡爾曼時直接回傳平滑時速。
+    func predictedSpeed(at date: Date = Date()) -> Double {
+        guard kalmanSmoothingEnabled else { return smoothedSpeed }
+        return min(299, max(0, speedKalmanFilter.predict(at: date)))
+    }
+
     func resetSpeedFilter() {
         speedKalmanFilter.reset()
         smoothedSpeed = 0
         speed = 0
     }
+
+    /// GPS 失聯判定（時速顯示凍結用）：除咗質素差，仲要計「幾耐冇新 fix」——
+    /// 隧道入面一個定位回調都冇，gpsQuality 會停喺最後狀態（.good），
+    /// 所以要靠 lastLocation 時間戳年齡判定失聯。超過 2.5 秒冇新 fix = 失聯。
+    /// 注意 .unknown 唔算失聯：佢只係「未有質素判定」（冷啟動／權限回調
+    /// 重新廣播），只要仲有新 fix 就唔應該凍結時速顯示。
+    var isGPSLost: Bool {
+        if gpsQuality == .bad { return true }
+        guard let loc = lastLocation else { return true }
+        return Date().timeIntervalSince(loc.timestamp) > 2.5
+    }
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     @Published var gpsQuality: GPSQuality = .unknown
     @Published var currentAddress: String = ""
-    @Published var currentPOIName: String = ""  // POI 名稱（用於輪播顯示）
+    @Published var currentPOIName: String = ""  // POI／大廈名（用於輪播顯示）
+    /// 街道名（街道＋門牌，冇街道就退地區名）——輪播另一邊。
+    /// 同 `currentAddress` 分開：地址字串優先級係 POI名 > 地區名 > 街道名，
+    /// 直接拎嚟輪播會成日同 POI 名相同而輪唔到。
+    @Published var currentStreetName: String = ""
     @Published var currentLocality: String = ""  // 當前城市/地區
     @Published var visits: [VisitRecord] = []
     @Published var lastLocation: CLLocation?
@@ -219,7 +236,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private let visitsKey = "visit_records"
 
     // Kalman filter for speed smoothing
-    private let speedKalmanFilter = KalmanFilter(processNoise: 0.01, measurementNoise: 0.5)
+    private let speedKalmanFilter = KalmanFilter(processNoise: 0.5, measurementNoise: 0.3)
     private var kalmanSmoothingEnabled: Bool {
         UserDefaults.standard.bool(forKey: "kalmanSmoothingEnabled")
     }
@@ -236,6 +253,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
         loadVisits()
+        loadMotionSegments()
     }
 
     func startLocationServicesIfNeeded() {
@@ -274,7 +292,162 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             if activity.cycling {
                 self?.lastCyclingTime = now
             }
+            // 持續記錄交通模式分段（行程分段顯示＋開車到達判定用）
+            self?.recordMotionActivity(activity)
         }
+        // 回填 App 死咗嗰陣嘅歷史分段
+        backfillMotionSegments()
+    }
+
+    // MARK: - 交通模式分段（CMMotionActivity 持續記錄）
+
+    private let motionSegmentsKey = "motion_segments"
+
+    /// 由 CMMotionActivity 累積出嚟嘅交通模式分段。
+    /// 舊記錄冇分段數據 → 行程行顯示單行（同參考圖一致）；新行程先有 🚗33min ▶ 🚶1min ▶… 分段。
+    private(set) var motionSegments: [MotionSegment] = []
+
+    private static func modeString(_ activity: CMMotionActivity) -> String {
+        if activity.automotive { return "Driving" }
+        if activity.walking { return "Walking" }
+        if activity.running { return "Running" }
+        if activity.cycling { return "Cycling" }
+        if activity.stationary { return "Stationary" }
+        return "Unknown"
+    }
+
+    private func recordMotionActivity(_ activity: CMMotionActivity) {
+        let mode = Self.modeString(activity)
+        if var last = motionSegments.last, last.end == nil {
+            if last.mode == mode { return } // 同一段延續，唔使理
+            if activity.startDate > last.start {
+                last.end = activity.startDate
+                motionSegments[motionSegments.count - 1] = last
+            } else {
+                return // 亂序更新，唔好打亂時間軸
+            }
+        }
+        appendSegment(mode: mode, start: activity.startDate, end: nil)
+        trimAndSaveMotionSegments()
+    }
+
+    private func appendSegment(mode: String, start: Date, end: Date?) {
+        guard let last = motionSegments.last else {
+            motionSegments.append(MotionSegment(id: UUID(), mode: mode, start: start, end: end))
+            return
+        }
+        if last.mode == mode, last.end == nil || (last.end ?? .distantPast) >= start {
+            var l = last
+            l.end = Self.laterDate(l.end, end)
+            motionSegments[motionSegments.count - 1] = l
+            return
+        }
+        if let le = last.end, start < le {
+            // 同前段重疊：以前段為準，剪走重疊部分
+            if let e = end, e <= le { return }
+            motionSegments.append(MotionSegment(id: UUID(), mode: mode, start: le, end: end))
+            return
+        }
+        motionSegments.append(MotionSegment(id: UUID(), mode: mode, start: start, end: end))
+    }
+
+    private static func laterDate(_ a: Date?, _ b: Date?) -> Date? {
+        switch (a, b) {
+        case (nil, nil): return nil
+        case (let x?, nil): return x
+        case (nil, let y?): return y
+        case (let x?, let y?): return max(x, y)
+        }
+    }
+
+    private func trimAndSaveMotionSegments() {
+        let cutoff = Date().addingTimeInterval(-45 * 24 * 3600)
+        if let firstKeep = motionSegments.firstIndex(where: { $0.resolvedEnd >= cutoff }), firstKeep > 0 {
+            motionSegments.removeFirst(firstKeep)
+        }
+        if motionSegments.count > 3000 {
+            motionSegments.removeFirst(motionSegments.count - 3000)
+        }
+        if let data = try? JSONEncoder().encode(motionSegments) {
+            UserDefaults.standard.set(data, forKey: motionSegmentsKey)
+        }
+    }
+
+    private func loadMotionSegments() {
+        guard let data = UserDefaults.standard.data(forKey: motionSegmentsKey),
+              let decoded = try? JSONDecoder().decode([MotionSegment].self, from: data) else { return }
+        motionSegments = decoded
+    }
+
+    /// 重啟後回填 CMMotionActivity 歷史（App 死咗嗰陣嘅行程都可以分段＋判定）。
+    /// queryActivityStarting 回傳嘅係「轉換點」平面陣列：第 n 段由 startDate 開始，
+    /// 到下一段 startDate 為止（CMMotionActivity 冇 endDate）
+    private func backfillMotionSegments() {
+        guard CMMotionActivityManager.isActivityAvailable() else { return }
+        let to = Date()
+        // CoreMotion 只保留最近 7 日數據，窗口控制喺 2.5 日內
+        let earliest = to.addingTimeInterval(-2.5 * 24 * 3600)
+        let from = max(motionSegments.last?.resolvedEnd.addingTimeInterval(-300) ?? earliest, earliest)
+        guard to.timeIntervalSince(from) > 60 else { return }
+        motionActivityManager.queryActivityStarting(from: from, to: to, to: .main) { [weak self] activities, error in
+            guard let self, let activities, error == nil else { return }
+            let ordered = activities.sorted { $0.startDate < $1.startDate }
+            for (index, act) in ordered.enumerated() {
+                let end = index + 1 < ordered.count ? ordered[index + 1].startDate : to
+                self.appendSegment(mode: Self.modeString(act), start: act.startDate, end: end)
+            }
+            self.trimAndSaveMotionSegments()
+        }
+    }
+
+    /// 某時間範圍內嘅「移動」分段（揸車/步行/跑步/騎行）：夾入窗口、濾雜訊、合併同模式短停頓
+    func tripSegments(from: Date, to: Date) -> [MotionSegment] {
+        guard to > from else { return [] }
+        let clipped = motionSegments
+            .compactMap { $0.clipped(from: from, to: to) }
+            .filter { $0.isMovement && $0.resolvedEnd.timeIntervalSince($0.start) >= 10 }
+        var merged: [MotionSegment] = []
+        for seg in clipped {
+            if var last = merged.last,
+               seg.mode == last.mode,
+               seg.start.timeIntervalSince(last.resolvedEnd) < 120 {
+                last.end = seg.resolvedEnd
+                merged[merged.count - 1] = last
+            } else {
+                merged.append(seg)
+            }
+        }
+        return merged
+    }
+
+    /// 「全程揸車先算」：成段行程冇步行/跑步/騎行段（≥20 秒）先算開車到達（泊車記憶）；
+    /// 有任何非揸車段 → 非開車到達（逗留記憶）。冇分段數據就退回舊嘅模式判斷。
+    func classifyTrip(tripStart: Date?, arrival: Date) -> (isAutomotive: Bool, transportType: String) {
+        let earliest = arrival.addingTimeInterval(-8 * 3600)
+        let start = max(tripStart ?? arrival.addingTimeInterval(-2 * 3600), earliest)
+        let segs = tripSegments(from: start, to: arrival)
+        guard !segs.isEmpty else {
+            // 冇分段數據（例如更新前嘅行程）：退回舊判斷
+            let autom = lastTransportMode(around: arrival) == .driving
+            return (autom, autom ? "Driving" : transportTypeFromSpeed())
+        }
+        let nonDriving = segs.filter {
+            $0.mode != "Driving" && $0.resolvedEnd.timeIntervalSince($0.start) >= 20
+        }
+        let driving = segs.filter {
+            $0.mode == "Driving" && $0.resolvedEnd.timeIntervalSince($0.start) >= 20
+        }
+        let lastMode = segs.last?.mode ?? "Unknown"
+        if !nonDriving.isEmpty { return (false, lastMode) }
+        if !driving.isEmpty { return (true, lastMode) }
+        return (false, lastMode)
+    }
+
+    private func transportTypeFromSpeed() -> String {
+        let kmh = max(0, speed)
+        if kmh < 2 { return "Walking" }
+        if kmh < 80 { return "Driving" }
+        return "Transit"
     }
 
     /// 判斷某個時間點前後是否在開車（用於 CLVisit 到達時判斷交通模式）
@@ -323,6 +496,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         DispatchQueue.main.async {
             self.lastLocation = location
+            // 緩存當前坐標（樓層慣例自動判定用；以前呢兩個 key 冇人寫，成日判死香港）
+            UserDefaults.standard.set(location.coordinate.latitude, forKey: "lastKnownLatitude")
+            UserDefaults.standard.set(location.coordinate.longitude, forKey: "lastKnownLongitude")
             if location.speed >= 0 {
                 let rawSpeed = location.speed * 3.6
                 self.speed = rawSpeed
@@ -348,27 +524,42 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 self.gpsQuality = newQuality
             }
 
-            if self.lastGeocodeLocation == nil ||
-               location.distance(from: self.lastGeocodeLocation!) > 20 {
-                self.reverseGeocode(location: location)
+            // geocode 節流：移動超過 50 米先查一次；高速（≥60 km/h）再加
+            // 「至少隔 5 秒」——60+ 每 5 秒已經行咗成百米，密過呢個冇意義，
+            // 只會白刷 geocoder。未到 5 秒就唔更新 lastGeocodeLocation，
+            // 下個 fix 行遠咗自然會補查。
+            let speedNow = location.speed >= 0 ? location.speed * 3.6 : self.speed
+            let movedFar = self.lastGeocodeLocation == nil ||
+                location.distance(from: self.lastGeocodeLocation!) > 50
+            if movedFar {
+                let throttled = speedNow >= 60 &&
+                    self.lastGeocodeTime != nil &&
+                    Date().timeIntervalSince(self.lastGeocodeTime!) < 5
+                if !throttled {
+                    self.reverseGeocode(location: location)
+                }
             }
         }
     }
 
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
-        let speedMs = manager.location?.speed ?? -1
-        let speedKmh = speedMs >= 0 ? speedMs * 3.6 : 0
-        let transport: String
-        if speedKmh < 2 {
-            transport = "Walking"
-        } else if speedKmh < 80 {
-            transport = "Driving"
-        } else {
-            transport = "Transit"
+        // 交通模式判定：「全程揸車先算」—— 成段行程入面冇步行/跑步/騎行段先算
+        // 開車到達（泊車記憶），有任何非揸車段就係非開車到達（逗留記憶）。
+        // 用 CMMotionActivity 分段歷史判斷成段行程，取代以前「到達前後 5 分鐘最近模式」
+        // 嗰種成日睇錯嘅估法。
+        let prev = visits.first { $0.arrivalDate < visit.arrivalDate }
+        let tripStart = prev?.departureDate ?? prev?.arrivalDate
+        let classification = classifyTrip(tripStart: tripStart, arrival: visit.arrivalDate)
+        var transport = classification.transportType
+        // 段行程均速 > 80 km/h 當公共交通（巴士/火車/飛機）
+        if classification.isAutomotive, let prev, let tripStart, tripStart < visit.arrivalDate {
+            let dist = CLLocation(latitude: prev.latitude, longitude: prev.longitude)
+                .distance(from: CLLocation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude))
+            if dist / visit.arrivalDate.timeIntervalSince(tripStart) * 3.6 > 80 {
+                transport = "Transit"
+            }
         }
-
-        // 根據 CMMotionActivity 判斷是否開車到達
-        let automotive = wasAutomotive(around: visit.arrivalDate)
+        let automotive = classification.isAutomotive
 
         let record = VisitRecord(
             id: UUID(),
@@ -402,6 +593,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             guard let self else { return }
             var addr = ""
             if let placemark = placemarks?.first {
+                // 順手做區域權威判定（isoCountryCode：HK/MO vs CN）
+                MapRegionJudge.record(placemark: placemark, at: location.coordinate)
                 var parts: [String] = []
                 if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
                     parts.append("\(street) \(number)")
@@ -430,26 +623,49 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     private func reverseGeocode(location: CLLocation) {
         lastGeocodeLocation = location
+        lastGeocodeTime = Date()
         geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
             guard let placemark = placemarks?.first, error == nil else { return }
+            // 順手做區域權威判定（isoCountryCode：HK/MO vs CN，同 Apple/高德切換同一條邊界）
+            MapRegionJudge.record(placemark: placemark, at: location.coordinate)
             DispatchQueue.main.async {
-                // 優先級：POI名 > 地區名 > 街道名
-                var parts: [String] = []
+                // POI／大廈名（輪播一邊）
                 var poiName = ""
-
-                // 1. POI 名稱（例如某某醫院、商場）
                 if let aoi = placemark.areasOfInterest?.first, !aoi.isEmpty {
-                    parts.append(aoi)
                     poiName = aoi
                 } else if let name = placemark.name, !name.isEmpty {
                     // name 同 thoroughfare 唔一樣就當 POI
                     if name != placemark.thoroughfare {
-                        parts.append(name)
                         poiName = name
                     }
                 }
 
-                // 2. 地區名（subLocality, locality）
+                // 街道名（街道＋門牌；冇街道就退地區名）——輪播另一邊。
+                // 以前呢個位直接用 currentAddress 當「街道名」，而地址字串
+                // 優先級係 POI名 > 地區名 > 街道名，POI 名一入咗地址，
+                // 「POI名同地址一樣就清空」就永遠成立 → POI 欄永遠空 →
+                // 輪播從來冇真正啟動過。所以獨立一個街道名欄出嚟。
+                var streetParts: [String] = []
+                if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
+                    streetParts.append("\(street) \(number)")
+                } else if let street = placemark.thoroughfare {
+                    streetParts.append(street)
+                }
+                if streetParts.isEmpty {
+                    if let sub = placemark.subLocality, !sub.isEmpty {
+                        streetParts.append(sub)
+                    }
+                    if let locality = placemark.locality, !locality.isEmpty,
+                       locality != placemark.subLocality {
+                        streetParts.append(locality)
+                    }
+                }
+
+                // 地址字串維持原本優先級：POI名 > 地區名 > 街道名
+                var parts: [String] = []
+                if !poiName.isEmpty {
+                    parts.append(poiName)
+                }
                 if parts.isEmpty {
                     if let sub = placemark.subLocality, !sub.isEmpty {
                         parts.append(sub)
@@ -459,8 +675,6 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                         parts.append(locality)
                     }
                 }
-
-                // 3. 街道名（最後選擇）
                 if parts.isEmpty {
                     if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
                         parts.append("\(street) \(number)")
@@ -469,14 +683,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                     }
                 }
 
-                // 如果 POI 名同地址一樣，清空 POI（唔輪播）
-                let finalAddress = parts.joined(separator: " ")
-                if poiName == finalAddress {
-                    poiName = ""
-                }
-
-                self?.currentAddress = finalAddress
+                self?.currentAddress = parts.joined(separator: " ")
                 self?.currentPOIName = poiName
+                self?.currentStreetName = streetParts.joined(separator: " ")
                 self?.currentLocality = placemark.locality ?? ""
             }
         }
@@ -485,9 +694,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func matchVisitIndex(arrivalDate: Date, coordinate: CLLocationCoordinate2D) -> Int? {
         let target = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         for (idx, v) in visits.enumerated() {
-            if abs(v.arrivalDate.timeIntervalSince(arrivalDate)) > 2.0 { continue }
+            // 30 秒容差：同一個 CLVisit 幾次送達可能帶輕微唔同嘅到達時間／坐標
+            // （地庫車場 GPS 質心會漂）。以前 2 秒太緊，離場事件配唔返原記錄
+            // 就整出第二條重複記錄 → 舊記錄永遠顯示至今＋行程時間出負數
+            if abs(v.arrivalDate.timeIntervalSince(arrivalDate)) > 30.0 { continue }
             let d = target.distance(from: CLLocation(latitude: v.latitude, longitude: v.longitude))
-            if d < 60 { return idx }
+            if d < 150 { return idx }
         }
         return nil
     }
@@ -578,13 +790,20 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         DispatchQueue.main.async {
-            self.authorizationStatus = manager.authorizationStatus
-            if manager.authorizationStatus == .authorizedWhenInUse {
+            let status = manager.authorizationStatus
+            // 呢個回調每次回前景都會重新廣播一次相同狀態 —— 以前無條件將
+            // gpsQuality 重設 .unknown，一回前景 isGPSLost 即刻變 true，
+            // 時速數字無端端變半透明＋凍結。而家淨係喺狀態真係改變時先重設。
+            let statusChanged = self.authorizationStatus != status
+            self.authorizationStatus = status
+            if status == .authorizedWhenInUse {
                 manager.requestAlwaysAuthorization()
+            }
+            guard statusChanged else { return }
+            switch status {
+            case .authorizedWhenInUse, .authorizedAlways:
                 self.gpsQuality = .unknown
-            } else if manager.authorizationStatus == .authorizedAlways {
-                self.gpsQuality = .unknown
-            } else {
+            default:
                 self.gpsQuality = .bad
             }
         }
@@ -616,7 +835,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func loadVisits() {
         guard let data = UserDefaults.standard.data(forKey: visitsKey),
               let decoded = try? JSONDecoder().decode([VisitRecord].self, from: data) else { return }
-        visits = decoded.sorted { $0.arrivalDate > $1.arrivalDate }
+        visits = dedupeVisits(decoded.sorted { $0.arrivalDate > $1.arrivalDate })
         for v in visits {
             if v.departureDate != nil {
                 learnedDepartureVisits.insert(v.id)
@@ -628,9 +847,66 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         hasLoadedVisits = true
     }
 
+    /// 合併重複到訪記錄：以前配對太緊，離場事件成日整出第二條重複記錄，
+    /// 原記錄就永遠開住顯示至今。呢度將「同一地點 5 分鐘內到達」嘅記錄合併，
+    /// 離場時間取返 iOS 系統送過嚟嗰個（原生數據，唔係 App 估出嚟）
+    private func dedupeVisits(_ sorted: [VisitRecord]) -> [VisitRecord] {
+        var result: [VisitRecord] = []
+        for v in sorted {
+            if let idx = result.firstIndex(where: {
+                abs($0.arrivalDate.timeIntervalSince(v.arrivalDate)) < 300
+                    && CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                        .distance(from: CLLocation(latitude: v.latitude, longitude: v.longitude)) < 150
+            }) {
+                var keep = result[idx]
+                keep.departureDate = Self.laterDate(keep.departureDate, v.departureDate)
+                if (keep.address.isEmpty || keep.address == "Unknown"), !v.address.isEmpty {
+                    keep = VisitRecord(
+                        id: keep.id,
+                        address: v.address,
+                        latitude: keep.latitude,
+                        longitude: keep.longitude,
+                        arrivalDate: keep.arrivalDate,
+                        departureDate: keep.departureDate,
+                        transportType: keep.transportType,
+                        isAutomotive: keep.isAutomotive
+                    )
+                }
+                result[idx] = keep
+            } else {
+                result.append(v)
+            }
+        }
+        return result
+    }
+
     func clearVisits() {
         visits = []
         UserDefaults.standard.removeObject(forKey: visitsKey)
+    }
+}
+
+/// CMMotionActivity 交通模式分段（揸車/步行/跑步/騎行/靜止）。
+/// 用嚟做行程分段顯示（🚗33min ▶ 🚶1min ▶…）同「全程揸車先算」到達判定。
+struct MotionSegment: Identifiable, Codable, Equatable {
+    var id: UUID
+    /// Driving / Walking / Running / Cycling / Stationary / Unknown
+    var mode: String
+    var start: Date
+    /// nil = 仲進行中
+    var end: Date?
+
+    var resolvedEnd: Date { end ?? Date() }
+    var isMovement: Bool {
+        mode == "Driving" || mode == "Walking" || mode == "Running" || mode == "Cycling"
+    }
+
+    /// 夾入 [from, to] 窗口；完全喺窗口外就回傳 nil
+    func clipped(from: Date, to: Date) -> MotionSegment? {
+        let s = max(start, from)
+        let e = min(resolvedEnd, to)
+        guard e > s else { return nil }
+        return MotionSegment(id: id, mode: mode, start: s, end: e)
     }
 }
 
@@ -649,6 +925,9 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     var barometerFinalAltitude: Double?
     var barometerPressureKPa: Double?
     var predictedFromLotLearned: Bool?
+    /// 離場時自動認定：用戶泊車期間從未手動調過樓層，
+    /// 離場時將自動判斷嘅樓層視為正確答案（用於累積學習數據）
+    var departureConfirmed: Bool?
     // LLM 照片識別結果（持久化）
     var llmSpotNumber: String?
     var llmAreaCode: String?
@@ -663,7 +942,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         case barometerAltitudeDeltaMeters, barometerSampleCount
         case barometerReferenceAltitude, barometerFinalAltitude, barometerPressureKPa
         case predictedFromLotLearned, llmSpotNumber, llmAreaCode, llmFloorText
-        case isAutomotive
+        case isAutomotive, departureConfirmed
     }
 
     init(
@@ -673,7 +952,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         barometerReferenceAltitude: Double? = nil, barometerFinalAltitude: Double? = nil,
         barometerPressureKPa: Double? = nil, predictedFromLotLearned: Bool? = nil,
         llmSpotNumber: String? = nil, llmAreaCode: String? = nil, llmFloorText: String? = nil,
-        isAutomotive: Bool = true
+        isAutomotive: Bool = true, departureConfirmed: Bool? = nil
     ) {
         self.id = id
         self.address = address
@@ -689,6 +968,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         self.barometerFinalAltitude = barometerFinalAltitude
         self.barometerPressureKPa = barometerPressureKPa
         self.predictedFromLotLearned = predictedFromLotLearned
+        self.departureConfirmed = departureConfirmed
         self.llmSpotNumber = llmSpotNumber
         self.llmAreaCode = llmAreaCode
         self.llmFloorText = llmFloorText
@@ -711,6 +991,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         barometerFinalAltitude = try c.decodeIfPresent(Double.self, forKey: .barometerFinalAltitude)
         barometerPressureKPa = try c.decodeIfPresent(Double.self, forKey: .barometerPressureKPa)
         predictedFromLotLearned = try c.decodeIfPresent(Bool.self, forKey: .predictedFromLotLearned)
+        departureConfirmed = try c.decodeIfPresent(Bool.self, forKey: .departureConfirmed)
         llmSpotNumber = try c.decodeIfPresent(String.self, forKey: .llmSpotNumber)
         llmAreaCode = try c.decodeIfPresent(String.self, forKey: .llmAreaCode)
         llmFloorText = try c.decodeIfPresent(String.self, forKey: .llmFloorText)
@@ -722,13 +1003,99 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     }
 
     var displayFloor: String? {
+        // 慣例跟停車點所在地判定（深圳點用內地慣例，你喺香港睇返都啱）
+        // llmFloorText 可能係 VLM／手輸殘留（「地面1」）—— 顯示前正規化，
+        // 唔係嘅話地圖標籤會變「地面1/F」（"/F" 後綴再疊埋落去）
+        let cleanText = ParkingFloorStore.cleanFloorText(llmFloorText, coordinate: coordinate)
         if let manualFloorIndex {
-            return llmFloorText ?? ParkingFloorStore.formatFloor(manualFloorIndex)
+            return cleanText ?? ParkingFloorStore.formatFloor(manualFloorIndex, coordinate: coordinate)
         }
         if let predictedFloorIndex {
-            return llmFloorText ?? ParkingFloorStore.formatFloor(predictedFloorIndex)
+            return cleanText ?? ParkingFloorStore.formatFloor(predictedFloorIndex, coordinate: coordinate)
         }
-        return llmFloorText
+        return cleanText
+    }
+}
+
+// MARK: - 香港／內地區域判定（幾何邊界線 + geocode 權威緩存）
+
+/// 判定坐標係「香港/澳門/台灣」（WGS-84 圖框、香港樓層慣例）
+/// 定「內地」（GCJ-02 圖框、內地樓層慣例）。
+/// 兩層判定：
+/// 1. geocode 權威緩存：reverseGeocode 拎到嘅 isoCountryCode（HK/MO vs CN）
+///    —— 同 MapKit「香港 Apple Map／內地高德」自動切換係同一套數據源、同一條邊界。
+/// 2. 幾何邊境分界線：緩存未命中（離線／點未 geocode 過）時即時判定。
+enum MapRegionJudge {
+    /// 幾何判定：坐標係咪內地（GCJ-02 圖框）
+    static func isMainlandGeometric(_ c: CLLocationCoordinate2D) -> Bool {
+        // 中國大致範圍外 = 海外（唔轉換）
+        guard c.longitude >= 72.004 && c.longitude <= 137.8347 &&
+              c.latitude >= 0.8293 && c.latitude <= 55.8271 else { return false }
+        // 澳門：WGS-84 圖框
+        if c.longitude >= 113.52 && c.longitude <= 113.63 &&
+            c.latitude >= 22.06 && c.latitude <= 22.24 { return false }
+        // 台灣：WGS-84 圖框
+        if c.longitude >= 119.9 && c.longitude <= 122.1 &&
+            c.latitude >= 21.8 && c.latitude <= 25.4 { return false }
+        return !isHongKongGeometric(c)
+    }
+
+    /// 幾何判定：坐標係咪香港（WGS-84 圖框）。
+    /// 注意深圳同香港貼住邊境，純矩形框必然包埋深圳（福田 22.54°N 比沙頭角仲南），
+    /// 所以要用邊境分界線近似。
+    private static func isHongKongGeometric(_ c: CLLocationCoordinate2D) -> Bool {
+        let lat = c.latitude, lon = c.longitude
+        // 香港外框
+        guard lat >= 22.15 && lat <= 22.60 && lon >= 113.83 && lon <= 114.45 else { return false }
+        // 深圳灣以西：蛇口／南山半島喺深圳側，只有南岸係香港
+        if lon < 113.96 { return lat < 22.45 }
+        // 深圳河邊界線近似 (113.96, 22.495) → (114.22, 22.555)：
+        // 線以北係深圳（南山/福田/羅湖），以南係新界北（天水圍/上水/粉嶺）
+        if lon <= 114.22 {
+            let borderLat = 22.495 + (lon - 113.96) * (22.555 - 22.495) / (114.22 - 113.96)
+            return lat < borderLat
+        }
+        // 烏蛟騰以東：北面係鹽田/大鵬灣，南面係西貢
+        return lat < 22.52
+    }
+
+    /// 權威判定：geocode 緩存優先（邊境位都唔會錯），退化幾何判定
+    static func isMainland(_ c: CLLocationCoordinate2D) -> Bool {
+        if let verdict = cachedVerdict(for: c) { return verdict }
+        return isMainlandGeometric(c)
+    }
+
+    /// reverseGeocode 拎到 placemark 時寫入緩存
+    static func record(placemark: CLPlacemark, at c: CLLocationCoordinate2D) {
+        guard let code = placemark.isoCountryCode?.uppercased() else { return }
+        let mainland: Bool
+        switch code {
+        case "HK", "MO", "TW": mainland = false
+        case "CN": mainland = true
+        default: return  // 海外唔影響呢套判定
+        }
+        setCachedVerdict(mainland, for: c)
+    }
+
+    // MARK: 緩存（UserDefaults，按 0.01° 網格 ≈ 1km）
+
+    private static let cacheKey = "regionVerdictCache"
+
+    private static func cacheBucket(for c: CLLocationCoordinate2D) -> String {
+        String(format: "%.2f,%.2f", c.latitude, c.longitude)
+    }
+
+    private static func cachedVerdict(for c: CLLocationCoordinate2D) -> Bool? {
+        (UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: Bool])?[cacheBucket(for: c)]
+    }
+
+    private static func setCachedVerdict(_ value: Bool, for c: CLLocationCoordinate2D) {
+        var dict = UserDefaults.standard.dictionary(forKey: cacheKey) as? [String: Bool] ?? [:]
+        let key = cacheBucket(for: c)
+        guard dict[key] != value else { return }
+        dict[key] = value
+        if dict.count > 512 { dict.removeAll() }  // 只係保險閥，實際好難到
+        UserDefaults.standard.set(dict, forKey: cacheKey)
     }
 }
 
@@ -739,21 +1106,8 @@ extension CLLocationCoordinate2D {
     /// In China, Apple Maps tiles use GCJ-02, but GPS returns WGS-84.
     /// The blue dot is auto-corrected by iOS, but manually placed annotations need conversion.
     var wgs84ToGCJ02: CLLocationCoordinate2D {
-        // China bounding box check
-        guard longitude >= 72.004 && longitude <= 137.8347 &&
-              latitude >= 0.8293 && latitude <= 55.8271 else {
-            return self
-        }
-
-        // Hong Kong, Macau, and Taiwan use WGS-84 (not GCJ-02).
-        // Apple Maps in these regions serves its own WGS-84 tiles,
-        // so no conversion is needed.
-        let isInHongKong = (longitude >= 113.8 && longitude <= 114.5 && latitude >= 22.1 && latitude <= 22.6)
-        let isInMacau = (longitude >= 113.5 && longitude <= 113.7 && latitude >= 22.0 && latitude <= 22.3)
-        let isInTaiwan = (longitude >= 119.9 && longitude <= 122.1 && latitude >= 21.8 && latitude <= 25.4)
-        if isInHongKong || isInMacau || isInTaiwan {
-            return self
-        }
+        // 香港/澳門/台灣/海外 = WGS-84 圖框，唔使轉換（內地圖框先係 GCJ-02）
+        guard MapRegionJudge.isMainland(self) else { return self }
 
         let a: Double = 6378245.0
         let ee: Double = 0.00669342162296594323
@@ -793,20 +1147,8 @@ extension CLLocationCoordinate2D {
     /// everything as WGS-84 and converts to GCJ-02 only at display/route time,
     /// China search/map-picked coordinates must be converted back before saving.
     var gcj02ToWGS84: CLLocationCoordinate2D {
-        // Same China bounding box check as wgs84ToGCJ02 — outside China this
-        // is an exact no-op.
-        guard longitude >= 72.004 && longitude <= 137.8347 &&
-              latitude >= 0.8293 && latitude <= 55.8271 else {
-            return self
-        }
-
-        // Hong Kong, Macau, and Taiwan use WGS-84 — no conversion needed.
-        let isInHongKong = (longitude >= 113.8 && longitude <= 114.5 && latitude >= 22.1 && latitude <= 22.6)
-        let isInMacau = (longitude >= 113.5 && longitude <= 113.7 && latitude >= 22.0 && latitude <= 22.3)
-        let isInTaiwan = (longitude >= 119.9 && longitude <= 122.1 && latitude >= 21.8 && latitude <= 25.4)
-        if isInHongKong || isInMacau || isInTaiwan {
-            return self
-        }
+        // 同 wgs84ToGCJ02 一致：內地圖框先有 GCJ-02 偏移，其他地方係 no-op
+        guard MapRegionJudge.isMainland(self) else { return self }
         var wgs = self
         // 5 iterations converge to sub-millimetre accuracy.
         for _ in 0..<5 {
@@ -900,7 +1242,7 @@ final class ParkingFloorStore: ObservableObject {
         guard let lot, let point = lot.points.first else { return nil }
         let lotName = lot.name?.trimmingCharacters(in: .whitespacesAndNewlines)
         let locationName = (lotName?.isEmpty == false) ? lotName : (point.address.isEmpty ? nil : point.address)
-        let floorDisplay = point.llmFloorText ?? point.displayFloor
+        let floorDisplay = ParkingFloorStore.cleanFloorText(point.llmFloorText, coordinate: point.coordinate) ?? point.displayFloor
         let floorIndex = point.manualFloorIndex ?? point.predictedFloorIndex
         return ParkingSessionSnapshot(
             locationName: locationName,
@@ -920,15 +1262,17 @@ final class ParkingFloorStore: ObservableObject {
             lotIdx = 0
         }
         guard lots.indices.contains(lotIdx), !lots[lotIdx].points.isEmpty else { return }
-        lots[lotIdx].points[0].llmSpotNumber = spotNumber
-        lots[lotIdx].points[0].llmAreaCode = areaCode
-        lots[lotIdx].points[0].llmFloorText = floorText
+        // 先落樓層指數（setManualFloor 改指數時會清走 llmFloorText），
+        // 之後先寫樓層文字 —— 編輯器輸入嘅牌面文字唔會被自己清走
         if let floorIndex {
             setManualFloor(pointID: lots[lotIdx].points[0].id, floorIndex: floorIndex)
-        } else {
-            lots[lotIdx].updatedAt = Date()
-            persist()
         }
+        lots[lotIdx].points[0].llmSpotNumber = spotNumber
+        lots[lotIdx].points[0].llmAreaCode = areaCode
+        // 樓層文字入store前正規化（「地面1」→「1」），源頭清走「地面」雜字
+        lots[lotIdx].points[0].llmFloorText = ParkingFloorStore.cleanFloorText(floorText, coordinate: lots[lotIdx].points[0].coordinate)
+        lots[lotIdx].updatedAt = Date()
+        persist()
     }
 
     func prepare() {
@@ -986,7 +1330,7 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
 
-    func recordParkingPoint(from visit: LocationManager.VisitRecord) {
+    func recordParkingPoint(from visit: LocationManager.VisitRecord, defaultLotName: String? = nil) {
         // 確保氣壓計正在運行
         barometer.startIfAuthorized()
 
@@ -1021,7 +1365,8 @@ final class ParkingFloorStore: ObservableObject {
                 finalAlt: nil,
                 pressure: nil,
                 predictedFromLotLearned: false,
-                isAutomotive: false
+                isAutomotive: false,
+                defaultLotName: defaultLotName
             )
             return
         }
@@ -1110,7 +1455,8 @@ final class ParkingFloorStore: ObservableObject {
             finalAlt: finalAlt,
             pressure: pressure,
             predictedFromLotLearned: predicted.fromLotLearned,
-            isAutomotive: true
+            isAutomotive: true,
+            defaultLotName: defaultLotName
         )
 
         // 如果氣壓計樣本不夠導致樓層未知，60 秒後重試
@@ -1191,7 +1537,8 @@ final class ParkingFloorStore: ObservableObject {
         predictedFloorIndex: Int?,
         manualFloorIndex: Int?,
         confidence: Double?,
-        isAutomotive: Bool = true
+        isAutomotive: Bool = true,
+        defaultLotName: String? = nil
     ) {
         recordParkingPoint(
             coordinate: coordinate,
@@ -1206,7 +1553,8 @@ final class ParkingFloorStore: ObservableObject {
             finalAlt: nil,
             pressure: nil,
             predictedFromLotLearned: nil,
-            isAutomotive: isAutomotive
+            isAutomotive: isAutomotive,
+            defaultLotName: defaultLotName
         )
     }
 
@@ -1223,7 +1571,8 @@ final class ParkingFloorStore: ObservableObject {
         finalAlt: Double?,
         pressure: Double?,
         predictedFromLotLearned: Bool?,
-        isAutomotive: Bool = true
+        isAutomotive: Bool = true,
+        defaultLotName: String? = nil
     ) {
         let now = Date()
         let inserting = ParkingPointRecord(
@@ -1258,7 +1607,7 @@ final class ParkingFloorStore: ObservableObject {
         } else {
             let lot = ParkingLotRecord(
                 id: UUID(),
-                name: nil,
+                name: (defaultLotName?.isEmpty == false) ? defaultLotName : nil,  // 周邊預設名（POI／街道／地區）
                 centerLatitude: coordinate.latitude,
                 centerLongitude: coordinate.longitude,
                 radiusMeters: Self.defaultRadiusMeters,
@@ -1284,6 +1633,11 @@ final class ParkingFloorStore: ObservableObject {
             if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
                 let before = lots[i].points[pIndex].manualFloorIndex
                 lots[i].points[pIndex].manualFloorIndex = floorIndex
+                // 手動調樓層就清走舊嘅樓層文字（識別／編輯留低嘅），
+                // 等 displayFloor 用返指數顯示 —— 唔係嘅話 +/- 會被舊文字遮住（「點撳都調唔到」）
+                if before != floorIndex {
+                    lots[i].points[pIndex].llmFloorText = nil
+                }
                 lots[i].updatedAt = Date()
                 changed = true
                 
@@ -1308,6 +1662,46 @@ final class ParkingFloorStore: ObservableObject {
         if changed {
             persist()
         }
+    }
+
+    /// 離場時自動認定：如果用戶成個泊車期間都冇手動調過樓層，
+    /// 就將系統自動判斷嘅樓層視為正確答案 —— 同手動調整一樣
+    /// 累積停車場學習數據、提升信心度。
+    /// 用戶離場後仍然可以手動調整（新嘅手動值照樣再累積學習）。
+    /// 幂等：同一個停車點只會自動認定一次。
+    func acceptPredictedFloorAtDeparture() {
+        // 搵今次泊車 session 嘅停車點（最新建立嘅開車泊車點）
+        var best: (lotIndex: Int, pointIndex: Int)?
+        for li in lots.indices {
+            for pi in lots[li].points.indices {
+                let p = lots[li].points[pi]
+                guard p.isAutomotive else { continue }
+                if let b = best, lots[b.lotIndex].points[b.pointIndex].createdAt >= p.createdAt {
+                    continue
+                }
+                best = (li, pi)
+            }
+        }
+        guard let (li, pi) = best else { return }
+        let p = lots[li].points[pi]
+        // 只處理「全程冇手動調過」嘅情況；有手動值就照現有邏輯，唔重複加
+        guard p.departureConfirmed != true,
+              p.manualFloorIndex == nil,
+              let predicted = p.predictedFloorIndex,
+              let delta = p.barometerAltitudeDeltaMeters else { return }
+
+        applyFloorLearning(
+            lotIndex: li,
+            pointID: p.id,
+            manualFloorIndex: predicted,
+            altitudeDeltaMeters: delta
+        )
+        lots[li].points[pi].departureConfirmed = true
+        // 認定為正確答案 → 信心度提升（同樓層曲線鎖定一致）
+        lots[li].points[pi].confidence = max(lots[li].points[pi].confidence ?? 0, 0.9)
+        lots[li].updatedAt = Date()
+        lots[li] = rerunPredictions(lot: lots[li])
+        persist()
     }
     
     private func applyFloorLearning(
@@ -1403,7 +1797,7 @@ final class ParkingFloorStore: ObservableObject {
         
         for i in copy.points.indices {
             let p = copy.points[i]
-            guard p.manualFloorIndex == nil else { continue }
+            guard p.manualFloorIndex == nil, p.departureConfirmed != true else { continue }
             guard let delta = p.barometerAltitudeDeltaMeters,
                   let samples = p.barometerSampleCount else { continue }
             let adjustedDelta = max(0.0, delta - offset)
@@ -1758,15 +2152,41 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
     
-    static func formatFloor(_ idx: Int) -> String {
-        let convention = UserDefaults.standard.integer(forKey: "floorConvention")  // 0=香港, 1=內地, 2=自動
-        let useMainland: Bool
+    /// 當前生效嘅樓層慣例：true = 內地慣例（地面=1樓），false = 香港慣例（地面=G）
+    /// 「自動」模式按位置判定（香港/澳門用香港標準，其他用內地標準）：
+    /// - 傳入停車點坐標 → 跟停車點所在地（深圳點永遠顯示「內地慣例」）
+    /// - 唔傳 → 跟當前位置
+    static func isMainlandConventionActive(for coordinate: CLLocationCoordinate2D? = nil) -> Bool {
+        // 未設定過就當「自動」（=2，同設定頁 @AppStorage 默認值一致）。
+        // 注意 integer(forKey:) 對唔存在嘅 key 會返 0（=香港）——
+        // 以前就係咁，設定頁顯示「自動」但實際行緊「香港」，深圳點都標住「香港慣例」。
+        let convention = (UserDefaults.standard.object(forKey: "floorConvention") as? Int) ?? 2
         if convention == 2 {
-            // 自動偵測：根據當前位置判斷（香港/澳門用香港標準，其他用內地標準）
-            useMainland = !isHongKongRegion()
-        } else {
-            useMainland = convention == 1
+            return !isHongKongRegion(coordinate)
         }
+        return convention == 1
+    }
+
+    /// 慣例名稱（樓層顯示隔離嘅標註用）
+    static func conventionLabel(for coordinate: CLLocationCoordinate2D? = nil) -> String {
+        isMainlandConventionActive(for: coordinate) ? String(localized: "內地慣例") : String(localized: "香港慣例")
+    }
+
+    /// 樓層文字正規化：「地面1」「1/F」「1層」→「1」；「地面」→「G」/「1」。
+    /// 解析唔到就原樣返回（只去首尾空格）。存資料同顯示前都過一次，
+    /// 等 VLM／手輸殘留（「地面」等雜字）唔會跟住落地圖標籤。
+    static func cleanFloorText(_ text: String?, coordinate: CLLocationCoordinate2D? = nil) -> String? {
+        guard let text else { return nil }
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.isEmpty { return nil }
+        if let idx = parseFloorIndex(trimmed, coordinate: coordinate) {
+            return formatFloor(idx, coordinate: coordinate)
+        }
+        return trimmed
+    }
+
+    static func formatFloor(_ idx: Int, coordinate: CLLocationCoordinate2D? = nil) -> String {
+        let useMainland = isMainlandConventionActive(for: coordinate)
 
         if useMainland {
             // 內地：地面=1樓，B1=-1→B1，0→1，1→2
@@ -1780,16 +2200,76 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
 
-    /// 判斷當前位置是否在香港/澳門（自動偵測樓層慣例用）
-    private static func isHongKongRegion() -> Bool {
-        // 用 UserDefaults 緩存的經緯度判斷
+    /// 判斷位置是否在香港/澳門圖框（自動偵測樓層慣例用）
+    /// 傳入坐標就判斷嗰個點；唔傳就判斷當前位置（UserDefaults 緩存經緯度）
+    private static func isHongKongRegion(_ coordinate: CLLocationCoordinate2D? = nil) -> Bool {
+        if let coordinate {
+            return !MapRegionJudge.isMainland(coordinate)
+        }
         let lat = UserDefaults.standard.double(forKey: "lastKnownLatitude")
         let lon = UserDefaults.standard.double(forKey: "lastKnownLongitude")
-        if lat == 0 && lon == 0 { return true }  // 預設香港
-        // 香港大致範圍：22.15-22.56°N, 113.84-114.40°E
-        // 澳門大致範圍：22.10-22.22°N, 113.52-113.60°E
-        let isHK = lat >= 22.10 && lat <= 22.56 && lon >= 113.52 && lon <= 114.40
-        return isHK
+        if lat == 0 && lon == 0 { return true }  // 未有定位：預設香港
+        return !MapRegionJudge.isMainland(CLLocationCoordinate2D(latitude: lat, longitude: lon))
+    }
+
+    /// 將「牌面樓層文字」解析成內部樓層指數（0=地面，負數=地庫），按當前樓層慣例換算：
+    /// 內地牌面「3」= 內部 2（地面係 1 樓）；香港牌面「3」= 內部 3（地面係 G）。
+    /// 地庫「B2」／「地下2層」兩地一致 → -2。
+    static func parseFloorIndex(_ text: String, coordinate: CLLocationCoordinate2D? = nil) -> Int? {
+        var trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        if trimmed.isEmpty { return nil }
+        // 「地面」「地面1」「地面1層」：先剝走「地面」前綴再解析
+        // （VLM 對地面層成日答「地面1」，原樣存落去地圖標籤會變「地面1/F」）
+        if trimmed.hasPrefix("地面") {
+            trimmed = String(trimmed.dropFirst(2)).trimmingCharacters(in: .whitespaces)
+            if trimmed.isEmpty { return 0 }
+        }
+        // 地面：G / GF / LG / 地下
+        if trimmed == "G" || trimmed == "GF" || trimmed == "LG" || trimmed == "地下" { return 0 }
+        // 地庫：B2 / B 2 → -2
+        if trimmed.hasPrefix("B"), let num = Int(trimmed.dropFirst().trimmingCharacters(in: .whitespaces)) {
+            return -num
+        }
+        // 「地下2層/层」→ -2
+        if let regex = try? NSRegularExpression(pattern: "^地下(\\d+)[層层]$"),
+           let match = regex.firstMatch(in: trimmed, range: NSRange(location: 0, length: trimmed.utf16.count)),
+           let range = Range(match.range(at: 1), in: trimmed),
+           let num = Int(trimmed[range]) {
+            return -num
+        }
+        // 「-2樓/楼」或「-2」→ -2
+        if trimmed.hasPrefix("-") {
+            let rest = trimmed.dropFirst()
+            let digits = rest.prefix(while: { $0.isNumber })
+            if let num = Int(digits), num > 0 { return -num }
+            return nil
+        }
+        // 「3樓/楼」或純數字「3」→ 牌面數字按慣例換算成內部指數
+        let digits = trimmed.prefix(while: { $0.isNumber })
+        guard let num = Int(digits), num > 0 else { return nil }
+        return isMainlandConventionActive(for: coordinate) ? num - 1 : num
+    }
+}
+
+/// 樓層慣例標註小膠囊：標明樓層數值跟「香港慣例」定「內地慣例」
+/// （自動模式跟停車點所在地判定，冇坐標就跟當前位置）。可放喺任何樓層顯示隔離。
+struct FloorConventionBadge: View {
+    /// 關聯停車點坐標（慣例跟點所在地判定）
+    var coordinate: CLLocationCoordinate2D? = nil
+    /// 深色背景（泊車記憶／確認卡等黑底）用淺色文字
+    var onDark: Bool = false
+    /// 極細版（空間窄嘅行內用）
+    var compact: Bool = false
+
+    var body: some View {
+        Text(ParkingFloorStore.conventionLabel(for: coordinate))
+            .font(.system(size: compact ? 8 : 9, weight: .semibold))
+            .foregroundStyle(onDark ? Color.white.opacity(0.6) : Color.secondary)
+            .padding(.horizontal, compact ? 5 : 6)
+            .padding(.vertical, compact ? 2 : 3)
+            .background(
+                Capsule().fill(onDark ? Color.white.opacity(0.15) : Color.secondary.opacity(0.15))
+            )
     }
 }
 

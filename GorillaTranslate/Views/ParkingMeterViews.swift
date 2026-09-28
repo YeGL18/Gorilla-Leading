@@ -150,7 +150,6 @@ struct MeterSettingsSection: View {
             LabeledContent("同街延伸上限", value: "\(Int(radius * 2)) 米")
             distanceSlider("目的地提示範圍", value: $destinationRadius, range: 50...800)
             distanceSlider("接近咪錶提示距離", value: $nearbyRadius, range: 10...200)
-            NavigationLink("全港咪錶測試", destination: ParkingMeterTestView())
         } header: {
             Label("咪錶", systemImage: "parkingsign.circle")
         }
@@ -386,8 +385,7 @@ struct MeterNoticeCapsule: View {
             HStack(spacing: 12) {
                 Button("取消", action: onCancel).frame(maxWidth: .infinity, minHeight: 44).buttonStyle(.glass)
                 Button(action: onAction) {
-                    Label(notice.kind == .destination ? "前往咪錶位" : "前往繳費",
-                          systemImage: notice.kind == .destination ? "arrow.triangle.turn.up.right.diamond.fill" : "creditcard.fill")
+                    Label(notice.actionTitle, systemImage: notice.actionSymbol)
                         .frame(maxWidth: .infinity, minHeight: 44)
                 }.buttonStyle(.borderedProminent).tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
             }
