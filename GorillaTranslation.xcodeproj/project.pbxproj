@@ -25,6 +25,7 @@
 		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
 		A10021 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20021 /* AppLanguage.swift */; };
 		A10022 /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20022 /* LanguageManager.swift */; };
+		0B1000010B1000010B100001 /* GorillaOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2000010B2000010B200001 /* GorillaOnboardingView.swift */; };
 		AM10001 /* AMapConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20001 /* AMapConfig.swift */; };
 		AM10002 /* AmapNaviManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20002 /* AmapNaviManager.swift */; };
 		AM10003 /* FloatingLaneGuidanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20003 /* FloatingLaneGuidanceView.swift */; };
@@ -106,6 +107,7 @@
 		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
 		A20021 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A20022 /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
+		0B2000010B2000010B200001 /* GorillaOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaOnboardingView.swift; sourceTree = "<group>"; };
 		AM20001 /* AMapConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMapConfig.swift; sourceTree = "<group>"; };
 		AM20002 /* AmapNaviManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviManager.swift; sourceTree = "<group>"; };
 		AM20003 /* FloatingLaneGuidanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLaneGuidanceView.swift; sourceTree = "<group>"; };
@@ -296,6 +298,7 @@
 		A40004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				0B2000010B2000010B200001 /* GorillaOnboardingView.swift */,
 				ME20003 /* ParkingMeterViews.swift */,
 				A20014 /* AnimatedBackground.swift */,
 				A20016 /* SettingsView.swift */,
@@ -565,6 +568,7 @@
 				A10011 /* ColorExtension.swift in Sources */,
 				A10014 /* AnimatedBackground.swift in Sources */,
 				A10016 /* SettingsView.swift in Sources */,
+				0B1000010B1000010B100001 /* GorillaOnboardingView.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
 				E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */,

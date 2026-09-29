@@ -434,6 +434,16 @@ struct SettingsView: View {
                 } header: {
                     Label(String(localized: "光球效果"), systemImage: "sparkles")
                 }
+
+                Section {
+                    NavigationLink {
+                        AboutGorillaLeadingView()
+                    } label: {
+                        Label("關於 Gorilla Leading", systemImage: "info.circle")
+                    }
+                } header: {
+                    Text("關於")
+                }
             }
             .scrollContentBackground(.hidden)
             .environment(\.defaultMinListHeaderHeight, 36)
@@ -3587,7 +3597,7 @@ struct PlaceManagementView: View {
                 ForEach(automotiveLots) { lot in
                     HStack {
                         VStack(alignment: .leading, spacing: 4) {
-                            Text(lot.name ?? "未命名")
+                            Text(lot.preferredDisplayName ?? "未命名")
                                 .font(.subheadline.weight(.semibold))
                             Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
                                 .font(.caption2.monospaced())
@@ -3596,7 +3606,7 @@ struct PlaceManagementView: View {
                         Spacer()
                         Button {
                             renamingKey = "lot:\(lot.id.uuidString)"
-                            renamingText = lot.name ?? ""
+                            renamingText = lot.preferredDisplayName ?? ""
                             showRenameAlert = true
                         } label: {
                             Image(systemName: "pencil")
@@ -3609,7 +3619,7 @@ struct PlaceManagementView: View {
                     }
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        mapPreviewName = lot.name ?? "未命名停車場"
+                        mapPreviewName = lot.preferredDisplayName ?? "未命名停車場"
                         mapPreviewCoordinate = CLLocationCoordinate2D(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: false) {

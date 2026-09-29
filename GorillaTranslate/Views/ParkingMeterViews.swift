@@ -378,21 +378,60 @@ struct MeterNoticeCapsule: View {
     let notice: MeterNotice
     let onCancel: () -> Void
     let onAction: () -> Void
+    let onPay: () -> Void
+
     var body: some View {
         VStack(spacing: 14) {
             Text(notice.title).font(.headline).multilineTextAlignment(.center)
             Text("\(notice.meter.street) · \(notice.meter.id)").font(.subheadline).foregroundStyle(.secondary)
-            HStack(spacing: 12) {
-                Button("取消", action: onCancel).frame(maxWidth: .infinity, minHeight: 44).buttonStyle(.glass)
-                Button(action: onAction) {
-                    Label(notice.actionTitle, systemImage: notice.actionSymbol)
+
+            if notice.kind == .nearby {
+                nearbyActions
+            } else {
+                HStack(spacing: 12) {
+                    Button("取消", action: onCancel)
                         .frame(maxWidth: .infinity, minHeight: 44)
-                }.buttonStyle(.borderedProminent).tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
+                        .buttonStyle(.glass)
+                    Button(action: onAction) {
+                        Label(notice.actionTitle, systemImage: notice.actionSymbol)
+                            .frame(maxWidth: .infinity, minHeight: 44)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
+                }
             }
         }
         .padding(20)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
         .frame(maxWidth: 420).padding(.horizontal, 24)
+    }
+
+    private var nearbyActions: some View {
+        HStack(spacing: 12) {
+            Button(action: onCancel) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 15, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.glass)
+            .accessibilityLabel("關閉")
+
+            Button(action: onPay) {
+                Label("開入錶易", systemImage: "creditcard.fill")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
+
+            Button(action: onAction) {
+                Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.glass)
+            .accessibilityLabel("導航")
+            .accessibilityHint("開始行車路線去這個咪錶位")
+        }
     }
 }
 

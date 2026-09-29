@@ -595,13 +595,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             if let placemark = placemarks?.first {
                 // 順手做區域權威判定（isoCountryCode：HK/MO vs CN）
                 MapRegionJudge.record(placemark: placemark, at: location.coordinate)
-                var parts: [String] = []
-                if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
-                    parts.append("\(street) \(number)")
-                } else if let street = placemark.thoroughfare {
-                    parts.append(street)
-                }
-                addr = parts.joined(separator: " ")
+                // 與地圖標點採用同一命名次序：合適 POI > 所在區域。
+                addr = Self.preferredPlaceName(from: placemark)
             }
             DispatchQueue.main.async {
                 let matched = self.matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: visit.coordinate)
@@ -630,15 +625,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             MapRegionJudge.record(placemark: placemark, at: location.coordinate)
             DispatchQueue.main.async {
                 // POI／大廈名（輪播一邊）
-                var poiName = ""
-                if let aoi = placemark.areasOfInterest?.first, !aoi.isEmpty {
-                    poiName = aoi
-                } else if let name = placemark.name, !name.isEmpty {
-                    // name 同 thoroughfare 唔一樣就當 POI
-                    if name != placemark.thoroughfare {
-                        poiName = name
-                    }
-                }
+                let poiName = Self.preferredPOIName(from: placemark)
 
                 // 街道名（街道＋門牌；冇街道就退地區名）——輪播另一邊。
                 // 以前呢個位直接用 currentAddress 當「街道名」，而地址字串
@@ -662,33 +649,42 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 }
 
                 // 地址字串維持原本優先級：POI名 > 地區名 > 街道名
-                var parts: [String] = []
-                if !poiName.isEmpty {
-                    parts.append(poiName)
-                }
-                if parts.isEmpty {
-                    if let sub = placemark.subLocality, !sub.isEmpty {
-                        parts.append(sub)
-                    }
-                    if let locality = placemark.locality, !locality.isEmpty,
-                       locality != placemark.subLocality {
-                        parts.append(locality)
-                    }
-                }
-                if parts.isEmpty {
+                var preferredName = Self.preferredPlaceName(from: placemark)
+                if preferredName.isEmpty {
                     if let number = placemark.subThoroughfare, let street = placemark.thoroughfare {
-                        parts.append("\(street) \(number)")
+                        preferredName = "\(street) \(number)"
                     } else if let street = placemark.thoroughfare {
-                        parts.append(street)
+                        preferredName = street
                     }
                 }
 
-                self?.currentAddress = parts.joined(separator: " ")
+                self?.currentAddress = preferredName
                 self?.currentPOIName = poiName
                 self?.currentStreetName = streetParts.joined(separator: " ")
                 self?.currentLocality = placemark.locality ?? ""
             }
         }
+    }
+
+    private static func preferredPOIName(from placemark: CLPlacemark) -> String {
+        if let area = placemark.areasOfInterest?
+            .map({ $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+            .first(where: { !$0.isEmpty }) {
+            return area
+        }
+        let name = placemark.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let street = placemark.thoroughfare?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return !name.isEmpty && name != street ? name : ""
+    }
+
+    private static func preferredPlaceName(from placemark: CLPlacemark) -> String {
+        let poi = preferredPOIName(from: placemark)
+        if !poi.isEmpty { return poi }
+        for region in [placemark.subLocality, placemark.locality, placemark.administrativeArea] {
+            let value = region?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !value.isEmpty { return value }
+        }
+        return ""
     }
 
     private func matchVisitIndex(arrivalDate: Date, coordinate: CLLocationCoordinate2D) -> Int? {
@@ -1190,6 +1186,15 @@ struct ParkingLotRecord: Identifiable, Codable, Hashable {
         CLLocationCoordinate2D(latitude: centerLatitude, longitude: centerLongitude)
     }
 
+    /// 地圖標點、地點管理及預測資料共用同一個名稱來源。
+    /// 已辨認的 POI／停車場名優先；沒有時才退回所在地區。
+    var preferredDisplayName: String? {
+        let trimmedName = name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !trimmedName.isEmpty { return trimmedName }
+        let trimmedLocality = locality?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmedLocality.isEmpty ? nil : trimmedLocality
+    }
+
     func centerDistance(to coordinate: CLLocationCoordinate2D) -> Double {
         let a = CLLocation(latitude: centerLatitude, longitude: centerLongitude)
         let b = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
@@ -1301,8 +1306,7 @@ final class ParkingFloorStore: ObservableObject {
     var lotNameByPointID: [UUID: String] {
         var result: [UUID: String] = [:]
         for lot in lots {
-            let name = lot.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            guard !name.isEmpty else { continue }
+            guard let name = lot.preferredDisplayName else { continue }
             for p in lot.points {
                 result[p.id] = name
             }
@@ -1625,6 +1629,10 @@ final class ParkingFloorStore: ObservableObject {
         }
         
         persist()
+        let loadedLots = lots
+        DispatchQueue.main.async {
+            TripPredictor.shared.reconcilePlaceNames(with: loadedLots)
+        }
     }
     
     func setManualFloor(pointID: UUID, floorIndex: Int?) {
@@ -2145,6 +2153,10 @@ final class ParkingFloorStore: ObservableObject {
         }
         print("[ParkingFloorStore] loaded \(decoded.count) lots from \(source)")
         lots = decoded.map { rerunPredictions(lot: $0) }.sorted { $0.updatedAt > $1.updatedAt }
+        let loadedLots = lots
+        DispatchQueue.main.async {
+            TripPredictor.shared.reconcilePlaceNames(with: loadedLots)
+        }
         // 如果是從備份恢復的，同步回 UserDefaults
         if source == "file backup" {
             defaults.set(data, forKey: storeKey)

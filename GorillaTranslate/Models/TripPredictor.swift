@@ -568,5 +568,31 @@ final class TripPredictor: ObservableObject {
            let v = try? JSONDecoder().decode([PlaceInfo].self, from: d) {
             recentPlaceHistory = v
         }
+        reconcilePlaceNames(with: ParkingFloorStore.shared.lots)
+    }
+
+    /// 舊資料有機會將同一位置分別保存成 POI 停車點及地區地址叢集。
+    /// 載入時以停車點使用的名稱為準，令地圖與「地點管理」保持一致。
+    func reconcilePlaceNames(with parkingLots: [ParkingLotRecord]) {
+        var changed = false
+        for (key, place) in placeCatalog where place.kind == .addressCluster {
+            let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
+            let nearbyLots = parkingLots.compactMap { lot -> (ParkingLotRecord, CLLocationDistance)? in
+                guard lot.preferredDisplayName != nil else { return nil }
+                let lotLocation = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+                let distance = placeLocation.distance(from: lotLocation)
+                return distance <= ParkingFloorStore.defaultRadiusMeters ? (lot, distance) : nil
+            }
+            guard let matched = nearbyLots.min(by: { $0.1 < $1.1 }),
+                  let preferredName = matched.0.preferredDisplayName,
+                  place.displayName != preferredName else { continue }
+
+            var updated = place
+            updated.displayName = preferredName
+            updated.updatedAt = max(updated.updatedAt, matched.0.updatedAt)
+            placeCatalog[key] = updated
+            changed = true
+        }
+        if changed { saveState() }
     }
 }

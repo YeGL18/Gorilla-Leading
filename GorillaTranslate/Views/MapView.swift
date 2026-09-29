@@ -2,6 +2,11 @@ import SwiftUI
 import MapKit
 import Combine
 
+private let hongKongMapFallback = CLLocation(
+    latitude: 22.3193,
+    longitude: 114.1694
+)
+
 @MainActor
 final class MapCompassBridge: ObservableObject {
     weak var mapView: MKMapView?
@@ -174,9 +179,10 @@ struct MapView: UIViewRepresentable {
         context.coordinator.mapView = mapView
         compassBridge?.connect(mapView)
 
-        // 預設定位到用戶所在城市；GPS 未就緒時退回香港，避免閃 San Jose
-        let fallbackHK = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
-        let center = locationManager.manager.location?.coordinate ?? fallbackHK
+        // 只採用 app 已確認仍然有效的 GPS fix。MapKit 在未有定位時可能回傳
+        // 模擬器／系統預設的美國座標，會令首次飛入由 San Francisco 開始。
+        let center = (!locationManager.isGPSLost ? locationManager.lastLocation?.coordinate : nil)
+            ?? hongKongMapFallback.coordinate
         mapView.allowCameraChange = true
         let camera = MKMapCamera()
         camera.centerCoordinate = center
@@ -313,10 +319,10 @@ struct MapView: UIViewRepresentable {
                 if landscapeChanged {
                     let coordinator = context.coordinator
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
-                        coordinator.startTracking()
+                        coordinator.startTracking(useHongKongFallback: true)
                     }
                 } else {
-                    context.coordinator.startTracking()
+                    context.coordinator.startTracking(useHongKongFallback: true)
                 }
             }
         }
@@ -1269,31 +1275,36 @@ struct MapView: UIViewRepresentable {
             }
         }
 
-        func startTracking() {
+        private var validTrackingLocation: CLLocation? {
+            guard !parent.locationManager.isGPSLost,
+                  let location = parent.locationManager.lastLocation,
+                  location.horizontalAccuracy >= 0,
+                  CLLocationCoordinate2DIsValid(location.coordinate) else {
+                return nil
+            }
+            return location
+        }
+
+        func startTracking(useHongKongFallback: Bool = false) {
             guard let mapView = mapView, !isUserInteracting else { return }
             
             if !hasShownHighAltitude {
-                if let location = mapView.userLocation.location {
-                    hasShownHighAltitude = true
-                    hasInitialized = true
-                    parent.savedRegion = mapView.region
-                    // 首次直接飞到用户位置，不显示高空视角
-                    flyToLocation(mapView: mapView, location: location)
-                    return
-                } else {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.startTracking()
-                    }
-                    return
-                }
+                let location = validTrackingLocation ?? hongKongMapFallback
+                hasShownHighAltitude = true
+                hasInitialized = true
+                parent.savedRegion = mapView.region
+                flyToLocation(mapView: mapView, location: location)
+                return
             }
             
             // 正常的飞行动画
             flyTimer?.invalidate()
             flyTimer = nil
             isFlying = false
-            if let location = mapView.userLocation.location {
+            if let location = validTrackingLocation {
                 flyToLocation(mapView: mapView, location: location)
+            } else if useHongKongFallback {
+                flyToLocation(mapView: mapView, location: hongKongMapFallback)
             } else {
                 pendingAutoZoom = true
             }

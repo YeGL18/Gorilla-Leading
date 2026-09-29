@@ -1953,6 +1953,12 @@ struct ContentView: View {
                     // 空置咪錶（附近／目的地）→ 導航去個錶位；旁邊咪錶 → 前往繳費
                     if notice.kind == .stationary { MeterPayment.open(manager: meterManager) }
                     else { startNavigationToMeter(notice.meter) }
+                }, onPay: {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) {
+                        presentedMeterNotice = nil
+                    }
+                    meterManager.dismissNotice()
+                    MeterPayment.open(manager: meterManager)
                 })
                 .offset(y: hingeUpperOffsetY)
                 .transition(
