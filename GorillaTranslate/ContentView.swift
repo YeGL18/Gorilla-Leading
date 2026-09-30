@@ -1440,16 +1440,23 @@ struct ContentView: View {
                     startPoint: .topLeading, endPoint: .bottomTrailing))
                 .blendMode(.screen)
                 .opacity(0.6)
-            // 光澤掃過層：亮光帶沿對角線（左下→右上）循環掃過，
-            // 前景漸變框死喺字形入面，光只會喺 Gorilla 字內流動。
+            // 光澤掃過層：亮光帶沿對角線（左下→右上）循環掃過。
+            // 用「字形輪廓 + 移動光帶 mask」而唔係前景漸變填色：
+            // emoji（🦍）係彩色點陣圖、唔跟前景漸變上色，只有 mask
+            // 先可以令光帶真正掃過 icon（唔係一開始全亮、收尾全暗）。
             // 黑武士模式反轉做「變暗帶」（黑色 multiply，似影掃過字面）。
             // 節奏：掃 5 秒 → 隨機停頓一陣再掃（7 個唔同停頓長度循環，感覺隨機）
             TimelineView(.animation(minimumInterval: 1.0 / 120.0)) { context in
                 let state = Self.sheenState(at: context.date)
+                // 前面框住嘅透明文字保持字體嘅版面 footprint：
+                // 唔係嘅話底層 Color 會霸晒容器闊度，成個標題會向右偏。
                 titleText
-                    .foregroundStyle(Self.sheenSweepGradient(
-                        phase: state.phase,
-                        darkening: darkKnightMode))
+                    .foregroundStyle(.clear)
+                    .overlay {
+                        (darkKnightMode ? Color.black : Color.white)
+                            .mask(titleText)
+                            .mask(Self.sheenSweepBand(phase: state.phase))
+                    }
                     .blendMode(darkKnightMode ? .multiply : .screen)
                     .opacity(state.sweeping ? (darkKnightMode ? 0.8 : 0.45) : 0)
             }
@@ -1458,6 +1465,8 @@ struct ContentView: View {
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.5)) { showDemoAnimation = true }
         }
+        // 視覺微調：標題整體左移 16pt（用戶覺得文字視覺重心偏右）
+        .offset(x: -16)
     }
 
     /// 標題光澤掃過節奏：每循環 = 掃 5 秒 + 停頓。
@@ -1484,27 +1493,37 @@ struct ContentView: View {
         return (1, false)
     }
 
-    /// 標題掃過漸變：闊光帶中心由字外左下掃入、穿過字形、再掃出右上（phase 0→1 一次掃過）。
-    /// darkening=true（黑武士模式）：黑色變暗帶（配 multiply）；false：白光帶（配 screen）
-    private static func sheenSweepGradient(phase: Double, darkening: Bool) -> LinearGradient {
-        let band: Double = 0.34
-        let p = -band + phase * (1 + band * 2)
-        func stop(_ at: Double, _ color: Color) -> Gradient.Stop {
-            Gradient.Stop(color: color, location: Swift.max(0, Swift.min(1, at)))
+    /// 標題掃過光帶（用嚟做 mask）：柔邊光帶沿對角線（左下→右上）由字外掃入、穿過字形、再掃出。
+    /// 用實體移動（position）而唔係移動漸變 stops —— stops 出界會被 clamp，
+    /// 光帶入界／出界嗰下會喺邊緣閃一閃。
+    /// 光帶闊度 = 對角線 × 0.9（比舊版 0.6 闊一半，光掃落嚟更飽滿）。
+    private static func sheenSweepBand(phase: Double) -> some View {
+        GeometryReader { geo in
+            let w = Double(geo.size.width)
+            let h = Double(geo.size.height)
+            let diag = max((w * w + h * h).squareRoot(), 1)
+            let bandWidth = max(diag * 0.9, 1)
+            // 沿對角線（左下角 → 右上角）行進；phase 0→1 由完全出界左下掃到完全出界右上
+            let travel = diag + bandWidth
+            let s = -bandWidth / 2 + phase * travel
+            let ux = w / diag
+            let uy = -h / diag
+            let angle = Angle.radians(atan2(uy, ux))
+            LinearGradient(
+                stops: [
+                    .init(color: .clear, location: 0),
+                    .init(color: .white.opacity(0.28), location: 0.3),
+                    .init(color: .white.opacity(0.65), location: 0.5),
+                    .init(color: .white.opacity(0.28), location: 0.7),
+                    .init(color: .clear, location: 1),
+                ],
+                startPoint: .leading,
+                endPoint: .trailing
+            )
+            .frame(width: bandWidth, height: diag * 2)
+            .rotationEffect(angle)
+            .position(x: ux * s, y: h + uy * s)
         }
-        let mid: Color = darkening ? Color.black.opacity(0.28) : Color.white.opacity(0.28)
-        let core: Color = darkening ? Color.black.opacity(0.65) : Color.white.opacity(0.65)
-        return LinearGradient(
-            stops: [
-                stop(p - 0.30, .clear),
-                stop(p - 0.12, mid),
-                stop(p, core),
-                stop(p + 0.12, mid),
-                stop(p + 0.30, .clear),
-            ],
-            startPoint: .bottomLeading,
-            endPoint: .topTrailing
-        )
     }
 
     // MARK: - Home Content
