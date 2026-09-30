@@ -90,6 +90,38 @@ class NonAdjustingMapView: MKMapView {
     }
 }
 
+/// 帶放大比例嘅停車點 marker。
+/// MapKit 會自己寫 annotation view 嘅 `transform`（地圖跟 heading 旋轉時做反旋轉、
+/// 飛行／縮放動畫時做移位），所以「最新點大 30%」唔可以直接擺落 `transform`，
+/// 一被 MapKit 覆寫就返返去原大（要等到下次 configure 先再變大）。
+/// 呢個 subclass 將「MapKit 嘅 transform」同「我哋嘅放大」分開：
+/// 每次 MapKit 寫入都自動重新疊加放大比例。
+final class ScaledMarkerAnnotationView: MKMarkerAnnotationView {
+    /// 1.0 = 原大；1.3 = 大 30%
+    var sizeScale: CGFloat = 1 {
+        didSet {
+            guard sizeScale != oldValue else { return }
+            applyScaledTransform()
+        }
+    }
+    /// MapKit 寫入嘅原始 transform（唔包我哋嘅放大）
+    private var mapTransform: CGAffineTransform = .identity
+
+    override var transform: CGAffineTransform {
+        // getter 返「MapKit 原始值」：萬一 MapKit read-modify-write（讀咗再轉再寫返），
+        // 都唔會將我哋嘅放大重複疊加。
+        get { mapTransform }
+        set {
+            mapTransform = newValue
+            applyScaledTransform()
+        }
+    }
+
+    private func applyScaledTransform() {
+        super.transform = mapTransform.scaledBy(x: sizeScale, y: sizeScale)
+    }
+}
+
 final class ParkingPointAnnotation: NSObject, MKAnnotation {
     let pointID: UUID
     dynamic var coordinate: CLLocationCoordinate2D
@@ -1603,7 +1635,7 @@ struct MapView: UIViewRepresentable {
                     anno.title = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
                 }
                 anno.subtitle = p.address.isEmpty ? nil : p.address
-                if let view = mapView.view(for: anno) as? MKMarkerAnnotationView {
+                if let view = mapView.view(for: anno) as? ScaledMarkerAnnotationView {
                     configureParkingMarker(view, annotation: anno)
                 }
                 next[p.id] = anno
@@ -1615,7 +1647,7 @@ struct MapView: UIViewRepresentable {
         }
 
         private func configureParkingMarker(
-            _ view: MKMarkerAnnotationView,
+            _ view: ScaledMarkerAnnotationView,
             annotation: ParkingPointAnnotation
         ) {
             view.canShowCallout = false
@@ -1631,9 +1663,8 @@ struct MapView: UIViewRepresentable {
             view.isDraggable = false
             view.centerOffset = CGPoint(x: 0, y: -10)
             view.displayPriority = annotation.isLatest ? .required : .defaultHigh
-            view.transform = annotation.isLatest
-                ? CGAffineTransform(scaleX: 1.30, y: 1.30)
-                : .identity
+            // 最新停車點比其他點大 30%（用 sizeScale，唔用 transform——見 ScaledMarkerAnnotationView）
+            view.sizeScale = annotation.isLatest ? 1.30 : 1.0
         }
 
         func applyParkingSelection(selectedParkingPointID: UUID?) {
@@ -1726,7 +1757,7 @@ struct MapView: UIViewRepresentable {
             }
             if let parking = annotation as? ParkingPointAnnotation {
                 let reuseID = "ParkingPointAnnotationView"
-                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MKMarkerAnnotationView) ?? MKMarkerAnnotationView(annotation: parking, reuseIdentifier: reuseID)
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? ScaledMarkerAnnotationView) ?? ScaledMarkerAnnotationView(annotation: parking, reuseIdentifier: reuseID)
                 view.annotation = parking
                 configureParkingMarker(view, annotation: parking)
                 return view
