@@ -185,6 +185,43 @@ final class ParkingMeterManager: ObservableObject {
         selectedMeter = meter
     }
 
+    /// 推斷泊車點旁邊嘅咪錶標注（車藍牙斷聯／導航目標輔助泊車點命名）
+    /// - confirmed：導航目標咪錶喺 30m 內，或者最近咪錶 ≤25m 且同第二近距離差 ≥10m（唯一最近）→ 記具體咪錶，坐標吸附去咪錶位
+    /// - estimated ：40m 內有咪錶但唔可以確認係邊個 → 只記街道，唔記具體咪錶，唔吸附
+    func inferMeterAnnotation(at coordinate: CLLocationCoordinate2D, navigationTargetID: String?) -> ParkingPointMeterAnnotation? {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        // 導航目標咪錶優先（用戶導航去嗰個位）
+        if let targetID = navigationTargetID, let target = allMeters.first(where: { $0.id == targetID }) {
+            let d = target.location.distance(from: location)
+            if d <= 30 {
+                return ParkingPointMeterAnnotation(
+                    meterID: target.id, street: target.street, kind: "confirmed",
+                    snapCoordinate: target.coordinate
+                )
+            }
+        }
+        // 最近咪錶（嚴格唯一最近先算 confirmed）
+        let nearby = index.nearby(location, radius: 45)
+            .map { ($0, $0.location.distance(from: location)) }
+            .sorted { $0.1 < $1.1 }
+        guard let nearest = nearby.first else { return nil }
+        if nearest.1 <= 25 {
+            let secondGap = (nearby.count > 1) ? (nearby[1].1 - nearest.1) : .infinity
+            if secondGap >= 10 {
+                return ParkingPointMeterAnnotation(
+                    meterID: nearest.0.id, street: nearest.0.street, kind: "confirmed",
+                    snapCoordinate: nearest.0.coordinate
+                )
+            }
+        }
+        if nearest.1 <= 40 {
+            return ParkingPointMeterAnnotation(
+                meterID: nil, street: nearest.0.street, kind: "estimated", snapCoordinate: nil
+            )
+        }
+        return nil
+    }
+
     func dismissNotice() { notice = nil }
 
     func setActive(_ active: Bool) {

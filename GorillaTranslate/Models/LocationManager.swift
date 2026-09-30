@@ -3,6 +3,7 @@ import UIKit
 import SwiftUI
 import CoreLocation
 import CoreMotion
+import AVFoundation
 
 // MARK: - Kalman Filter for speed smoothing
 class KalmanFilter {
@@ -111,6 +112,15 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var lastWalkingTime: Date?
     @Published var lastRunningTime: Date?
     @Published var lastCyclingTime: Date?
+
+    // MARK: - 車載藍牙斷聯偵測（泊車位置修正）
+    /// 最近一次速度超過 15 km/h 嘅時間（判斷「啱啱揸緊車」）
+    private var lastHighSpeedTime: Date?
+    /// 最近 60 秒 GPS fixes（斷聯嗰刻取中位數坐標用，單點 fix 會跳）
+    private var recentFixBuffer: [(latitude: Double, longitude: Double, date: Date)] = []
+    /// 斷聯候選「落車點」（30 分鐘內）
+    @Published private(set) var carExitEvents: [CarExitEvent] = []
+    private let carExitEventsKey = "car_exit_events_v1"
 
     enum GPSQuality {
         case good
@@ -254,6 +264,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.pausesLocationUpdatesAutomatically = false
         loadVisits()
         loadMotionSegments()
+        loadCarExitEvents()
+        startCarAudioRouteMonitor()
     }
 
     func startLocationServicesIfNeeded() {
@@ -514,6 +526,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 ParkingFloorStore.shared.barometer.currentSpeedKmh = self.speed
                 ParkingFloorStore.shared.barometer.lastSpeedUpdateTime = Date()
             }
+            // 藍牙斷聯事件維護：記錄 fix、追蹤「斷聯後有冇再開車」
+            let now = Date()
+            self.recentFixBuffer.append((location.coordinate.latitude, location.coordinate.longitude, now))
+            self.recentFixBuffer.removeAll { now.timeIntervalSince($0.date) > 60 }
+            if self.smoothedSpeed > 15 { self.lastHighSpeedTime = now }
+            self.updateCarExitEvents(now: now)
             let newQuality = self.quality(from: location.horizontalAccuracy)
             self.recentQualities.append(newQuality)
             if self.recentQualities.count > self.requiredSamples {
@@ -540,6 +558,110 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - 車載藍牙斷聯偵測（音訊路由監聽）
+
+    /// 監聽車載音訊路由斷聯——公開 API 入面唯一可靠嘅「車藍牙斷線」信號。
+    /// 唔用 CoreBluetooth：iOS 唔畀讀任意藍牙連接狀態（仲要藍牙權限）；
+    /// 音訊路由變化免權限免掃描，熄火斷線嗰下照樣捉到。
+    private func startCarAudioRouteMonitor() {
+        NotificationCenter.default.addObserver(
+            forName: AVAudioSession.routeChangeNotification, object: nil, queue: .main
+        ) { [weak self] note in
+            guard let self else { return }
+            guard let previous = note.userInfo?[AVAudioSessionRouteChangePreviousRouteKey] as? AVAudioSessionRouteDescription else { return }
+            let hadCarAudio = previous.outputs.contains { Self.isCarAudioPort($0) }
+            let stillConnected = AVAudioSession.sharedInstance().currentRoute.outputs.contains { Self.isCarAudioPort($0) }
+            guard hadCarAudio, !stillConnected else { return }
+            self.handleCarAudioDisconnect()
+        }
+    }
+
+    private static func isCarAudioPort(_ port: AVAudioSessionPortDescription) -> Bool {
+        switch port.portType {
+        case .bluetoothA2DP, .bluetoothHFP, .bluetoothLE, .carAudio:
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// 斷聯嗰刻記低候選「落車點」——要「啱啱揸緊車」先入，
+    /// 行緊路藍牙耳機斷線、喺屋企熄音響都唔會當落車。
+    private func handleCarAudioDisconnect() {
+        let now = Date()
+        let recentlyDriving = (lastAutomotiveTime.map { now.timeIntervalSince($0) < 10 * 60 } ?? false)
+            || (lastHighSpeedTime.map { now.timeIntervalSince($0) < 10 * 60 } ?? false)
+        guard recentlyDriving else { return }
+        guard let coord = medianCoordinate(around: now) else { return }
+        carExitEvents.append(CarExitEvent(
+            id: UUID(), date: now, latitude: coord.latitude, longitude: coord.longitude,
+            settled: false, rejected: false, consumed: false
+        ))
+        carExitEvents.removeAll { now.timeIntervalSince($0.date) > 30 * 60 }
+        persistCarExitEvents()
+    }
+
+    /// 斷聯時刻附近（±10 秒）嘅 GPS 中位數坐標（單點 fix 會跳，中位數穩定啲）
+    private func medianCoordinate(around date: Date) -> CLLocationCoordinate2D? {
+        let window = recentFixBuffer.filter { abs($0.date.timeIntervalSince(date)) <= 10 }
+        guard !window.isEmpty else { return nil }
+        let lats = window.map(\.latitude).sorted()
+        let lons = window.map(\.longitude).sorted()
+        return CLLocationCoordinate2D(latitude: lats[lats.count / 2], longitude: lons[lons.count / 2])
+    }
+
+    /// 斷聯事件狀態維護：60 秒後又開車 → 取消（中途斷線）；3 分鐘內安靜 → 落實
+    private func updateCarExitEvents(now: Date) {
+        guard !carExitEvents.isEmpty else { return }
+        var changed = false
+        for i in carExitEvents.indices {
+            guard !carExitEvents[i].settled, !carExitEvents[i].rejected else { continue }
+            let age = now.timeIntervalSince(carExitEvents[i].date)
+            if age > 60, smoothedSpeed > 10 {
+                carExitEvents[i].rejected = true
+                changed = true
+            } else if age > 3 * 60 {
+                carExitEvents[i].settled = true
+                changed = true
+            }
+        }
+        if changed { persistCarExitEvents() }
+    }
+
+    /// 落停車點嗰刻搵最近嘅可用斷聯事件（用嚟修正坐標／推斷咪錶）
+    /// CLVisit 成日遲過 3 分鐘先送到，所以事件就算仲未「落實」，
+    /// 只要過咗 60 秒「中途斷線」判定窗口又未被取消，都可以照用。
+    func latestSettledCarExit(near coordinate: CLLocationCoordinate2D, around date: Date) -> CarExitEvent? {
+        let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let now = Date()
+        return carExitEvents
+            .filter { !$0.rejected && !$0.consumed }
+            .filter { $0.settled || now.timeIntervalSince($0.date) > 60 }
+            .filter { abs($0.date.timeIntervalSince(date)) <= 20 * 60 }
+            .filter { CLLocation(latitude: $0.latitude, longitude: $0.longitude).distance(from: loc) < 200 }
+            .max { $0.date < $1.date }
+    }
+
+    /// 標記斷聯事件已用（一個事件只修正一個停車點）
+    func markCarExitConsumed(_ eventID: UUID) {
+        guard let idx = carExitEvents.firstIndex(where: { $0.id == eventID }) else { return }
+        carExitEvents[idx].consumed = true
+        persistCarExitEvents()
+    }
+
+    private func persistCarExitEvents() {
+        if let data = try? JSONEncoder().encode(carExitEvents) {
+            UserDefaults.standard.set(data, forKey: carExitEventsKey)
+        }
+    }
+
+    private func loadCarExitEvents() {
+        guard let data = UserDefaults.standard.data(forKey: carExitEventsKey),
+              let events = try? JSONDecoder().decode([CarExitEvent].self, from: data) else { return }
+        let now = Date()
+        carExitEvents = events.filter { now.timeIntervalSince($0.date) <= 30 * 60 }
     }
 
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
@@ -930,6 +1052,22 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     var llmFloorText: String?
     /// 是否開車到達（false = 非開車停留，顯示為「停留點」而非「停車點」）
     var isAutomotive: Bool
+    /// 咪錶標注（車藍牙斷聯＋附近咪錶推斷）：實錘＝有具體錶號，估計＝淨係街道
+    var meterID: String?
+    var meterStreet: String?
+    /// "confirmed"（實錘）／"estimated"（估計·街道級）
+    var meterMatchKind: String?
+
+    /// 咪錶標注（地圖標題／詳情用）：
+    /// confirmed → 「牧愛街 7802A咪錶」；estimated → 「牧愛街咪錶」（唔標具體咪錶）
+    var meterTag: String? {
+        let street = meterStreet?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !street.isEmpty else { return nil }
+        if meterMatchKind == "confirmed", let meterID = meterID?.trimmingCharacters(in: .whitespacesAndNewlines), !meterID.isEmpty {
+            return "\(street) \(meterID)咪錶"
+        }
+        return "\(street)咪錶"
+    }
 
     // 向後相容：舊資料沒有 isAutomotive 欄位時預設 true
     enum CodingKeys: String, CodingKey {
@@ -939,6 +1077,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         case barometerReferenceAltitude, barometerFinalAltitude, barometerPressureKPa
         case predictedFromLotLearned, llmSpotNumber, llmAreaCode, llmFloorText
         case isAutomotive, departureConfirmed
+        case meterID, meterStreet, meterMatchKind
     }
 
     init(
@@ -948,7 +1087,8 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         barometerReferenceAltitude: Double? = nil, barometerFinalAltitude: Double? = nil,
         barometerPressureKPa: Double? = nil, predictedFromLotLearned: Bool? = nil,
         llmSpotNumber: String? = nil, llmAreaCode: String? = nil, llmFloorText: String? = nil,
-        isAutomotive: Bool = true, departureConfirmed: Bool? = nil
+        isAutomotive: Bool = true, departureConfirmed: Bool? = nil,
+        meterID: String? = nil, meterStreet: String? = nil, meterMatchKind: String? = nil
     ) {
         self.id = id
         self.address = address
@@ -969,6 +1109,9 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         self.llmAreaCode = llmAreaCode
         self.llmFloorText = llmFloorText
         self.isAutomotive = isAutomotive
+        self.meterID = meterID
+        self.meterStreet = meterStreet
+        self.meterMatchKind = meterMatchKind
     }
 
     init(from decoder: Decoder) throws {
@@ -992,6 +1135,9 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         llmAreaCode = try c.decodeIfPresent(String.self, forKey: .llmAreaCode)
         llmFloorText = try c.decodeIfPresent(String.self, forKey: .llmFloorText)
         isAutomotive = try c.decodeIfPresent(Bool.self, forKey: .isAutomotive) ?? true
+        meterID = try c.decodeIfPresent(String.self, forKey: .meterID)
+        meterStreet = try c.decodeIfPresent(String.self, forKey: .meterStreet)
+        meterMatchKind = try c.decodeIfPresent(String.self, forKey: .meterMatchKind)
     }
 
     var coordinate: CLLocationCoordinate2D {
@@ -1011,6 +1157,60 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         }
         return cleanText
     }
+}
+
+// MARK: - 車藍牙斷聯事件、咪錶標注、最近刪除（回收桶）
+
+/// 停車點嘅咪錶標注：實錘（有具體錶號）／估計（淨係街道）
+struct ParkingPointMeterAnnotation {
+    let meterID: String?
+    let street: String
+    /// "confirmed"（實錘）／"estimated"（估計）
+    let kind: String
+    /// 實錘時要 snap 去嘅咪錶坐標（估計為 nil，沿用斷聯坐標）
+    let snapCoordinate: CLLocationCoordinate2D?
+}
+
+/// 車載音訊（藍牙 A2DP/HFP／CarPlay）斷聯嗰刻嘅候選「落車點」。
+/// 熄火／鎖車一刻斷聯，嗰個 GPS 位置比 CLVisit 到達中心更接近真正車位。
+struct CarExitEvent: Codable, Hashable {
+    let id: UUID
+    let date: Date
+    let latitude: Double
+    let longitude: Double
+    /// 斷聯後 3 分鐘內冇再開車先落實
+    var settled: Bool
+    /// 斷聯後 60 秒之後又開車 → 取消（中途斷線，唔係落車）
+    var rejected: Bool
+    /// 已經用嚟修正過停車點坐標
+    var consumed: Bool
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
+/// 回收桶入面嘅一條停車點（連埋刪除時嘅 lot 名，還原嗰陣用嚟對名合併）
+struct DeletedPointEntry: Identifiable, Codable, Hashable {
+    /// 同一批刪除（成個 lot 刪除）共用一個 batchID
+    let batchID: UUID
+    let point: ParkingPointRecord
+    /// 刪除時個 lot 嘅顯示名（還原合併對名用）
+    let lotName: String?
+    let deletedAt: Date
+
+    var id: UUID { point.id }
+    var coordinate: CLLocationCoordinate2D { point.coordinate }
+}
+
+/// 回收桶入面嘅一條學習地點
+struct DeletedPlaceEntry: Identifiable, Codable, Hashable {
+    let place: PlaceInfo
+    let deletedAt: Date
+
+    var id: String { place.key }
+    var displayName: String { place.displayName }
+    var coordinate: CLLocationCoordinate2D { place.coordinate }
 }
 
 // MARK: - 香港／內地區域判定（幾何邊界線 + geocode 權威緩存）
@@ -1229,6 +1429,14 @@ final class ParkingFloorStore: ObservableObject {
     private let storeKey = "parking_floor_store_v1"
     private let defaults: UserDefaults
 
+    // MARK: - 最近刪除（回收桶，7 日保留）
+    @Published private(set) var deletedPoints: [DeletedPointEntry] = []
+    @Published private(set) var deletedPlaces: [DeletedPlaceEntry] = []
+    private let deletedPointsKey = "deleted_parking_points_v1"
+    private let deletedPlacesKey = "deleted_places_v1"
+    /// 回收保留期：7 日後自動清理
+    static let trashRetention: TimeInterval = 7 * 24 * 3600
+
     let barometer = BarometerSessionManager()
     private var hasLoaded = false
 
@@ -1283,6 +1491,7 @@ final class ParkingFloorStore: ObservableObject {
     func prepare() {
         guard !hasLoaded else { return }
         hasLoaded = true
+        loadTrash()
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 100_000_000)
             load()
@@ -1334,16 +1543,30 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
 
-    func recordParkingPoint(from visit: LocationManager.VisitRecord, defaultLotName: String? = nil) {
+    func recordParkingPoint(
+        from visit: LocationManager.VisitRecord,
+        defaultLotName: String? = nil,
+        preferredCoordinate: CLLocationCoordinate2D? = nil,
+        meter: ParkingPointMeterAnnotation? = nil
+    ) {
         // 確保氣壓計正在運行
         barometer.startIfAuthorized()
 
-        // Bug 3a 修復：優先使用停留時的 GPS 位置（更準確）
+        // 坐標優先級：咪錶確認吸附 > 車藍牙斷聯位置 > 停留時 GPS 位置 > visit 位置
         let visitCoord = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
+        let visitLoc = CLLocation(latitude: visitCoord.latitude, longitude: visitCoord.longitude)
+        let preferred = meter?.snapCoordinate ?? preferredCoordinate
         let coordinate: CLLocationCoordinate2D
-        if let statCoord = lastStationaryCoordinate {
+        if let pref = preferred {
+            let prefLoc = CLLocation(latitude: pref.latitude, longitude: pref.longitude)
+            // 偏離 visit 太遠就唔用（防止錯誤吸附）
+            if prefLoc.distance(from: visitLoc) < 200 {
+                coordinate = pref
+            } else {
+                coordinate = visitCoord
+            }
+        } else if let statCoord = lastStationaryCoordinate {
             let statLoc = CLLocation(latitude: statCoord.latitude, longitude: statCoord.longitude)
-            let visitLoc = CLLocation(latitude: visitCoord.latitude, longitude: visitCoord.longitude)
             // 如果停留位置距離 visit 位置 < 200m，使用停留位置（更準確）
             if statLoc.distance(from: visitLoc) < 200 {
                 coordinate = statCoord
@@ -1370,7 +1593,8 @@ final class ParkingFloorStore: ObservableObject {
                 pressure: nil,
                 predictedFromLotLearned: false,
                 isAutomotive: false,
-                defaultLotName: defaultLotName
+                defaultLotName: defaultLotName,
+                meter: meter
             )
             return
         }
@@ -1460,7 +1684,8 @@ final class ParkingFloorStore: ObservableObject {
             pressure: pressure,
             predictedFromLotLearned: predicted.fromLotLearned,
             isAutomotive: true,
-            defaultLotName: defaultLotName
+            defaultLotName: defaultLotName,
+            meter: meter
         )
 
         // 如果氣壓計樣本不夠導致樓層未知，60 秒後重試
@@ -1576,7 +1801,8 @@ final class ParkingFloorStore: ObservableObject {
         pressure: Double?,
         predictedFromLotLearned: Bool?,
         isAutomotive: Bool = true,
-        defaultLotName: String? = nil
+        defaultLotName: String? = nil,
+        meter: ParkingPointMeterAnnotation? = nil
     ) {
         let now = Date()
         let inserting = ParkingPointRecord(
@@ -1594,7 +1820,10 @@ final class ParkingFloorStore: ObservableObject {
             barometerFinalAltitude: finalAlt,
             barometerPressureKPa: pressure,
             predictedFromLotLearned: predictedFromLotLearned,
-            isAutomotive: isAutomotive
+            isAutomotive: isAutomotive,
+            meterID: (isAutomotive && meter != nil) ? meter?.meterID : nil,
+            meterStreet: (isAutomotive && meter != nil) ? meter?.street : nil,
+            meterMatchKind: (isAutomotive && meter != nil) ? meter?.kind : nil
         )
         
         if let idx = findLotIndex(near: coordinate, radiusMeters: Self.defaultRadiusMeters) {
@@ -2019,10 +2248,17 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
 
-    /// 刪除指定停車點
+    /// 刪除指定停車點（soft delete：搬入「最近刪除」，7 日內可還原）
     func deletePoint(pointID: UUID) {
         for lotIndex in lots.indices {
             if let pIndex = lots[lotIndex].points.firstIndex(where: { $0.id == pointID }) {
+                let lot = lots[lotIndex]
+                let point = lot.points[pIndex]
+                deletedPoints.removeAll { $0.point.id == point.id }
+                deletedPoints.append(DeletedPointEntry(
+                    batchID: UUID(), point: point,
+                    lotName: lot.preferredDisplayName, deletedAt: Date()
+                ))
                 lots[lotIndex].points.remove(at: pIndex)
                 lots[lotIndex].updatedAt = Date()
                 // 如果刪除後該停車場無點，則刪除整個停車場
@@ -2033,16 +2269,141 @@ final class ParkingFloorStore: ObservableObject {
                     rebuildLotLearning(at: lotIndex)
                 }
                 objectWillChange.send()
+                persistTrash()
                 persist()
                 return
             }
         }
     }
 
-    /// 刪除整個停車場
+    /// 刪除整個停車場（soft delete：入面每個點都入「最近刪除」，同一 batch 可一齊還原）
     func deleteLot(lotID: UUID) {
+        guard let idx = lots.firstIndex(where: { $0.id == lotID }) else { return }
+        let lot = lots[idx]
+        let batch = UUID()
+        let now = Date()
+        let name = lot.preferredDisplayName
+        for point in lot.points {
+            deletedPoints.removeAll { $0.point.id == point.id }
+        }
+        deletedPoints.append(contentsOf: lot.points.map {
+            DeletedPointEntry(batchID: batch, point: $0, lotName: name, deletedAt: now)
+        })
         lots.removeAll { $0.id == lotID }
+        objectWillChange.send()
+        persistTrash()
         persist()
+    }
+
+    /// 還原「最近刪除」入面嘅一條停車點。
+    /// 名一樣 → 合併入附近現有 lot；名唔一樣（或者附近冇 lot）→ 獨立成返一個 lot。
+    func restorePoint(entryID: UUID) {
+        guard let entryIdx = deletedPoints.firstIndex(where: { $0.id == entryID }) else { return }
+        let entry = deletedPoints[entryIdx]
+        let coord = entry.point.coordinate
+        let nameKey = Self.normalizedLotName(entry.lotName)
+        if let targetIdx = lots.firstIndex(where: {
+            Self.normalizedLotName($0.preferredDisplayName) == nameKey
+                && $0.centerDistance(to: coord) <= Self.defaultRadiusMeters
+        }) {
+            var lot = lots[targetIdx]
+            if !lot.points.contains(where: { $0.id == entry.point.id }) {
+                lot.points.insert(entry.point, at: 0)
+                lot.updatedAt = Date()
+                lots[targetIdx] = lot
+                recomputeLotGeometry(at: targetIdx)
+                rebuildLotLearning(at: targetIdx)
+            }
+        } else {
+            lots.insert(ParkingLotRecord(
+                id: UUID(), name: entry.lotName,
+                centerLatitude: coord.latitude, centerLongitude: coord.longitude,
+                radiusMeters: Self.defaultRadiusMeters,
+                createdAt: entry.point.createdAt, updatedAt: Date(), locality: nil,
+                points: [entry.point],
+                learnedMetersPerFloor: nil, learnedOffsetMeters: nil,
+                learnedConfidence: nil, floorLearningHistory: nil
+            ), at: 0)
+        }
+        deletedPoints.remove(at: entryIdx)
+        objectWillChange.send()
+        persistTrash()
+        persist()
+    }
+
+    /// 成批還原（成個 lot 刪除嗰批，逐條放返入同一個 lot）
+    func restoreBatch(batchID: UUID) {
+        let ids = deletedPoints.filter { $0.batchID == batchID }.map(\.id)
+        for id in ids { restorePoint(entryID: id) }
+    }
+
+    /// 永久刪除（回收桶入面嘅停車點）
+    func permanentlyDeletePoint(entryID: UUID) {
+        deletedPoints.removeAll { $0.id == entryID }
+        persistTrash()
+    }
+
+    /// 刪除學習地點（soft delete：移出 placeCatalog，入「最近刪除」）
+    func deletePlace(_ place: PlaceInfo) {
+        deletedPlaces.removeAll { $0.place.key == place.key }
+        deletedPlaces.append(DeletedPlaceEntry(place: place, deletedAt: Date()))
+        DispatchQueue.main.async {
+            TripPredictor.shared.removePlace(key: place.key)
+        }
+        persistTrash()
+    }
+
+    /// 還原學習地點（放返入 placeCatalog，key／預測記錄引用跟返）
+    func restorePlace(entryID: String) {
+        guard let idx = deletedPlaces.firstIndex(where: { $0.id == entryID }) else { return }
+        let place = deletedPlaces[idx].place
+        DispatchQueue.main.async {
+            TripPredictor.shared.restorePlace(place)
+        }
+        deletedPlaces.remove(at: idx)
+        persistTrash()
+    }
+
+    /// 永久刪除（回收桶入面嘅學習地點）
+    func permanentlyDeletePlace(entryID: String) {
+        deletedPlaces.removeAll { $0.id == entryID }
+        persistTrash()
+    }
+
+    /// 清理過期（7 日）嘅回收記錄
+    func purgeExpiredTrash() {
+        let cutoff = Date().addingTimeInterval(-Self.trashRetention)
+        let hadExpired = deletedPoints.contains { $0.deletedAt < cutoff }
+            || deletedPlaces.contains { $0.deletedAt < cutoff }
+        guard hadExpired else { return }
+        deletedPoints.removeAll { $0.deletedAt < cutoff }
+        deletedPlaces.removeAll { $0.deletedAt < cutoff }
+        persistTrash()
+    }
+
+    private static func normalizedLotName(_ name: String?) -> String {
+        (name ?? "").trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
+    private func persistTrash() {
+        if let data = try? JSONEncoder().encode(deletedPoints) {
+            defaults.set(data, forKey: deletedPointsKey)
+        }
+        if let data = try? JSONEncoder().encode(deletedPlaces) {
+            defaults.set(data, forKey: deletedPlacesKey)
+        }
+    }
+
+    private func loadTrash() {
+        if let data = defaults.data(forKey: deletedPointsKey),
+           let entries = try? JSONDecoder().decode([DeletedPointEntry].self, from: data) {
+            deletedPoints = entries
+        }
+        if let data = defaults.data(forKey: deletedPlacesKey),
+           let entries = try? JSONDecoder().decode([DeletedPlaceEntry].self, from: data) {
+            deletedPlaces = entries
+        }
+        purgeExpiredTrash()
     }
 
     func nudgePoint(pointID: UUID, northMeters: Double, eastMeters: Double) {

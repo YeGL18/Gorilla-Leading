@@ -1076,7 +1076,21 @@ struct ContentView: View {
                     content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
                     let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
                     UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
-                    parkingFloorStore.recordParkingPoint(from: lastVisit, defaultLotName: defaultNewLotName(visitAddress: lastVisit.address))
+                    // 車藍牙斷聯：優化泊車點坐標 + 咪錶標注（每個斷聯事件只用一次）
+                    var carExitCoordinate: CLLocationCoordinate2D?
+                    if lastVisit.isAutomotive,
+                       let exitEvent = locationManager.latestSettledCarExit(
+                           near: CLLocationCoordinate2D(latitude: lastVisit.latitude, longitude: lastVisit.longitude),
+                           around: lastVisit.arrivalDate
+                       ) {
+                        carExitCoordinate = exitEvent.coordinate
+                        locationManager.markCarExitConsumed(exitEvent.id)
+                    }
+                    let meterAnnotation = meterManager.inferMeterAnnotation(
+                        at: carExitCoordinate ?? CLLocationCoordinate2D(latitude: lastVisit.latitude, longitude: lastVisit.longitude),
+                        navigationTargetID: meterRouteTarget?.id
+                    )
+                    parkingFloorStore.recordParkingPoint(from: lastVisit, defaultLotName: defaultNewLotName(visitAddress: lastVisit.address), preferredCoordinate: carExitCoordinate, meter: meterAnnotation)
                     // Bug 1 修復：強制 SwiftUI 重新渲染地圖（確保停車點標記出現）
                     parkingFloorStore.objectWillChange.send()
                     // Show parking info on new arrival
@@ -5125,6 +5139,19 @@ struct ContentView: View {
                             .contentTransition(.numericText())
                             .animation(.easeInOut(duration: 0.18), value: currentFloor)
                         FloorConventionBadge(coordinate: point.coordinate, compact: true)
+                    }
+
+                    // 咪錶標注（lot 名照舊，呢度單獨標明旁邊嘅咪錶）
+                    if let meterTag = point.meterTag {
+                        HStack(spacing: 4) {
+                            Image(systemName: "parkingsign.circle.fill")
+                                .font(.system(size: 11, weight: .semibold))
+                                .foregroundStyle(.orange)
+                            Text(meterTag)
+                                .font(.system(size: 12, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
                     }
 
                     if !hasFloor {

@@ -1556,6 +1556,7 @@ struct MapView: UIViewRepresentable {
                 hasher.combine(p.manualFloorIndex)
                 hasher.combine(p.isAutomotive)
                 hasher.combine(titlePrefixesByID[p.id] ?? "")
+                hasher.combine(p.meterTag ?? "")
                 if let c = p.confidence {
                     hasher.combine(c)
                 }
@@ -1589,8 +1590,14 @@ struct MapView: UIViewRepresentable {
                     let floor = p.displayFloor ?? String(localized: "未知")
                     let suffix = (floor == String(localized: "未知")) ? String(localized: "未知") : (floor.contains("/") ? floor : "\(floor)/F")
                     let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-                    let baseTitle = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
-                    anno.title = "\(baseTitle) \(suffix)"
+                    if let meterTag = p.meterTag {
+                        // 咪錶標注延伸：「HKMU - 牧愛街 7802A咪錶 停車點 3/F」
+                        let named = prefix.isEmpty ? meterTag : "\(prefix) - \(meterTag)"
+                        anno.title = "\(named) \(baseLabel) \(suffix)"
+                    } else {
+                        let baseTitle = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
+                        anno.title = "\(baseTitle) \(suffix)"
+                    }
                 } else {
                     let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     anno.title = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel

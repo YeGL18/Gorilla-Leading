@@ -3582,6 +3582,7 @@ struct PlaceManagementView: View {
     @State private var placeSearchText = ""
     @State private var mapPreviewCoordinate: CLLocationCoordinate2D?
     @State private var mapPreviewName: String = ""
+    @State private var trashSelection: TrashSelection?
 
     var body: some View {
         List {
@@ -3742,12 +3743,83 @@ struct PlaceManagementView: View {
                         mapPreviewName = p.displayName
                         mapPreviewCoordinate = CLLocationCoordinate2D(latitude: p.latitude, longitude: p.longitude)
                     }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        Button(role: .destructive) {
+                            // 刪除學習地點（soft delete：入「最近刪除」，7 日內可還原）
+                            parkingFloorStore.deletePlace(p)
+                        } label: {
+                            Label("刪除", systemImage: "trash")
+                        }
+                    }
                     .padding(.vertical, 2)
                 }
             } header: {
                 Label("學習地點", systemImage: "mappin.and.ellipse")
             } footer: {
                 Text("系統由你嘅到訪記錄自動學識嘅地方（以前叫「地址叢集」），用嚟預測下一站去邊。改名會同步到附近同位置嘅停車場。")
+            }
+
+            // ── Section 3：最近刪除（回收桶，7 日保留）──
+            Section {
+                let pointBatches = Dictionary(grouping: parkingFloorStore.deletedPoints, by: { $0.batchID })
+                    .map { (batchID: $0.key, entries: $0.value) }
+                    .sorted { ($0.entries.first?.deletedAt ?? .distantPast) > ($1.entries.first?.deletedAt ?? .distantPast) }
+                let placeEntries = parkingFloorStore.deletedPlaces.sorted { $0.deletedAt > $1.deletedAt }
+                if pointBatches.isEmpty && placeEntries.isEmpty {
+                    Text("暫無最近刪除嘅項目。")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(pointBatches, id: \.batchID) { batch in
+                    let entries = batch.entries
+                    Button {
+                        trashSelection = .pointBatch(batchID: batch.batchID)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entries.first?.lotName ?? "未命名")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text((entries.count > 1 ? "\(entries.count) 個點 · " : (entries.first?.point.isAutomotive == true ? "停車點 · " : "逗留點 · ")) + (entries.first?.deletedAt.formatted(.dateTime.year().month().day().hour().minute()) ?? ""))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 2)
+                }
+                ForEach(placeEntries) { entry in
+                    Button {
+                        trashSelection = .place(entryID: entry.id)
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(entry.place.displayName)
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(.primary)
+                                Text("學習地點 · " + entry.deletedAt.formatted(.dateTime.year().month().day().hour().minute()))
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Label("最近刪除", systemImage: "trash")
+            } footer: {
+                Text("刪除嘅停車點／逗留點同學習地點會保留 7 日，期間可以還原；7 日後自動清理。成個停車場刪除嘅點會一齊保留，可以成批還原。")
             }
 
             // ── 總覽 ──
@@ -3954,6 +4026,9 @@ struct PlaceManagementView: View {
         )) { item in
             PlaceMapPreviewSheet(name: item.name, coordinate: item.coordinate)
         }
+        .sheet(item: $trashSelection) { selection in
+            TrashDetailSheet(selection: selection)
+        }
     }
 
     /// 點數摘要：混合 lot（同時有停車點同逗留點）顯示兩種數量
@@ -4052,7 +4127,7 @@ struct ParkingLotPointsView: View {
                 }
             }
         } message: {
-            Text("確定要刪除此停車點嗎？此操作無法撤銷。")
+            Text("確定要刪除此停車點嗎？刪除後會放入「最近刪除」，7 日內可以還原。")
         }
     }
 }
@@ -4100,6 +4175,213 @@ private struct PlaceMapPreviewSheet: View {
         }
         .presentationDetents([.medium])
         .interactiveDismissDisabled()
+    }
+}
+
+// MARK: - 最近刪除（回收桶）詳情 Sheet
+private enum TrashSelection: Identifiable {
+    /// 單一停車點／逗留點，或者成個停車場刪除嗰批（同一 batchID）
+    case pointBatch(batchID: UUID)
+    case place(entryID: String)
+
+    var id: String {
+        switch self {
+        case .pointBatch(let batchID): return "batch-\(batchID.uuidString)"
+        case .place(let entryID): return "place-\(entryID)"
+        }
+    }
+}
+
+private struct TrashDetailSheet: View {
+    @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
+    @Environment(\.dismiss) private var dismiss
+    let selection: TrashSelection
+
+    @State private var showPurgeAlert = false
+
+    private var pointEntries: [DeletedPointEntry] {
+        switch selection {
+        case .pointBatch(let batchID):
+            return parkingFloorStore.deletedPoints
+                .filter { $0.batchID == batchID }
+                .sorted { $0.point.createdAt > $1.point.createdAt }
+        case .place:
+            return []
+        }
+    }
+
+    private var placeEntry: DeletedPlaceEntry? {
+        if case .place(let entryID) = selection {
+            return parkingFloorStore.deletedPlaces.first { $0.id == entryID }
+        }
+        return nil
+    }
+
+    private var title: String {
+        if let placeEntry { return placeEntry.place.displayName }
+        return pointEntries.first?.lotName ?? "最近刪除"
+    }
+
+    private var kindText: String {
+        if placeEntry != nil { return "學習地點" }
+        guard let first = pointEntries.first else { return "—" }
+        return first.point.isAutomotive ? "停車點" : "逗留點"
+    }
+
+    private var coordinate: CLLocationCoordinate2D? {
+        if let placeEntry {
+            return CLLocationCoordinate2D(latitude: placeEntry.place.latitude, longitude: placeEntry.place.longitude)
+        }
+        guard let first = pointEntries.first else { return nil }
+        return first.point.coordinate
+    }
+
+    private var deletedAt: Date? {
+        placeEntry?.deletedAt ?? pointEntries.first?.deletedAt
+    }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 14) {
+                    if let coordinate {
+                        // 地圖中心用 GCJ02（中國地圖磚偏移），確保標記和中心對齊
+                        Map(position: .constant(.region(MKCoordinateRegion(
+                            center: coordinate.wgs84ToGCJ02,
+                            span: MKCoordinateSpan(latitudeDelta: 0.003, longitudeDelta: 0.003)
+                        )))) {
+                            Marker(title, coordinate: coordinate.wgs84ToGCJ02)
+                        }
+                        .frame(height: 220)
+                        .clipShape(RoundedRectangle(cornerRadius: 16))
+                    }
+
+                    VStack(spacing: 0) {
+                        TrashInfoRow(label: "原先名字", value: title)
+                        TrashInfoRow(label: "類型", value: kindText)
+                        if let placeEntry {
+                            TrashInfoRow(label: "記錄時間", value: placeEntry.place.updatedAt.formatted(.dateTime.year().month().day().hour().minute()))
+                        }
+                        if let deletedAt {
+                            TrashInfoRow(label: "刪除時間", value: deletedAt.formatted(.dateTime.year().month().day().hour().minute()))
+                        }
+                        if let coordinate {
+                            TrashInfoRow(label: "坐標", value: String(format: "%.5f, %.5f", coordinate.latitude, coordinate.longitude))
+                        }
+                    }
+                    .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+
+                    // 咪錶標注（如果當初係停喺咪錶旁）
+                    if let meterTag = pointEntries.first?.point.meterTag {
+                        HStack(spacing: 6) {
+                            Image(systemName: "parkingsign.circle.fill")
+                                .foregroundStyle(.orange)
+                            Text(meterTag)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                        }
+                        .padding(12)
+                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12))
+                    }
+
+                    // 成批刪除（成個停車場）時顯示入面每個點
+                    if pointEntries.count > 1 {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text("入面 \(pointEntries.count) 個點")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            ForEach(pointEntries) { entry in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(entry.point.createdAt.formatted(.dateTime.year().month().day().hour().minute()))
+                                        .font(.caption)
+                                    Text(String(format: "%.5f, %.5f", entry.point.latitude, entry.point.longitude))
+                                        .font(.caption2.monospaced())
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(10)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.quaternary.opacity(0.3), in: RoundedRectangle(cornerRadius: 10))
+                            }
+                        }
+                    }
+
+                    Button {
+                        restore()
+                        dismiss()
+                    } label: {
+                        Label("還原", systemImage: "arrow.uturn.backward.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Button(role: .destructive) {
+                        showPurgeAlert = true
+                    } label: {
+                        Label("永久刪除", systemImage: "trash")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .tint(.red)
+                }
+                .padding(16)
+            }
+            .navigationTitle("最近刪除")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("完成") { dismiss() }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .alert("永久刪除", isPresented: $showPurgeAlert) {
+            Button("取消", role: .cancel) {}
+            Button("永久刪除", role: .destructive) {
+                purge()
+                dismiss()
+            }
+        } message: {
+            Text("永久刪除後無法復原。確定要刪除嗎？")
+        }
+    }
+
+    private func restore() {
+        switch selection {
+        case .pointBatch(let batchID):
+            parkingFloorStore.restoreBatch(batchID: batchID)
+        case .place(let entryID):
+            parkingFloorStore.restorePlace(entryID: entryID)
+        }
+    }
+
+    private func purge() {
+        switch selection {
+        case .pointBatch(let batchID):
+            for entry in parkingFloorStore.deletedPoints.filter({ $0.batchID == batchID }) {
+                parkingFloorStore.permanentlyDeletePoint(entryID: entry.id)
+            }
+        case .place(let entryID):
+            parkingFloorStore.permanentlyDeletePlace(entryID: entryID)
+        }
+    }
+}
+
+private struct TrashInfoRow: View {
+    let label: String
+    let value: String
+    var body: some View {
+        HStack {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Spacer()
+            Text(value)
+                .font(.subheadline)
+                .multilineTextAlignment(.trailing)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 10)
     }
 }
 

@@ -524,6 +524,18 @@ final class TripPredictor: ObservableObject {
         }
     }
 
+    /// 刪除學習地點（移出 placeCatalog）—— soft delete，記錄由 ParkingFloorStore 回收桶保存
+    func removePlace(key: String) {
+        guard placeCatalog.removeValue(forKey: key) != nil else { return }
+        saveState()
+    }
+
+    /// 還原學習地點（放返入 placeCatalog，key／預測記錄引用都會跟返）
+    func restorePlace(_ place: PlaceInfo) {
+        placeCatalog[place.key] = place
+        saveState()
+    }
+
     /// 同步地址叢集名稱：搵到同一位置嘅 addr: 記錄並更新 displayName
     func syncClusterName(nearLatitude lat: Double, longitude lng: Double, newName: String?) {
         let loc = CLLocation(latitude: lat, longitude: lng)
