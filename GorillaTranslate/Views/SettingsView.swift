@@ -3579,16 +3579,16 @@ struct PlaceManagementView: View {
     @State private var renamingKey: String?        // placeCatalog key or "lot:\(lotID)"
     @State private var renamingText: String = ""
     @State private var showRenameAlert = false
+    @State private var placeSearchText = ""
     @State private var mapPreviewCoordinate: CLLocationCoordinate2D?
     @State private var mapPreviewName: String = ""
 
     var body: some View {
         List {
-            // ── Section 1：停車場（ParkingFloorStore.lots，排除非開車到達的停留點）──
+            // ── Section 1：停車場（有揸車到達記錄嘅 lot；混合 lot 都歸入呢度）──
             Section {
                 let automotiveLots = parkingFloorStore.lots.filter { lot in
-                    // 只顯示開車到達的停車場（排除停留點）
-                    lot.points.allSatisfy { $0.isAutomotive }
+                    lot.points.contains { $0.isAutomotive } && lotMatches(placeSearchText, lot)
                 }
                 if automotiveLots.isEmpty {
                     Text("暫無停車場數據。")
@@ -3599,7 +3599,7 @@ struct PlaceManagementView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(lot.preferredDisplayName ?? "未命名")
                                 .font(.subheadline.weight(.semibold))
-                            Text("\(lot.points.count) 停車點  ·  \(String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))")
+                            Text(lotPointSummary(lot) + "  ·  " + String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))
                                 .font(.caption2.monospaced())
                                 .foregroundStyle(.secondary)
                         }
@@ -3640,15 +3640,75 @@ struct PlaceManagementView: View {
                 }
             } header: {
                 Label("停車場", systemImage: "parkingsign.circle.fill")
+            } footer: {
+                Text("揸車到達嘅記錄點會聚合成停車場。同一個地點如果你又揸車去過又行路去過，兩種記錄會歸入同一個停車場（顯示做「N 停車點 · M 逗留點」）。改名會同步到地圖標點、學習地點同搜尋選單。")
             }
 
-            // ── Section 2：地址叢集（placeCatalog 中的 .addressCluster）──
+            // ── Section 1.5：逗留點（全部點都係行路／跑步／踩單車到達）──
+            Section {
+                let stayLots = parkingFloorStore.lots.filter { lot in
+                    !lot.points.contains { $0.isAutomotive } && lotMatches(placeSearchText, lot)
+                }
+                if stayLots.isEmpty {
+                    Text("暫無逗留點數據。")
+                        .foregroundStyle(.secondary)
+                }
+                ForEach(stayLots) { lot in
+                    HStack {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(lot.preferredDisplayName ?? "未命名")
+                                .font(.subheadline.weight(.semibold))
+                            Text("\(lot.points.count) 逗留點  ·  " + String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude))
+                                .font(.caption2.monospaced())
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button {
+                            renamingKey = "lot:\(lot.id.uuidString)"
+                            renamingText = lot.preferredDisplayName ?? ""
+                            showRenameAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 32, height: 32)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        mapPreviewName = lot.preferredDisplayName ?? "未命名逗留點"
+                        mapPreviewCoordinate = CLLocationCoordinate2D(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                        NavigationLink {
+                            ParkingLotPointsView(lot: lot)
+                        } label: {
+                            Label("詳情", systemImage: "info.circle")
+                        }
+                        .tint(.blue)
+                        Button(role: .destructive) {
+                            parkingFloorStore.deleteLot(lotID: lot.id)
+                        } label: {
+                            Label("刪除", systemImage: "trash")
+                        }
+                    }
+                    .padding(.vertical, 2)
+                }
+            } header: {
+                Label("逗留點", systemImage: "figure.walk")
+            } footer: {
+                Text("行路／跑步／踩單車到達嘅停留記錄，管理方式同停車場一樣：成個地點改名、睇詳情、刪除。地圖嘅停車／逗留點彈窗入面都可以即時改名。")
+            }
+
+            // ── Section 2：學習地點（placeCatalog 中的 .addressCluster，舊名「地址叢集」）──
             let clusters = predictor.placeCatalog.values
-                .filter { $0.kind == .addressCluster }
+                .filter { $0.kind == .addressCluster && placeMatches(placeSearchText, $0) }
                 .sorted { $0.updatedAt > $1.updatedAt }
             Section {
                 if clusters.isEmpty {
-                    Text("暫無地址叢集。")
+                    Text("暫無學習地點。")
                         .foregroundStyle(.secondary)
                 }
                 ForEach(clusters) { p in
@@ -3685,7 +3745,9 @@ struct PlaceManagementView: View {
                     .padding(.vertical, 2)
                 }
             } header: {
-                Label("地址叢集", systemImage: "mappin.and.ellipse")
+                Label("學習地點", systemImage: "mappin.and.ellipse")
+            } footer: {
+                Text("系統由你嘅到訪記錄自動學識嘅地方（以前叫「地址叢集」），用嚟預測下一站去邊。改名會同步到附近同位置嘅停車場。")
             }
 
             // ── 總覽 ──
@@ -3862,6 +3924,7 @@ struct PlaceManagementView: View {
         }
         .navigationTitle("地點管理")
         .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $placeSearchText, prompt: "搜尋地點")
         .alert("地點改名", isPresented: $showRenameAlert) {
             TextField("名稱", text: $renamingText)
             Button("取消", role: .cancel) { renamingKey = nil }
@@ -3876,7 +3939,7 @@ struct PlaceManagementView: View {
                         parkingFloorStore.setLotName(lotID: lotID, name: newName)
                     }
                 } else {
-                    // 地址叢集改名：升級為 namedLot + 同步 DestinationManager
+                    // 學習地點改名：更新 placeCatalog + 同步對應停車場名
                     predictor.renamePlace(key: key, newName: newName)
                 }
                 renamingKey = nil
@@ -3891,6 +3954,27 @@ struct PlaceManagementView: View {
         )) { item in
             PlaceMapPreviewSheet(name: item.name, coordinate: item.coordinate)
         }
+    }
+
+    /// 點數摘要：混合 lot（同時有停車點同逗留點）顯示兩種數量
+    private func lotPointSummary(_ lot: ParkingLotRecord) -> String {
+        let stay = lot.points.filter { !$0.isAutomotive }.count
+        let auto = lot.points.count - stay
+        return stay > 0 ? "\(auto) 停車點 · \(stay) 逗留點" : "\(auto) 停車點"
+    }
+
+    private func lotMatches(_ query: String, _ lot: ParkingLotRecord) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return true }
+        if (lot.preferredDisplayName ?? "").localizedCaseInsensitiveContains(q) { return true }
+        if String(format: "%.5f, %.5f", lot.centerLatitude, lot.centerLongitude).contains(q) { return true }
+        return lot.points.contains { $0.address.localizedCaseInsensitiveContains(q) }
+    }
+
+    private func placeMatches(_ query: String, _ place: PlaceInfo) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty else { return true }
+        return place.displayName.localizedCaseInsensitiveContains(q)
     }
 }
 

@@ -10,6 +10,7 @@
 		05B1C5DB301837BB00589328 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05B1C5DA301837BB00589328 /* WidgetKit.framework */; };
 		05B1C5DD301837BB00589328 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05B1C5DC301837BB00589328 /* SwiftUI.framework */; };
 		05B1C5EE301837BC00589328 /* ParkingTimerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		0B1000010B1000010B100001 /* GorillaOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2000010B2000010B200001 /* GorillaOnboardingView.swift */; };
 		110F68C8F30F7220369D4617 /* TimePhase.swift in Sources */ = {isa = PBXBuildFile; fileRef = B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */; };
 		157F6325A2902DAE2BD0FCFA /* SpeedSimulationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */; };
 		41C57E1A8C339168DC763715 /* Pods_GorillaTranslate.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B8595F45FC31A08180F0BDB4 /* Pods_GorillaTranslate.framework */; };
@@ -25,7 +26,6 @@
 		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
 		A10021 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20021 /* AppLanguage.swift */; };
 		A10022 /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20022 /* LanguageManager.swift */; };
-		0B1000010B1000010B100001 /* GorillaOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0B2000010B2000010B200001 /* GorillaOnboardingView.swift */; };
 		AM10001 /* AMapConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20001 /* AMapConfig.swift */; };
 		AM10002 /* AmapNaviManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20002 /* AmapNaviManager.swift */; };
 		AM10003 /* FloatingLaneGuidanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20003 /* FloatingLaneGuidanceView.swift */; };
@@ -35,13 +35,13 @@
 		AM10008 /* LightDistortion.metal in Sources */ = {isa = PBXBuildFile; fileRef = AM20008 /* LightDistortion.metal */; };
 		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
-		E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
 		C10001 /* MapView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C20001 /* MapView.swift */; };
 		C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2A001HK0001 /* HKTaxiExamLocations.swift */; };
 		D10001 /* Destination.swift in Sources */ = {isa = PBXBuildFile; fileRef = D20001 /* Destination.swift */; };
 		E10001 /* ParkingPhoto.swift in Sources */ = {isa = PBXBuildFile; fileRef = E20001 /* ParkingPhoto.swift */; };
 		E14C057DE2641559B70A543F /* WeatherService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759D5AC501F16B3C56606AE5 /* WeatherService.swift */; };
+		E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */ = {isa = PBXBuildFile; fileRef = E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */; };
 		EA44CAF9DA9ACC24F1E1247F /* TimeBasedOrbView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 186CBC60988AE080898F728D /* TimeBasedOrbView.swift */; };
 		F10001 /* ParkingRecognitionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = F20001 /* ParkingRecognitionService.swift */; };
 		F3A0C001B2C3D4E5F6071829 /* SFXPlayer.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */; };
@@ -90,6 +90,7 @@
 		05B1C5DA301837BB00589328 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		05B1C5DC301837BB00589328 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		05B1C5F4301837EA00589328 /* ParkingTimerWidgetExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ParkingTimerWidgetExtension.entitlements; sourceTree = "<group>"; };
+		0B2000010B2000010B200001 /* GorillaOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaOnboardingView.swift; sourceTree = "<group>"; };
 		186CBC60988AE080898F728D /* TimeBasedOrbView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimeBasedOrbView.swift; sourceTree = "<group>"; };
 		466C90E74591632D7D4EF408 /* Pods-GorillaTranslate.debug.xcconfig */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xcconfig; name = "Pods-GorillaTranslate.debug.xcconfig"; path = "Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate.debug.xcconfig"; sourceTree = "<group>"; };
 		65605E6361F50510E915CAAA /* MorphingText.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = MorphingText.swift; path = GorillaTranslate/Views/MorphingText.swift; sourceTree = "<group>"; };
@@ -107,7 +108,6 @@
 		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
 		A20021 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A20022 /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
-		0B2000010B2000010B200001 /* GorillaOnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaOnboardingView.swift; sourceTree = "<group>"; };
 		AM20001 /* AMapConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AMapConfig.swift; sourceTree = "<group>"; };
 		AM20002 /* AmapNaviManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmapNaviManager.swift; sourceTree = "<group>"; };
 		AM20003 /* FloatingLaneGuidanceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingLaneGuidanceView.swift; sourceTree = "<group>"; };
@@ -117,7 +117,6 @@
 		AM20008 /* LightDistortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = LightDistortion.metal; path = GorillaTranslate/Shaders/LightDistortion.metal; sourceTree = "<group>"; };
 		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
-		E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberRoller.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
 		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
@@ -125,6 +124,7 @@
 		C20001 /* MapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapView.swift; sourceTree = "<group>"; };
 		C2A001HK0001 /* HKTaxiExamLocations.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HKTaxiExamLocations.swift; sourceTree = "<group>"; };
 		D20001 /* Destination.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Destination.swift; sourceTree = "<group>"; };
+		E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NumberRoller.swift; sourceTree = "<group>"; };
 		E20001 /* ParkingPhoto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingPhoto.swift; sourceTree = "<group>"; };
 		F20001 /* ParkingRecognitionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingRecognitionService.swift; sourceTree = "<group>"; };
 		F3A0A001B2C3D4E5F6071829 /* SFXPlayer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SFXPlayer.swift; sourceTree = "<group>"; };
@@ -155,7 +155,7 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */ = {
+		05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -165,29 +165,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ParkingTimerWidget;
-			sourceTree = "<group>";
-		};
-		SH2001 /* Shared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
+		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ParkingTimerWidget; sourceTree = "<group>"; };
+		SH2001 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -513,9 +492,13 @@
 			inputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources-${CONFIGURATION}-input-files.xcfilelist",
 			);
+			inputPaths = (
+			);
 			name = "[CP] Copy Pods Resources";
 			outputFileListPaths = (
 				"${PODS_ROOT}/Target Support Files/Pods-GorillaTranslate/Pods-GorillaTranslate-resources-${CONFIGURATION}-output-files.xcfilelist",
+			);
+			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;

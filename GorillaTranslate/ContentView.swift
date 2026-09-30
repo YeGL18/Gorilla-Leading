@@ -585,6 +585,8 @@ struct ContentView: View {
     @State private var parkingLotExpansionStage = 0
     @State private var newParkingLotName = ""
     @State private var showNewParkingLotAlert = false
+    @State private var renamingPointName = ""
+    @State private var showRenamePointAlert = false
     @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
     /// 專注模式（nil = 關閉）—— 時速頁左下角按鈕控制
     @State private var focusMode: FocusModeLevel? = nil
@@ -1204,24 +1206,34 @@ struct ContentView: View {
         }
 
         let isDriving = fp == 1
-        // 開車（8..<60）：街道名 5 秒 → POI 名 5 秒 → 循環（開場先街道名）
-        // 停車（<8）：POI 名 10 秒 → 街道名 5 秒 → 循環（開場先 POI 名）
+        // 開車（8..<60）：街道名 3 秒 → POI 名 3 秒 → 循環（開場先街道名）
+        // 停車（<8）：POI 名 8 秒 → 街道名 3 秒 → 循環（開場先 POI 名）
         showPOIName = !isDriving
 
-        // 一個循環：開車 5+5=10 秒；停車 10+5=15 秒
-        let cycle: TimeInterval = isDriving ? 10 : 15
-        // 循環入面第二次切換嘅時點：開車 +5 秒；停車 +10 秒
-        let secondFlip: TimeInterval = isDriving ? 5 : 10
+        // 一個循環：開車 3+3=6 秒；停車 8+3=11 秒
+        let cycle: TimeInterval = isDriving ? 6 : 11
+        // 循環入面第二次切換嘅時點：開車 +3 秒；停車 +8 秒
+        let secondFlip: TimeInterval = isDriving ? 3 : 8
 
         addressAlternatingTimer = Timer.scheduledTimer(withTimeInterval: cycle, repeats: true) { _ in
             DispatchQueue.main.async {
                 guard self.addressCarouselGeneration == gen else { return }
-                withAnimation(.easeInOut(duration: 0.4)) {
+                // 循環重啟只喺「地址連續顯示」嘅模式需要（展開態／泊車記憶／
+                // 樓層曲線／冇輪播）。緊湊態三格輪播入面地址格每格只顯示一輪
+                // （入格時 force 重起相位），格長 == 一輪長度，呢個重啟啱啱好
+                // 同換格撞正：換去下一格之前會無端端閃一吓 POI（打斷式快閃，
+                // 冇完整過渡）。輪播期間跳過循環重啟。
+                let addressShownContinuously = self.isCapsuleExpanded
+                    || self.isParkingMemoryExpanded
+                    || self.isFloorCurveInCapsule
+                    || self.compactSlotTimer == nil
+                guard addressShownContinuously else { return }
+                withAnimation(.easeInOut(duration: 2)) {
                     self.showPOIName = !isDriving
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + secondFlip) {
                     guard self.addressCarouselGeneration == gen else { return }
-                    withAnimation(.easeInOut(duration: 0.4)) {
+                    withAnimation(.easeInOut(duration: 2)) {
                         self.showPOIName = isDriving
                     }
                 }
@@ -1231,7 +1243,7 @@ struct ContentView: View {
         // 第一個切換
         DispatchQueue.main.asyncAfter(deadline: .now() + secondFlip) {
             guard self.addressCarouselGeneration == gen else { return }
-            withAnimation(.easeInOut(duration: 0.4)) {
+            withAnimation(.easeInOut(duration: 2)) {
                 self.showPOIName = isDriving
             }
         }
@@ -1322,10 +1334,14 @@ struct ContentView: View {
             }
             if !destinations.isEmpty {
                 Divider()
-                ForEach(destinations) { destination in
-                    Button { selectMapDestination(destination) } label: {
-                        Label(destination.name, systemImage: "mappin.and.ellipse")
+                Menu {
+                    ForEach(destinations.sorted(by: { $0.name < $1.name })) { destination in
+                        Button { selectMapDestination(destination) } label: {
+                            Label(destination.name, systemImage: "mappin.and.ellipse")
+                        }
                     }
+                } label: {
+                    Label("我的目的地（\(destinations.count)）", systemImage: "mappin.and.ellipse")
                 }
             }
 
@@ -1340,20 +1356,24 @@ struct ContentView: View {
             }
             if !lots.isEmpty {
                 Divider()
-                ForEach(lots, id: \.id) { lot in
-                    Button {
-                        var destination = destinationManager.findOrCreateDestination(
-                            for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "",
-                                           latitude: lot.centerLatitude, longitude: lot.centerLongitude,
-                                           lotID: lot.id, updatedAt: lot.updatedAt))
-                        if destination.locality == nil, !city.isEmpty {
-                            destination.locality = city
-                            destinationManager.updateDestination(destination)
+                Menu {
+                    ForEach(lots.sorted(by: { ($0.name ?? "") < ($1.name ?? "") }), id: \.id) { lot in
+                        Button {
+                            var destination = destinationManager.findOrCreateDestination(
+                                for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "",
+                                               latitude: lot.centerLatitude, longitude: lot.centerLongitude,
+                                               lotID: lot.id, updatedAt: lot.updatedAt))
+                            if destination.locality == nil, !city.isEmpty {
+                                destination.locality = city
+                                destinationManager.updateDestination(destination)
+                            }
+                            selectMapDestination(destination)
+                        } label: {
+                            Label(lot.name ?? "", systemImage: "car.fill")
                         }
-                        selectMapDestination(destination)
-                    } label: {
-                        Label(lot.name ?? "", systemImage: "car.fill")
                     }
+                } label: {
+                    Label("停車場（\(lots.count)）", systemImage: "car.fill")
                 }
             }
 
@@ -1367,12 +1387,16 @@ struct ContentView: View {
             }
             if !learned.isEmpty {
                 Divider()
-                ForEach(Array(learned.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
-                    Button {
-                        selectMapDestination(destinationManager.findOrCreateDestination(for: place))
-                    } label: {
-                        Label(place.displayName, systemImage: "mappin.circle")
+                Menu {
+                    ForEach(Array(learned.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
+                        Button {
+                            selectMapDestination(destinationManager.findOrCreateDestination(for: place))
+                        } label: {
+                            Label(place.displayName, systemImage: "mappin.circle")
+                        }
                     }
+                } label: {
+                    Label("學習地點（\(learned.count)）", systemImage: "mappin.circle")
                 }
             }
         } label: {
@@ -1776,34 +1800,35 @@ struct ContentView: View {
                                     }
                                     if !namedLots.isEmpty {
                                         Divider()
-                                        Text("停車場")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        ForEach(namedLots, id: \.id) { lot in
-                                        Button {
-                                            var dest = destinationManager.findOrCreateDestination(
-                                                for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "", latitude: lot.centerLatitude, longitude: lot.centerLongitude, lotID: lot.id, updatedAt: lot.updatedAt)
-                                            )
-                                            // 填充 locality
-                                            if dest.locality == nil, !currentCity.isEmpty {
-                                                dest.locality = currentCity
-                                                destinationManager.updateDestination(dest)
-                                            }
-                                            destinationManager.selectDestination(dest)
-                                                if isCapsuleExpanded { refreshETA() }
-                                                if showingRoute { recalculateRoute() }
-                                            } label: {
-                                                HStack {
-                                                    Image(systemName: "car.fill")
-                                                        .font(.system(size: 10))
-                                                        .foregroundColor(.orange)
-                                                    Text(lot.name ?? "")
+                                        Menu {
+                                            ForEach(namedLots.sorted(by: { ($0.name ?? "") < ($1.name ?? "") }), id: \.id) { lot in
+                                                Button {
+                                                    var dest = destinationManager.findOrCreateDestination(
+                                                        for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "", latitude: lot.centerLatitude, longitude: lot.centerLongitude, lotID: lot.id, updatedAt: lot.updatedAt)
+                                                    )
+                                                    // 填充 locality
+                                                    if dest.locality == nil, !currentCity.isEmpty {
+                                                        dest.locality = currentCity
+                                                        destinationManager.updateDestination(dest)
+                                                    }
+                                                    destinationManager.selectDestination(dest)
+                                                    if isCapsuleExpanded { refreshETA() }
+                                                    if showingRoute { recalculateRoute() }
+                                                } label: {
+                                                    HStack {
+                                                        Image(systemName: "car.fill")
+                                                            .font(.system(size: 10))
+                                                            .foregroundColor(.orange)
+                                                        Text(lot.name ?? "")
+                                                    }
                                                 }
                                             }
+                                        } label: {
+                                            Label("停車場（\(namedLots.count)）", systemImage: "car.fill")
                                         }
                                     }
 
-                                    // 地址重集（排除重複）
+                                    // 學習地點（排除重複）
                                     let clusters = TripPredictor.shared.placeCatalog.values.filter { place in
                                         guard place.kind == .addressCluster else { return false }
                                         let isDuplicate = destinationManager.destinations.contains { dest in
@@ -1815,23 +1840,24 @@ struct ContentView: View {
                                     }
                                     if !clusters.isEmpty {
                                         Divider()
-                                        Text("學習地點")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        ForEach(Array(clusters.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
-                                            Button {
-                                                let dest = destinationManager.findOrCreateDestination(for: place)
-                                                destinationManager.selectDestination(dest)
-                                                if isCapsuleExpanded { refreshETA() }
-                                                if showingRoute { recalculateRoute() }
-                                            } label: {
-                                                HStack {
-                                                    Image(systemName: "mappin.and.ellipse")
-                                                        .font(.system(size: 10))
-                                                        .foregroundColor(.blue)
-                                                    Text(place.displayName)
+                                        Menu {
+                                            ForEach(Array(clusters.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
+                                                Button {
+                                                    let dest = destinationManager.findOrCreateDestination(for: place)
+                                                    destinationManager.selectDestination(dest)
+                                                    if isCapsuleExpanded { refreshETA() }
+                                                    if showingRoute { recalculateRoute() }
+                                                } label: {
+                                                    HStack {
+                                                        Image(systemName: "mappin.and.ellipse")
+                                                            .font(.system(size: 10))
+                                                            .foregroundColor(.blue)
+                                                        Text(place.displayName)
+                                                    }
                                                 }
                                             }
+                                        } label: {
+                                            Label("學習地點（\(clusters.count)）", systemImage: "mappin.and.ellipse")
                                         }
                                     }
 
@@ -1850,22 +1876,23 @@ struct ContentView: View {
                                     }
                                     if !filteredDestinations.isEmpty {
                                         Divider()
-                                        Text("我的目的地")
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                        ForEach(filteredDestinations) { destination in
-                                            Button {
-                                                destinationManager.selectDestination(destination)
-                                                if isCapsuleExpanded { refreshETA() }
-                                                if showingRoute { recalculateRoute() }
-                                            } label: {
-                                                HStack {
-                                                    Circle()
-                                                        .fill(destination.color)
-                                                        .frame(width: 8, height: 8)
-                                                    Text(destination.name)
+                                        Menu {
+                                            ForEach(filteredDestinations.sorted(by: { $0.name < $1.name })) { destination in
+                                                Button {
+                                                    destinationManager.selectDestination(destination)
+                                                    if isCapsuleExpanded { refreshETA() }
+                                                    if showingRoute { recalculateRoute() }
+                                                } label: {
+                                                    HStack {
+                                                        Circle()
+                                                            .fill(destination.color)
+                                                            .frame(width: 8, height: 8)
+                                                        Text(destination.name)
+                                                    }
                                                 }
                                             }
+                                        } label: {
+                                            Label("我的目的地（\(filteredDestinations.count)）", systemImage: "mappin.and.ellipse")
                                         }
                                     }
                                 } label: {
@@ -3589,7 +3616,7 @@ struct ContentView: View {
             }
             .opacity(addressReveal)
             .blur(radius: 20 * (1 - addressReveal))
-            .animation(.easeInOut(duration: 0.3), value: compactSlot)
+            .animation(.easeInOut(duration: 2), value: compactSlot)
         }
         .transition(AnyTransition.blurFade)
     }
@@ -4967,7 +4994,7 @@ struct ContentView: View {
         // 專注模式（平衡／極致）：維持完全唔輪播，唔干擾駕駛
         guard !focusCutsInfoAndETA else { return }
         if openingByState {
-            withAnimation(.easeInOut(duration: 0.3)) {
+            withAnimation(.easeInOut(duration: 2)) {
                 compactSlot = isParkedOrStationary ? .status : .speed
             }
         }
@@ -4990,7 +5017,7 @@ struct ContentView: View {
         compactSlotTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
             DispatchQueue.main.async {
                 guard self.compactSlotGeneration == gen else { return }
-                withAnimation(.easeInOut(duration: 0.3)) {
+                withAnimation(.easeInOut(duration: 2)) {
                     self.compactSlot = self.nextCompactSlot()
                 }
                 if self.compactSlot == .address {
@@ -5010,17 +5037,19 @@ struct ContentView: View {
         }
     }
 
-    /// 每格時長：速度／狀態格 random 10-20 秒；
-    /// 地址格 = POI↔街道一輪（開車 5+5=10 秒、停車 10+5=15 秒），
-    /// ≥60 釘死街道名冇循環可言，當普通格 random 10-20 秒。
+    /// 每格時長：速度格 random 10-20 秒、狀態格 random 5-10 秒；
+    /// 地址格 = POI↔街道一輪（開車 3+3=6 秒、停車 8+3=11 秒），
+    /// ≥60 釘死街道名冇循環可言，當普通格 random 5-10 秒。
     private func compactSlotDuration() -> TimeInterval {
         switch compactSlot {
-        case .speed, .status:
+        case .speed:
             return Double.random(in: 10...20)
+        case .status:
+            return Double.random(in: 5...10)
         case .address:
             let speed = locationManager.speed
-            if speed >= 60 { return Double.random(in: 10...20) }
-            return speed >= 8 ? 10 : 15
+            if speed >= 60 { return Double.random(in: 5...10) }
+            return speed >= 8 ? 6 : 11
         }
     }
 
@@ -5028,7 +5057,7 @@ struct ContentView: View {
     private func interruptForNewPOI() {
         guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
         guard !focusCutsInfoAndETA else { return }
-        withAnimation(.easeInOut(duration: 0.3)) {
+        withAnimation(.easeInOut(duration: 2)) {
             compactSlot = .address
         }
         startAddressAlternatingIfNeeded(force: true)
@@ -5065,10 +5094,28 @@ struct ContentView: View {
 
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
-                    Text(currentLot?.name ?? (point.address.isEmpty ? String(localized: "停車點") : point.address))
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
+                    HStack(spacing: 4) {
+                        Text(currentLot?.name ?? (point.address.isEmpty
+                              ? (point.isAutomotive ? String(localized: "停車點") : String(localized: "逗留點"))
+                              : point.address))
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                            .multilineTextAlignment(.center)
+                            .frame(maxWidth: .infinity)
+                        Button {
+                            renamingPointName = currentLot?.name ?? ""
+                            showRenamePointAlert = true
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 12, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28, height: 28)
+                                .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(currentLot == nil)
+                    }
 
                     HStack(spacing: 6) {
                         Text(String(localized: "樓層") + " \(ParkingFloorStore.formatFloor(currentFloor, coordinate: point.coordinate))")
@@ -5180,6 +5227,19 @@ struct ContentView: View {
             .padding(.horizontal, 28)
             .offset(y: isLandscape ? 38 : 56)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            .alert("地點改名", isPresented: $showRenamePointAlert) {
+                TextField("名稱", text: $renamingPointName)
+                Button("確定") {
+                    let newName = renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if !newName.isEmpty, let lot = currentLot {
+                        parkingFloorStore.setLotName(lotID: lot.id, name: newName)
+                    }
+                }
+                .disabled(renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                Button("取消", role: .cancel) {}
+            } message: {
+                Text("改名會同步到地圖標點、學習地點同搜尋選單。")
+            }
         }
         .alert("新增停車場", isPresented: $showNewParkingLotAlert) {
             TextField("停車場名稱", text: $newParkingLotName)
