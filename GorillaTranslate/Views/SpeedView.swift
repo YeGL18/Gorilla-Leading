@@ -82,6 +82,7 @@ struct SpeedView: View {
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
     @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0
+    @AppStorage("orbOverlapGlowEnabled") private var orbOverlapGlowEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
     @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
@@ -173,7 +174,7 @@ struct SpeedView: View {
             } else if darkKnightMode {
                 Color.black.ignoresSafeArea()
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
             }
 
@@ -592,12 +593,12 @@ struct SpeedView: View {
         }
     }
 
-    /// 陀螺儀視差取樣率：專注模式開住就用所選幀率，
-    /// 否則唔限制 —— 跟螢幕最高刷新率（ProMotion = 120Hz）。
+    /// 視差 60Hz 足夠跟隨手部動作；圓點 canvas 仍獨立用螢幕刷新率。
+    /// 降低 CoreMotion 喺主線程發佈數值造成嘅 SwiftUI 重算。
     private func syncParallaxFrameRate() {
-        let fps: Double = focusMode != nil
+        let fps = min(60.0, focusMode != nil
             ? Double(focusFrameRate.rawValue)
-            : Double(max(UIScreen.main.maximumFramesPerSecond, 60))
+            : Double(max(UIScreen.main.maximumFramesPerSecond, 60)))
         tiltMotion.setUpdateRate(fps)
         gForceMotion.setUpdateRate(fps)
     }

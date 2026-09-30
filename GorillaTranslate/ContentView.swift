@@ -602,6 +602,7 @@ struct ContentView: View {
     @AppStorage("orbBackgroundHome") private var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
+    @AppStorage("orbOverlapGlowEnabled") private var orbOverlapGlowEnabled: Bool = true
     @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
     @State private var darkKnightActivatedByFocus = false  // 是否由極致專注模式自動開啟
     /// 黑武士模式地圖圓角（橫屏更大）
@@ -1702,7 +1703,7 @@ struct ContentView: View {
                 Color.black.ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             }

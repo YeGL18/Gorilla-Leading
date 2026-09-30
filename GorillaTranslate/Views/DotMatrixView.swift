@@ -77,6 +77,7 @@ struct DotMatrixWebView: UIViewRepresentable {
         webView.scrollView.isScrollEnabled = false
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         webView.navigationDelegate = context.coordinator
+        context.coordinator.pendingRestore = (color: dynamicColorHex, target: Int(speed))
         webView.loadHTMLString(htmlContent, baseURL: nil)
         return webView
     }
@@ -98,6 +99,10 @@ struct DotMatrixWebView: UIViewRepresentable {
         let speedChanged = context.coordinator.lastSentTarget != target
 
         guard speedChanged || colorChanged else { return }
+        if context.coordinator.pendingRestore != nil {
+            context.coordinator.pendingRestore = (color: dynamicColorHex, target: target)
+            return
+        }
 
         if speedChanged {
             context.coordinator.lastSentTarget = target
@@ -164,85 +169,70 @@ struct DotMatrixWebView: UIViewRepresentable {
         <script>
         var canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
         var blurCanvas=document.getElementById('blur'),bCtx=blurCanvas.getContext('2d');
-        var dots=[],cx,cy,mr,target=0,display=0,raf=null,lastTs=0,accumPhase=0,lastFrameAt=0;
+        var dots=[],rendered=[],cx,cy,mr,viewWidth=0,viewHeight=0,target=0,display=0,raf=null,lastTs=0,accumPhase=0,lastFrameAt=0,lastIdleRendered=false;
         var dpr=Math.min(2,window.devicePixelRatio||1);
+        var blurDpr=1;
         var activeColor='#ffd700', idleColor='#b8860b';
 
         function updateColor(hex){
             activeColor=hex;
+            lastIdleRendered=false;
             // 計算較暗嘅版本作為 idle 顏色
             var r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);
             idleColor='rgb('+Math.floor(r*0.7)+','+Math.floor(g*0.7)+','+Math.floor(b*0.7)+')';
         }
 
         function resize(){
-            canvas.width=canvas.clientWidth*dpr;canvas.height=canvas.clientHeight*dpr;
-            blurCanvas.width=canvas.width;blurCanvas.height=canvas.height;
-            cx=canvas.clientWidth/2;cy=canvas.clientHeight/2;mr=Math.sqrt(cx*cx+cy*cy);gen();
+            viewWidth=canvas.clientWidth;viewHeight=canvas.clientHeight;
+            canvas.width=Math.round(viewWidth*dpr);canvas.height=Math.round(viewHeight*dpr);
+            blurCanvas.width=Math.round(viewWidth*blurDpr);blurCanvas.height=Math.round(viewHeight*blurDpr);
+            cx=viewWidth/2;cy=viewHeight/2;mr=Math.sqrt(cx*cx+cy*cy);
+            lastIdleRendered=false;gen();
         }
 
         function gen(){
-            dots=[];var gap=13,extra=4,cols=Math.ceil(cx*2/gap)+extra,rows=Math.ceil(cy*2/gap)+extra,w=cx*2,h=cy*2;
+            dots=[];rendered=[];
+            var gap=13,extra=4,cols=Math.ceil(viewWidth/gap)+extra,rows=Math.ceil(viewHeight/gap)+extra;
+            var influence=Math.min(cx,cy)*0.35,pull=Math.min(cx,cy)*0.15;
             for(var r=-extra/2;r<rows;r++)for(var c=-extra/2;c<cols;c++){
                 var bx=(c+0.5)*gap,by=(r+0.5)*gap;
                 var dx=bx-cx,dy=by-cy,nr=Math.sqrt(dx*dx+dy*dy)/Math.max(1,mr);
-                dots.push({bx,by,dx,dy,nr,gx:bx/w,gy:by/h});
+                var tx=by/viewHeight,ty=bx/viewWidth;
+                var arcX=4*tx*(1-tx),arcY=4*ty*(1-ty);
+                var left=Math.max(0,bx/influence),right=Math.max(0,(viewWidth-bx)/influence);
+                var top=Math.max(0,by/influence),bottom=Math.max(0,(viewHeight-by)/influence);
+                var pullX=arcX*(1/(1+left*Math.sqrt(left))-1/(1+right*Math.sqrt(right)))*pull;
+                var pullY=arcY*(1/(1+top*Math.sqrt(top))-1/(1+bottom*Math.sqrt(bottom)))*pull;
+                dots.push({bx,by,dx,dy,nr,pullX,pullY});
+                rendered.push({px:0,py:0,rip:0,rad:0,dm:0,op:0,glow:0});
             }
-        }
-
-        function distort(d, norm, w, h) {
-            var influence = Math.min(cx, cy) * 0.35;
-            var maxPull = Math.min(cx, cy) * 0.15 * norm;
-            var t, r, arc, falloff;
-
-            t = d.bx / w;
-            arc = 4 * t * (1 - t);
-            r = d.by / influence;
-            falloff = 1 / (1 + r * Math.sqrt(r));
-            var dy = arc * falloff * maxPull;
-
-            r = (h - d.by) / influence;
-            falloff = 1 / (1 + r * Math.sqrt(r));
-            dy -= arc * falloff * maxPull;
-
-            t = d.by / h;
-            arc = 4 * t * (1 - t);
-            r = d.bx / influence;
-            falloff = 1 / (1 + r * Math.sqrt(r));
-            var dx = arc * falloff * maxPull;
-
-            r = (w - d.bx) / influence;
-            falloff = 1 / (1 + r * Math.sqrt(r));
-            dx -= arc * falloff * maxPull;
-
-            return {px: d.bx + dx, py: d.by + dy};
         }
 
         function draw(ts){
             var s=display,norm=s/240;
+            var pf=0.0008+norm*0.0012,rw=0.14,ra=Math.min(1.2,norm*6);
+            var dt=lastTs?Math.min(ts-lastTs,100):0;lastTs=ts;accumPhase+=dt*pf;
+            var phase=accumPhase%1;
+            if(norm<0.01&&lastIdleRendered)return;
             ctx.clearRect(0,0,canvas.width,canvas.height);
             ctx.save();ctx.scale(dpr,dpr);
             ctx.globalCompositeOperation='screen';
-            var w=canvas.clientWidth,h=canvas.clientHeight;
-            var pf=0.0008+norm*0.0012,rw=0.14,ra=Math.min(1.2,norm*6);
-            var dt=lastTs?ts-lastTs:0;lastTs=ts;accumPhase+=dt*pf;
-            var phase=accumPhase%1;
 
             if(norm<0.01){
+                bCtx.clearRect(0,0,blurCanvas.width,blurCanvas.height);
                 for(var i=0;i<dots.length;i++){
-                    var d=dots[i];var p=distort(d,norm,w,h);
+                    var d=dots[i];var px=d.bx+d.pullX*norm,py=d.by+d.pullY*norm;
                     ctx.globalAlpha=0.35;ctx.fillStyle=idleColor;
-                    ctx.beginPath();ctx.arc(p.px,p.py,0.8,0,Math.PI*2);ctx.fill();
+                    ctx.beginPath();ctx.arc(px,py,0.8,0,Math.PI*2);ctx.fill();
                 }
-                ctx.restore();return;
+                ctx.restore();lastIdleRendered=true;return;
             }
+            lastIdleRendered=false;
 
             var sd=Math.max(0,(norm-80/240)/(1-80/240));
-            var rd=[];
             for(var i=0;i<dots.length;i++){
                 var d=dots[i];
-                var p=distort(d,norm,w,h);
-                var px=p.px,py=p.py;
+                var px=d.bx+d.pullX*norm,py=d.by+d.pullY*norm;
                 var dn=Math.sqrt((px-cx)*(px-cx)+(py-cy)*(py-cy))/Math.max(1,mr),rip=0;
                 for(var r=0;r<2;r++){
                     var rp=(phase+r*0.5)%1;if(rp<0.01)rp=0;
@@ -256,13 +246,14 @@ struct DotMatrixWebView: UIViewRepresentable {
                 var dm=1-sd*cf*0.5;
                 var op=Math.min(1,(0.4+norm*0.6)*(1+rip*0.3))*dm;
                 var glow=norm>0.02&&d.nr>0.15?norm*d.nr*35*(0.8+rip*0.3):0;
-                rd.push({px:px,py:py,rip:rip,rad:rad,dm:dm,op:op,glow:glow});
+                var out=rendered[i];
+                out.px=px;out.py=py;out.rip=rip;out.rad=rad;out.dm=dm;out.op=op;out.glow=glow;
             }
 
             bCtx.clearRect(0,0,blurCanvas.width,blurCanvas.height);
-            bCtx.save();bCtx.scale(dpr,dpr);
-            for(var i=0;i<rd.length;i++){
-                var r=rd[i];
+            bCtx.save();bCtx.scale(blurDpr,blurDpr);
+            for(var i=0;i<rendered.length;i++){
+                var r=rendered[i];
                 if(r.rip>0.05){
                     var angle=Math.atan2(r.py-cy,r.px-cx);
                     var tl=r.rip*7;
@@ -281,8 +272,8 @@ struct DotMatrixWebView: UIViewRepresentable {
             }
             bCtx.restore();
 
-            for(var i=0;i<rd.length;i++){
-                var r=rd[i];
+            for(var i=0;i<rendered.length;i++){
+                var r=rendered[i];
                 if(r.glow>0){
                     ctx.globalAlpha=r.glow*0.006*r.dm;ctx.fillStyle=activeColor;
                     ctx.beginPath();ctx.arc(r.px,r.py,r.rad+r.glow*0.06,0,Math.PI*2);ctx.fill();

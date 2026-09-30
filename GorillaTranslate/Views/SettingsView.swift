@@ -22,6 +22,7 @@ struct SettingsView: View {
     @AppStorage("orbBackgroundHome") var orbBackgroundHome: Bool = true
     @AppStorage("orbBackgroundSpeed") var orbBackgroundSpeed: Bool = true
     @AppStorage("orbColorPreset") var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
+    @AppStorage("orbOverlapGlowEnabled") var orbOverlapGlowEnabled: Bool = true
     @AppStorage("darkKnightMode") var darkKnightMode: Bool = false
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
@@ -340,6 +341,9 @@ struct SettingsView: View {
                         Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
+                        if !useTimeBasedOrb {
+                            Toggle(String(localized: "光球重疊亮光"), isOn: $orbOverlapGlowEnabled)
+                        }
                         // 圓點顏色：一行色點直接點選（控制圓點動畫嘅圓點顏色，選中加高亮圈）
                         HStack(spacing: 12) {
                             Text(String(localized: "圓點顏色"))

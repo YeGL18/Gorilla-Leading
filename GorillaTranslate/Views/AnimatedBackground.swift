@@ -9,6 +9,7 @@ struct AnimatedBackground: View {
     var phaseManager: TimePhaseManager? = nil
     var orbSizeMultiplier: CGFloat = 1.0
     var orbColorPreset: Int = 0
+    var overlapGlowEnabled: Bool = true
     @Environment(\.colorScheme) private var colorScheme
 
     private var isDark: Bool {
@@ -54,6 +55,8 @@ struct AnimatedBackground: View {
             let h = geometry.size.height
             let elapsed = clock.elapsed
             let colors = orbColors
+            let glowStrength = overlapGlowEnabled ? 2.1 : 1.0
+            let orbBlend: BlendMode = overlapGlowEnabled ? .plusLighter : .normal
 
             ZStack {
                 LinearGradient(
@@ -64,31 +67,34 @@ struct AnimatedBackground: View {
                 .ignoresSafeArea()
 
                 Circle()
-                    .fill(Color(hex: colors[0].hex).opacity(colors[0].opacity * (orbEnabled ? 1 : 0)))
+                    .fill(Color(hex: colors[0].hex).opacity(min(1, colors[0].opacity * glowStrength) * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 450 * orbSizeMultiplier, height: 450 * orbSizeMultiplier)
                     .offset(
                         x: w * 0.05 + CGFloat(sin(elapsed * 0.449)) * w * 0.45,
                         y: h * 0.1 + CGFloat(cos(elapsed * 0.35)) * h * 0.3
                     )
+                    .blendMode(orbBlend)
 
                 Circle()
-                    .fill(Color(hex: colors[1].hex).opacity(colors[1].opacity * (orbEnabled ? 1 : 0)))
+                    .fill(Color(hex: colors[1].hex).opacity(min(1, colors[1].opacity * glowStrength) * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 500 * orbSizeMultiplier, height: 500 * orbSizeMultiplier)
                     .offset(
                         x: w * 0.05 + CGFloat(sin(elapsed * 0.393 + 2.1)) * w * 0.35,
                         y: h * 0.05 + CGFloat(cos(elapsed * 0.31 + 2.1)) * h * 0.3
                     )
+                    .blendMode(orbBlend)
 
                 Circle()
-                    .fill(Color(hex: colors[2].hex).opacity(colors[2].opacity * (orbEnabled ? 1 : 0)))
+                    .fill(Color(hex: colors[2].hex).opacity(min(1, colors[2].opacity * glowStrength) * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 420 * orbSizeMultiplier, height: 420 * orbSizeMultiplier)
                     .offset(
                         x: -w * 0.05 + CGFloat(sin(elapsed * 0.524 + 4.2)) * w * 0.4,
                         y: h * 0.02 + CGFloat(cos(elapsed * 0.42 + 4.2)) * h * 0.32
                     )
+                    .blendMode(orbBlend)
             }
         }
         .ignoresSafeArea()

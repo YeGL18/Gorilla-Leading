@@ -25,6 +25,7 @@ final class NumberRoller: ObservableObject {
     private let tau: TimeInterval = 0.14
     private var link: CADisplayLink?
     private var lastTick: TimeInterval = 0
+    private var interpolated: Double = 0
 
     func start() {
         guard link == nil else { return }
@@ -53,6 +54,7 @@ final class NumberRoller: ObservableObject {
 
     /// 直接同步顯示值（例如初次顯示時唔想由零滾起）
     func setDisplay(_ value: Double) {
+        interpolated = value
         display = value
     }
 
@@ -75,7 +77,12 @@ final class NumberRoller: ObservableObject {
 
         // 幀率無關嘅指數平滑：60Hz 同 120Hz 手感一致
         let alpha = 1 - exp(-dt / tau)
-        display += (t - display) * alpha
+        interpolated += (t - interpolated) * alpha
+        // Consumers only render Int(display). Keep interpolation at display rate,
+        // but avoid invalidating SwiftUI when the visible digit has not changed.
+        if Int(interpolated) != Int(display) {
+            display = interpolated
+        }
     }
 
     deinit {
