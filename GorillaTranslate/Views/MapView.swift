@@ -96,6 +96,7 @@ final class ParkingPointAnnotation: NSObject, MKAnnotation {
     dynamic var title: String?
     dynamic var subtitle: String?
     let isAutomotive: Bool
+    var isLatest = false
 
     init(pointID: UUID, coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?, isAutomotive: Bool = true) {
         self.pointID = pointID
@@ -126,6 +127,8 @@ struct MapView: UIViewRepresentable {
     var onMoveParkingPoint: (UUID, CLLocationCoordinate2D) -> Void
     var routePriorityToken: UUID?
     var routePriorityAnchor: CLLocationCoordinate2D?
+    var meterNavigationTargetID: String? = nil
+    var meterNavigationTargetCoordinate: CLLocationCoordinate2D? = nil
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
@@ -407,7 +410,15 @@ struct MapView: UIViewRepresentable {
                            coordinator.parent.routePriorityToken != nil,
                            let anchor = mapView.userLocation.location?.coordinate ?? coordinator.parent.routePriorityAnchor {
                             DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                coordinator.flyToCoordinate(mapView: mapView, coordinate: anchor, distance: coordinator.drivingTrackingDistance, duration: 1.2)
+                                let distance = coordinator.trackingDistance(
+                                    for: CLLocation(latitude: anchor.latitude, longitude: anchor.longitude)
+                                )
+                                coordinator.flyToCoordinate(
+                                    mapView: mapView,
+                                    coordinate: anchor,
+                                    distance: distance,
+                                    duration: 1.2
+                                )
                             }
                         } else {
                             coordinator.isFlying = false
@@ -448,6 +459,10 @@ struct MapView: UIViewRepresentable {
         
         context.coordinator.syncParkingAnnotations(parkingPoints: parkingPoints, titlePrefixesByID: parkingPointTitlePrefixesByID)
         context.coordinator.meterLayer.sync(map: mapView, meters: meterManager.visibleMeters, manager: meterManager)
+        context.coordinator.updateMeterNavigationTarget(
+            id: meterNavigationTargetID,
+            coordinate: meterNavigationTargetCoordinate
+        )
         context.coordinator.applyParkingSelection(selectedParkingPointID: selectedParkingPointID)
 
         // 持續跟隨模式：啟動/停止 heading 追蹤 timer
@@ -520,6 +535,7 @@ struct MapView: UIViewRepresentable {
         private var softTargetCenter: CLLocationCoordinate2D?
         private var softIsDecelerating = false
         private var softDecelerationProgress: Double = 0
+        private var softTargetDistance: CLLocationDistance = 800
         var currentRouteOverlay: MKPolyline?
         var currentRouteAnimationOverlay: MKPolyline?
         var currentRouteToken: UUID?
@@ -534,6 +550,10 @@ struct MapView: UIViewRepresentable {
         private var routeFadeTimer: Timer?
         private var parkingAnnotationHash: Int = 0
         private var parkingAnnotationsByID: [UUID: ParkingPointAnnotation] = [:]
+        private var meterNavigationTargetID: String?
+        private var meterNavigationTargetCoordinate: CLLocationCoordinate2D?
+        private var meterNavigationTrackingDistance: CLLocationDistance?
+        private var forceMeterAnnotationsApart = false
         private var isApplyingParkingSelection = false
         private var lastAppliedSelectedParkingPointID: UUID?
         private var isParkingPointDragging = false
@@ -816,6 +836,58 @@ struct MapView: UIViewRepresentable {
             realTimeUpdateTimer?.invalidate()
             realTimeUpdateTimer = nil
         }
+
+        func updateMeterNavigationTarget(id: String?, coordinate: CLLocationCoordinate2D?) {
+            meterNavigationTargetCoordinate = coordinate
+            guard id != meterNavigationTargetID else { return }
+
+            meterNavigationTargetID = id
+            meterNavigationTrackingDistance = nil
+            forceMeterAnnotationsApart = false
+            if let mapView {
+                meterLayer.setClusteringEnabled(true, map: mapView)
+            }
+        }
+
+        fileprivate func trackingDistance(for location: CLLocation) -> CLLocationDistance {
+            let normalDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+            guard let mapView,
+                  let targetID = meterNavigationTargetID,
+                  let targetCoordinate = meterNavigationTargetCoordinate else {
+                return normalDistance
+            }
+            let navigationDistance = drivingTrackingDistance
+
+            let remaining = location.distance(from: CLLocation(
+                latitude: targetCoordinate.latitude,
+                longitude: targetCoordinate.longitude
+            ))
+            guard remaining <= 700 else {
+                meterNavigationTrackingDistance = nil
+                if forceMeterAnnotationsApart {
+                    forceMeterAnnotationsApart = false
+                    meterLayer.setClusteringEnabled(true, map: mapView)
+                }
+                return navigationDistance
+            }
+
+            // Proximity supplies a gentle baseline. Cluster membership then drives
+            // additional steps, so dense meter rows are not tied to one guessed altitude.
+            let proximityDistance = max(220, min(navigationDistance, remaining * 1.7 + 180))
+            var targetDistance = min(meterNavigationTrackingDistance ?? navigationDistance, proximityDistance)
+            let targetIsClustered = meterLayer.containsTargetInCluster(map: mapView, targetID: targetID)
+
+            if targetIsClustered && !forceMeterAnnotationsApart {
+                targetDistance = max(120, min(targetDistance, mapView.camera.centerCoordinateDistance * 0.72))
+                if targetDistance <= 120.5 {
+                    forceMeterAnnotationsApart = true
+                    meterLayer.setClusteringEnabled(false, map: mapView)
+                }
+            }
+
+            meterNavigationTrackingDistance = targetDistance
+            return targetDistance
+        }
         
         private func updateMapPosition() {
             guard let mapView = mapView,
@@ -826,7 +898,7 @@ struct MapView: UIViewRepresentable {
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+            let targetDistance = trackingDistance(for: location)
             let targetPitch: CGFloat = isDriving ? drivingPitch : idlePitch
 
             mapView.allowCameraChange = true
@@ -898,7 +970,7 @@ struct MapView: UIViewRepresentable {
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            smoothToDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+            smoothToDistance = trackingDistance(for: location)
             smoothToHeading = parent.followHeading ? correctedHeading : 0
             smoothToPitch = isDriving ? drivingPitch : idlePitch
             smoothProgress = 0
@@ -937,6 +1009,7 @@ struct MapView: UIViewRepresentable {
 
             let now = Date().timeIntervalSince1970
             softLastGPSTime = now
+            softTargetDistance = trackingDistance(for: location)
             softTargetCenter = CLLocationCoordinate2D(
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
@@ -991,7 +1064,7 @@ struct MapView: UIViewRepresentable {
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: lat, longitude: lon)
-                camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+                camera.centerCoordinateDistance += (softTargetDistance - camera.centerCoordinateDistance) * ease
                 let targetPitchSmooth: CGFloat = isDriving ? drivingPitch : idlePitch
                 let currentPitchSmooth = camera.pitch
                 camera.pitch = currentPitchSmooth + (targetPitchSmooth - currentPitchSmooth) * ease
@@ -1012,6 +1085,7 @@ struct MapView: UIViewRepresentable {
             } else if parent.followHeading {
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
+                camera.centerCoordinateDistance += (softTargetDistance - camera.centerCoordinateDistance) * 0.15
                 let targetHeading = correctedHeading
                 let currentHeading = camera.heading
                 let headingDiff = targetHeading - currentHeading
@@ -1049,7 +1123,7 @@ struct MapView: UIViewRepresentable {
                 mapView.allowCameraChange = true
                 let camera = mapView.camera
                 camera.centerCoordinate = CLLocationCoordinate2D(latitude: newLat, longitude: newLon)
-                camera.centerCoordinateDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+                camera.centerCoordinateDistance += (softTargetDistance - camera.centerCoordinateDistance) * 0.15
                 let targetPitchSoft: CGFloat = isDriving ? drivingPitch : idlePitch
                 let currentPitchSoft = camera.pitch
                 camera.pitch = currentPitchSoft + (targetPitchSoft - currentPitchSoft) * 0.15
@@ -1348,7 +1422,7 @@ struct MapView: UIViewRepresentable {
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            let targetDistance: CLLocationDistance = isDriving ? drivingTrackingDistance : idleTrackingDistance
+            let targetDistance = trackingDistance(for: location)
             let targetPitchVal: CGFloat = isDriving ? drivingPitch : idlePitch
             let startCenter = mapView.centerCoordinate
             let startHeading = mapView.camera.heading
@@ -1471,6 +1545,7 @@ struct MapView: UIViewRepresentable {
 
         func syncParkingAnnotations(parkingPoints: [ParkingPointRecord], titlePrefixesByID: [UUID: String]) {
             guard let mapView else { return }
+            let latestPointID = parkingPoints.max(by: { $0.createdAt < $1.createdAt })?.id
             var hasher = Hasher()
             for p in parkingPoints {
                 hasher.combine(p.id)
@@ -1508,6 +1583,7 @@ struct MapView: UIViewRepresentable {
                     mapView.addAnnotation(anno)
                 }
                 anno.coordinate = gcj02
+                anno.isLatest = p.id == latestPointID
                 let baseLabel = p.isAutomotive ? String(localized: "停車點") : String(localized: "逗留點")
                 if p.isAutomotive {
                     let floor = p.displayFloor ?? String(localized: "未知")
@@ -1520,12 +1596,37 @@ struct MapView: UIViewRepresentable {
                     anno.title = prefix.isEmpty ? baseLabel : "\(prefix)" + baseLabel
                 }
                 anno.subtitle = p.address.isEmpty ? nil : p.address
+                if let view = mapView.view(for: anno) as? MKMarkerAnnotationView {
+                    configureParkingMarker(view, annotation: anno)
+                }
                 next[p.id] = anno
             }
             for (id, anno) in parkingAnnotationsByID where next[id] == nil {
                 mapView.removeAnnotation(anno)
             }
             parkingAnnotationsByID = next
+        }
+
+        private func configureParkingMarker(
+            _ view: MKMarkerAnnotationView,
+            annotation: ParkingPointAnnotation
+        ) {
+            view.canShowCallout = false
+            if annotation.isAutomotive {
+                view.markerTintColor = UIColor.systemOrange
+                view.glyphText = "P"
+            } else {
+                view.markerTintColor = UIColor.systemTeal
+                view.glyphText = "S"
+            }
+            view.titleVisibility = .visible
+            view.subtitleVisibility = .visible
+            view.isDraggable = false
+            view.centerOffset = CGPoint(x: 0, y: -10)
+            view.displayPriority = annotation.isLatest ? .required : .defaultHigh
+            view.transform = annotation.isLatest
+                ? CGAffineTransform(scaleX: 1.30, y: 1.30)
+                : .identity
         }
 
         func applyParkingSelection(selectedParkingPointID: UUID?) {
@@ -1607,7 +1708,12 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
-            if let view = MeterMapLayer.view(map: mapView, annotation: annotation, manager: .shared) { return view }
+            if let view = MeterMapLayer.view(
+                map: mapView,
+                annotation: annotation,
+                manager: .shared,
+                clusteringEnabled: meterLayer.clusteringEnabled
+            ) { return view }
             if annotation is MKUserLocation {
                 return nil
             }
@@ -1615,18 +1721,7 @@ struct MapView: UIViewRepresentable {
                 let reuseID = "ParkingPointAnnotationView"
                 let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MKMarkerAnnotationView) ?? MKMarkerAnnotationView(annotation: parking, reuseIdentifier: reuseID)
                 view.annotation = parking
-                view.canShowCallout = false
-                if parking.isAutomotive {
-                    view.markerTintColor = UIColor.systemOrange
-                    view.glyphText = "P"
-                } else {
-                    view.markerTintColor = UIColor.systemTeal
-                    view.glyphText = "S"
-                }
-                view.titleVisibility = .visible
-                view.subtitleVisibility = .visible
-                view.isDraggable = false
-                view.centerOffset = CGPoint(x: 0, y: -10)
+                configureParkingMarker(view, annotation: parking)
                 return view
             }
             // 香港地圖細覽模式：自定義標注
@@ -1844,6 +1939,8 @@ struct VignetteMapView: View {
     var onMoveParkingPoint: (UUID, CLLocationCoordinate2D) -> Void
     var routePriorityToken: UUID?
     var routePriorityAnchor: CLLocationCoordinate2D?
+    var meterNavigationTargetID: String? = nil
+    var meterNavigationTargetCoordinate: CLLocationCoordinate2D? = nil
     var routeOverlayToken: UUID?
     var routeOverlayAnimationToken: UUID?
     var mapStyleIndex: Int = 0
@@ -1862,7 +1959,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, centerOffsetY: centerOffsetY, hideCompass: hideCompass, compassBridge: compassBridge, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterNavigationTargetID, meterNavigationTargetCoordinate: meterNavigationTargetCoordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, centerOffsetY: centerOffsetY, hideCompass: hideCompass, compassBridge: compassBridge, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

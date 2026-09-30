@@ -44,7 +44,11 @@ final class MeterGroupAnnotation: NSObject, MKAnnotation {
 
 final class MeterAnnotationView: MKMarkerAnnotationView {
     @MainActor
-    func configure(_ meters: [ParkingMeter], manager: ParkingMeterManager) {
+    func configure(
+        _ meters: [ParkingMeter],
+        manager: ParkingMeterManager,
+        clusteringEnabled: Bool = true
+    ) {
         guard let first = meters.first else { return }
         let state = MeterDisplayState.cluster(meters.map { manager.state($0) })
         let isCluster = annotation is MKClusterAnnotation || annotation is MeterGroupAnnotation
@@ -55,7 +59,7 @@ final class MeterAnnotationView: MKMarkerAnnotationView {
         markerTintColor = state.uiColor
         glyphTintColor = state == .incompatible ? .black : .white
         glyphText = isCluster ? "\(meters.count)" : "P"
-        clusteringIdentifier = isCluster ? nil : "meter-\(first.bayType.rawValue)"
+        clusteringIdentifier = (isCluster || !clusteringEnabled) ? nil : "meter-\(first.bayType.rawValue)"
         titleVisibility = isCluster ? .adaptive : .visible
         subtitleVisibility = .hidden
         canShowCallout = false
@@ -70,6 +74,7 @@ final class MeterAnnotationView: MKMarkerAnnotationView {
 final class MeterMapLayer {
     private var annotations: [String: MeterAnnotation] = [:]
     private var lastRevision = -1
+    private(set) var clusteringEnabled = true
     static func members(_ annotation: MKAnnotation?) -> [ParkingMeter] {
         if let meter = annotation as? MeterAnnotation { return [meter.meter] }
         if let group = annotation as? MeterGroupAnnotation { return group.meters }
@@ -99,13 +104,44 @@ final class MeterMapLayer {
         if lastRevision != manager.revision || !removed.isEmpty || !added.isEmpty {
             for annotation in map.annotations {
                 if let view = map.view(for: annotation) as? MeterAnnotationView {
-                    view.configure(Self.members(annotation), manager: manager)
+                    view.configure(
+                        Self.members(annotation),
+                        manager: manager,
+                        clusteringEnabled: clusteringEnabled
+                    )
                 }
             }
             lastRevision = manager.revision
         }
     }
-    static func view(map: MKMapView, annotation: MKAnnotation, manager: ParkingMeterManager) -> MKAnnotationView? {
+
+    func containsTargetInCluster(map: MKMapView, targetID: String) -> Bool {
+        map.annotations
+            .compactMap { $0 as? MKClusterAnnotation }
+            .contains { cluster in
+                cluster.memberAnnotations.contains {
+                    ($0 as? MeterAnnotation)?.meter.id == targetID
+                }
+            }
+    }
+
+    func setClusteringEnabled(_ enabled: Bool, map: MKMapView) {
+        guard enabled != clusteringEnabled else { return }
+        clusteringEnabled = enabled
+        let meterAnnotations = Array(annotations.values)
+        guard !meterAnnotations.isEmpty else { return }
+
+        // Re-adding forces MapKit to rebuild its clusters with the new identifiers.
+        map.removeAnnotations(meterAnnotations)
+        map.addAnnotations(meterAnnotations)
+    }
+
+    static func view(
+        map: MKMapView,
+        annotation: MKAnnotation,
+        manager: ParkingMeterManager,
+        clusteringEnabled: Bool = true
+    ) -> MKAnnotationView? {
         let meters = members(annotation)
         guard !meters.isEmpty else { return nil }
         let reuseID = annotation is MKClusterAnnotation || annotation is MeterGroupAnnotation
@@ -113,7 +149,7 @@ final class MeterMapLayer {
         let view = (map.dequeueReusableAnnotationView(withIdentifier: reuseID) as? MeterAnnotationView)
             ?? MeterAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
         view.annotation = annotation
-        view.configure(meters, manager: manager)
+        view.configure(meters, manager: manager, clusteringEnabled: clusteringEnabled)
         let appearingMeters: [MeterAnnotation]
         if let meter = annotation as? MeterAnnotation {
             appearingMeters = meter.pendingAppearance ? [meter] : []
@@ -440,7 +476,7 @@ enum MeterPayment {
     static let storeURL = URL(string: "https://apps.apple.com/hk/app/id1508101096")!
     static func open(manager: ParkingMeterManager) {
         manager.dismissNotice()
-        // Configure only a verified public launch URL. Do not guess a private payment scheme.
+        // HKeMeter's launch scheme has been verified on a physical device.
         guard let value = Bundle.main.object(forInfoDictionaryKey: "HKeMeterLaunchURL") as? String,
               let url = URL(string: value), !value.isEmpty else {
             manager.paymentHelpPresented = true
