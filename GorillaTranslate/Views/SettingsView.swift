@@ -342,7 +342,16 @@ struct SettingsView: View {
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
                         if !useTimeBasedOrb {
-                            Toggle(String(localized: "光球重疊亮光"), isOn: $orbOverlapGlowEnabled)
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(String(localized: "光球混色"))
+                                    .font(.subheadline)
+                                Picker(String(localized: "光球混色"), selection: $orbOverlapGlowEnabled) {
+                                    Text(String(localized: "原本效果")).tag(false)
+                                    Text(String(localized: "白色混色")).tag(true)
+                                }
+                                .pickerStyle(.segmented)
+                                .labelsHidden()
+                            }
                         }
                         // 圓點顏色：一行色點直接點選（控制圓點動畫嘅圓點顏色，選中加高亮圈）
                         HStack(spacing: 12) {
