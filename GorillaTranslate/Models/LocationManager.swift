@@ -229,6 +229,27 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var lastLocation: CLLocation?
     @Published var heading: Double = 0
 
+    /// Map camera seed: a weak or briefly stale fix is still better than an unrelated city.
+    var mapReferenceLocation: CLLocation? {
+        if let location = lastLocation,
+           location.horizontalAccuracy >= 0,
+           CLLocationCoordinate2DIsValid(location.coordinate),
+           location.coordinate.latitude != 0 || location.coordinate.longitude != 0 {
+            return location
+        }
+
+        let defaults = UserDefaults.standard
+        guard defaults.object(forKey: "lastKnownLatitude") != nil,
+              defaults.object(forKey: "lastKnownLongitude") != nil else { return nil }
+        let coordinate = CLLocationCoordinate2D(
+            latitude: defaults.double(forKey: "lastKnownLatitude"),
+            longitude: defaults.double(forKey: "lastKnownLongitude")
+        )
+        guard CLLocationCoordinate2DIsValid(coordinate),
+              coordinate.latitude != 0 || coordinate.longitude != 0 else { return nil }
+        return CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+    }
+
     /// Convert current UI interface orientation to CLDeviceOrientation
     /// so CLLocationManager reports heading relative to the screen top.
     static func currentDeviceOrientation() -> CLDeviceOrientation {
@@ -509,8 +530,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         DispatchQueue.main.async {
             self.lastLocation = location
             // 緩存當前坐標（樓層慣例自動判定用；以前呢兩個 key 冇人寫，成日判死香港）
-            UserDefaults.standard.set(location.coordinate.latitude, forKey: "lastKnownLatitude")
-            UserDefaults.standard.set(location.coordinate.longitude, forKey: "lastKnownLongitude")
+            if location.horizontalAccuracy >= 0,
+               CLLocationCoordinate2DIsValid(location.coordinate),
+               location.coordinate.latitude != 0 || location.coordinate.longitude != 0 {
+                UserDefaults.standard.set(location.coordinate.latitude, forKey: "lastKnownLatitude")
+                UserDefaults.standard.set(location.coordinate.longitude, forKey: "lastKnownLongitude")
+            }
             if location.speed >= 0 {
                 let rawSpeed = location.speed * 3.6
                 self.speed = rawSpeed
@@ -711,7 +736,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.upsertVisitRecord(base)
         }
 
-        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
+        geocoder.reverseGeocodeLocation(
+            location,
+            preferredLocale: Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        ) { [weak self] placemarks, error in
             guard let self else { return }
             var addr = ""
             if let placemark = placemarks?.first {
@@ -741,7 +769,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func reverseGeocode(location: CLLocation) {
         lastGeocodeLocation = location
         lastGeocodeTime = Date()
-        geocoder.reverseGeocodeLocation(location) { [weak self] placemarks, error in
+        geocoder.reverseGeocodeLocation(
+            location,
+            preferredLocale: Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        ) { [weak self] placemarks, error in
             guard let placemark = placemarks?.first, error == nil else { return }
             // 順手做區域權威判定（isoCountryCode：HK/MO vs CN，同 Apple/高德切換同一條邊界）
             MapRegionJudge.record(placemark: placemark, at: location.coordinate)

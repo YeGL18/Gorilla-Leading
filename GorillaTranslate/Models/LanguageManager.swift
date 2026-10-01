@@ -1,25 +1,14 @@
 import Foundation
-import SwiftUI
-
-@MainActor
-class LanguageManager: ObservableObject {
-    static let shared = LanguageManager()
-
-    @AppStorage("appLanguage") var currentLanguage: String = ""
-
-    private init() {}
-
-    func applyLanguage() {
-        if currentLanguage.isEmpty {
-            // 跟隨系統：移除 override
-            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        } else {
-            UserDefaults.standard.set([currentLanguage], forKey: "AppleLanguages")
+enum LanguageManager {
+    static func migrateLegacyOverride() {
+        let defaults = UserDefaults.standard
+        // Only remove an override known to have come from the old in-app picker.
+        // Otherwise AppleLanguages may contain the user's system-managed choice.
+        if let legacy = defaults.string(forKey: "appLanguage"), !legacy.isEmpty,
+           let languages = defaults.array(forKey: "AppleLanguages") as? [String],
+           languages == [legacy] {
+            defaults.removeObject(forKey: "AppleLanguages")
         }
-        UserDefaults.standard.synchronize()
-    }
-
-    var currentAppLanguage: AppLanguage {
-        AppLanguage(rawValue: currentLanguage) ?? .system
+        defaults.removeObject(forKey: "appLanguage")
     }
 }

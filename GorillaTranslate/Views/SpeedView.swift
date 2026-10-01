@@ -616,9 +616,9 @@ struct SpeedView: View {
     }
 
     private var highAltitudeCamera: MKMapCamera? {
-        guard let location = locationManager.manager.location else { return nil }
         let camera = MKMapCamera()
-        camera.centerCoordinate = location.coordinate
+        camera.centerCoordinate = locationManager.mapReferenceLocation?.coordinate
+            ?? CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
         camera.centerCoordinateDistance = 80000
         return camera
     }

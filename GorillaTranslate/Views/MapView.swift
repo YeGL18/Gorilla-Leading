@@ -216,7 +216,7 @@ struct MapView: UIViewRepresentable {
 
         // 只採用 app 已確認仍然有效的 GPS fix。MapKit 在未有定位時可能回傳
         // 模擬器／系統預設的美國座標，會令首次飛入由 San Francisco 開始。
-        let center = (!locationManager.isGPSLost ? locationManager.lastLocation?.coordinate : nil)
+        let center = locationManager.mapReferenceLocation?.coordinate
             ?? hongKongMapFallback.coordinate
         mapView.allowCameraChange = true
         let camera = MKMapCamera()
@@ -833,8 +833,9 @@ struct MapView: UIViewRepresentable {
                     let interval: TimeInterval = UserDefaults.standard.bool(forKey: "highFrequencyTracking") ? 0.12 : 0.5
                     guard now - self.lastCameraUpdateTime >= interval else { return }
                     self.lastCameraUpdateTime = now
-                    let effectiveLocation = self.mapView?.userLocation.location ?? location
-                    self.smoothUpdateMapPosition(location: effectiveLocation)
+                    guard location.horizontalAccuracy >= 0,
+                          CLLocationCoordinate2DIsValid(location.coordinate) else { return }
+                    self.smoothUpdateMapPosition(location: location)
                 }
         }
         
@@ -1391,26 +1392,37 @@ struct MapView: UIViewRepresentable {
             return location
         }
 
+        private func fallbackTrackingDistance(for location: CLLocation) -> CLLocationDistance {
+            guard location.horizontalAccuracy >= 0 else { return 8000 }
+            return max(3000, min(12000, location.horizontalAccuracy * 4))
+        }
+
         func startTracking(useHongKongFallback: Bool = false) {
             guard let mapView = mapView, !isUserInteracting else { return }
-            
+
+            let preciseLocation = validTrackingLocation
+            let referenceLocation = preciseLocation ?? parent.locationManager.mapReferenceLocation
             if !hasShownHighAltitude {
-                let location = validTrackingLocation ?? hongKongMapFallback
-                hasShownHighAltitude = true
-                hasInitialized = true
-                parent.savedRegion = mapView.region
-                flyToLocation(mapView: mapView, location: location)
+                let location = referenceLocation ?? hongKongMapFallback
+                showHighAltitudeView(mapView: mapView, location: location)
+                let minimumDistance = preciseLocation == nil
+                    ? fallbackTrackingDistance(for: location) : nil
+                flyToLocation(mapView: mapView, location: location, minimumDistance: minimumDistance)
                 return
             }
-            
+
             // 正常的飞行动画
             flyTimer?.invalidate()
             flyTimer = nil
             isFlying = false
-            if let location = validTrackingLocation {
+            if let location = preciseLocation {
                 flyToLocation(mapView: mapView, location: location)
+            } else if let location = referenceLocation {
+                flyToLocation(mapView: mapView, location: location,
+                              minimumDistance: fallbackTrackingDistance(for: location))
             } else if useHongKongFallback {
-                flyToLocation(mapView: mapView, location: hongKongMapFallback)
+                flyToLocation(mapView: mapView, location: hongKongMapFallback,
+                              minimumDistance: 8000)
             } else {
                 pendingAutoZoom = true
             }
@@ -1421,17 +1433,17 @@ struct MapView: UIViewRepresentable {
             
             mapView.allowCameraChange = true
             
-            let camera = mapView.camera
+            let camera = MKMapCamera()
             camera.centerCoordinate = location.coordinate
             camera.centerCoordinateDistance = 50000
-            mapView.camera = camera
+            mapView.setCamera(camera, animated: false)
             
             mapView.allowCameraChange = false
             
             hasInitialized = true
             parent.savedRegion = mapView.region
             
-            pendingAutoZoom = true
+            pendingAutoZoom = false
         }
 
         func scheduleAutoZoom() {
@@ -1445,7 +1457,8 @@ struct MapView: UIViewRepresentable {
             }
         }
 
-        private func flyToLocation(mapView: NonAdjustingMapView, location: CLLocation) {
+        private func flyToLocation(mapView: NonAdjustingMapView, location: CLLocation,
+                                   minimumDistance: CLLocationDistance? = nil) {
             autoZoomTimer?.invalidate()
             autoZoomTimer = nil
             isFlying = true
@@ -1454,7 +1467,7 @@ struct MapView: UIViewRepresentable {
                 latitude: location.coordinate.latitude,
                 longitude: location.coordinate.longitude
             )
-            let targetDistance = trackingDistance(for: location)
+            let targetDistance = max(trackingDistance(for: location), minimumDistance ?? 0)
             let targetPitchVal: CGFloat = isDriving ? drivingPitch : idlePitch
             let startCenter = mapView.centerCoordinate
             let startHeading = mapView.camera.heading

@@ -17,6 +17,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 @main
 struct GorillaTranslateApp: App {
     init() {
+        LanguageManager.migrateLegacyOverride()
         let defaults = UserDefaults.standard
         let onboardingKey = "hasCompletedLeadingOnboarding"
         let bundleID = Bundle.main.bundleIdentifier ?? "com.gorilla.translation"
@@ -125,7 +126,6 @@ struct GorillaTranslateApp: App {
                 bootstrapped = true
 
                 AMapConfig.shared.configure()
-                LanguageManager.shared.applyLanguage()
 
                 let launchAnimEnabled = UserDefaults.standard.object(forKey: "launchAnimationEnabled") as? Bool ?? true
                 if !launchAnimEnabled {

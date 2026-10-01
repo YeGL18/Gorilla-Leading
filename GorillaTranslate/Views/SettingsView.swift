@@ -41,7 +41,6 @@ struct SettingsView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
 
-    @State private var showLanguagePicker = false
     @State private var showingDestinationPicker = false
     @State private var showingAddDestination = false
     @State private var showingEditDestination = false
@@ -77,37 +76,26 @@ struct SettingsView: View {
                 MeterSettingsSection()
                 // ── 1. 語言 ──
                 Section {
-                    NavigationLink {
-                        List {
-                            ForEach(AppLanguage.allCases) { lang in
-                                Button {
-                                    LanguageManager.shared.currentLanguage = lang.rawValue
-                                    LanguageManager.shared.applyLanguage()
-                                } label: {
-                                    HStack {
-                                        Text("\(lang.flag) \(lang.displayName)")
-                                            .foregroundStyle(.primary)
-                                        Spacer()
-                                        if LanguageManager.shared.currentLanguage == lang.rawValue {
-                                            Image(systemName: "checkmark")
-                                                .foregroundStyle(.blue)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        .navigationTitle(String(localized: "語言"))
-                        .navigationBarTitleDisplayMode(.inline)
+                    Button {
+                        guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
+                        UIApplication.shared.open(url)
                     } label: {
                         HStack {
                             Text(String(localized: "語言"))
+                                .foregroundStyle(.primary)
                             Spacer()
-                            Text(LanguageManager.shared.currentAppLanguage.displayName)
+                            Text(Bundle.main.preferredLocalizations.first?.hasPrefix("zh") == true
+                                 ? "繁體中文" : "English")
+                                .foregroundStyle(.secondary)
+                            Image(systemName: "arrow.up.right")
+                                .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
                     }
                 } header: {
                     Label(String(localized: "語言"), systemImage: "globe")
+                } footer: {
+                    Text(String(localized: "在 iOS 設定中更改此 App 的語言"))
                 }
 
                 // ── 2. 目的地 ──
@@ -2571,8 +2559,8 @@ struct VisitRecordsTestView: View {
 
     private var dateTitle: String {
         let formatter = DateFormatter()
-        formatter.dateFormat = "M月d日 EEEE"
-        formatter.locale = Locale(identifier: "zh_Hant")
+        formatter.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        formatter.setLocalizedDateFormatFromTemplate("MMMMdEEEE")
         return formatter.string(from: selectedDate)
     }
 

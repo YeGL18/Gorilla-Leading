@@ -147,7 +147,7 @@ private struct ParkingLotChangePanel: View {
                                 Text(candidate.lot.name ?? "未命名停車場")
                                     .font(.caption.weight(.semibold))
                                     .lineLimit(1)
-                                Text("\(Int(candidate.distance.rounded())) 米")
+                                Text("\(Int(candidate.distance.rounded())) \(String(localized: "米"))")
                                     .font(.caption2)
                             }
                             .padding(.horizontal, 12)
@@ -208,7 +208,7 @@ private struct ParkingLotChangePanel: View {
                                 Text(candidate.lot.name ?? "未命名停車場")
                                     .font(.caption.weight(.semibold))
                                     .lineLimit(1)
-                                Text("\(Int(candidate.distance.rounded())) 米")
+                                Text("\(Int(candidate.distance.rounded())) \(String(localized: "米"))")
                                     .font(.caption2)
                                     .foregroundStyle(.secondary)
                             }
@@ -1356,7 +1356,7 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Label("我的目的地（\(destinations.count)）", systemImage: "mappin.and.ellipse")
+                    Label(String(format: String(localized: "我的目的地（%d）"), destinations.count), systemImage: "mappin.and.ellipse")
                 }
             }
 
@@ -1388,7 +1388,7 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Label("停車場（\(lots.count)）", systemImage: "car.fill")
+                    Label(String(format: String(localized: "停車場（%d）"), lots.count), systemImage: "car.fill")
                 }
             }
 
@@ -1411,7 +1411,7 @@ struct ContentView: View {
                         }
                     }
                 } label: {
-                    Label("學習地點（\(learned.count)）", systemImage: "mappin.circle")
+                    Label(String(format: String(localized: "學習地點（%d）"), learned.count), systemImage: "mappin.circle")
                 }
             }
         } label: {
@@ -1858,7 +1858,7 @@ struct ContentView: View {
                                                 }
                                             }
                                         } label: {
-                                            Label("停車場（\(namedLots.count)）", systemImage: "car.fill")
+                                            Label(String(format: String(localized: "停車場（%d）"), namedLots.count), systemImage: "car.fill")
                                         }
                                     }
 
@@ -1891,7 +1891,7 @@ struct ContentView: View {
                                                 }
                                             }
                                         } label: {
-                                            Label("學習地點（\(clusters.count)）", systemImage: "mappin.and.ellipse")
+                                            Label(String(format: String(localized: "學習地點（%d）"), clusters.count), systemImage: "mappin.and.ellipse")
                                         }
                                     }
 
@@ -1926,7 +1926,7 @@ struct ContentView: View {
                                                 }
                                             }
                                         } label: {
-                                            Label("我的目的地（\(filteredDestinations.count)）", systemImage: "mappin.and.ellipse")
+                                            Label(String(format: String(localized: "我的目的地（%d）"), filteredDestinations.count), systemImage: "mappin.and.ellipse")
                                         }
                                     }
                                 } label: {
@@ -3561,7 +3561,7 @@ struct ContentView: View {
                     isRecognizing = false
                 }
             } message: {
-                Text(String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「") + "\(llmShortcutName)" + String(localized: "」快捷指令。"))
+                Text(String(format: String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「%@」快捷指令。"), llmShortcutName))
             }
             .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
                 Button(String(localized: "編輯")) {
@@ -3807,6 +3807,8 @@ struct ContentView: View {
                         Text("\(distanceLabel):")
                             .font(.body.bold())
                             .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
                             .contentTransition(.opacity)
                             .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: distanceLabel)
                         // 米數時逐格連續滾動（兩次路線更新之間按車速倒數，同卡爾曼開關綁定），公里時直接顯示
@@ -3870,7 +3872,7 @@ struct ContentView: View {
                             startPersistentTimer()
                         }
                     }) {
-                        Label((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"), systemImage: (isNonAutomotiveArrival && !hasParkingSpotData) ? "mappin.and.ellipse" : "car.fill")
+                        Label((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶按鈕") : String(localized: "泊車記憶按鈕"), systemImage: (isNonAutomotiveArrival && !hasParkingSpotData) ? "mappin.and.ellipse" : "car.fill")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -3958,7 +3960,7 @@ struct ContentView: View {
                             }
                         }
                     }) {
-                        Label(String(localized: "最優路線"), systemImage: "map")
+                        Label(String(localized: "最優路線按鈕"), systemImage: "map")
                             .font(.body.weight(.medium))
                             .foregroundStyle(.white)
                             .frame(width: 126, height: 54)
@@ -4104,7 +4106,7 @@ struct ContentView: View {
             // 離場 button
             parkingDepartureButton(width: 161, height: 70, countdownSize: 40, labelSize: 22)
             // 入场计时
-            parkingTimerOrb(width: 161, height: 70, orbBaseSize: 100, titleSize: 16, elapsedSize: 32, labelWidth: 28, labelSize: 11, onLongPress: {
+            parkingTimerOrb(width: 161, height: 70, orbBaseSize: 100, titleSize: 16, elapsedSize: 32, labelWidth: 40, labelSize: 11, onLongPress: {
                 openSpotEditor()
             })
         }
@@ -4159,7 +4161,7 @@ struct ContentView: View {
             // Bottom: 離場 button + entry timer
             HStack(spacing: 14) {
                 parkingDepartureButton(width: 161, height: 87, countdownSize: 48, labelSize: 24)
-                parkingTimerOrb(width: 161, height: 87, orbBaseSize: 120, titleSize: 18, elapsedSize: 36, labelWidth: 32, labelSize: 13, onLongPress: { showRecognitionLogicAlert = true })
+                parkingTimerOrb(width: 161, height: 87, orbBaseSize: 120, titleSize: 18, elapsedSize: 36, labelWidth: 44, labelSize: 13, onLongPress: { showRecognitionLogicAlert = true })
             }
             .padding(.horizontal, 20)
             .padding(.bottom, 16)
@@ -4347,15 +4349,15 @@ struct ContentView: View {
                 let session = parkingFloorStore.currentSession
                 VStack(alignment: .leading, spacing: 1) {
                     HStack(spacing: 4) {
-                        Text(String(localized: "車位")).frame(width: labelWidth, alignment: .trailing)
+                        Text(String(localized: "車位")).lineLimit(1).frame(width: labelWidth, alignment: .trailing)
                         Text(session?.spotNumber ?? "-")
                     }
                     HStack(spacing: 4) {
-                        Text(String(localized: "區域")).frame(width: labelWidth, alignment: .trailing)
+                        Text(String(localized: "區域")).lineLimit(1).frame(width: labelWidth, alignment: .trailing)
                         Text(session?.areaCode ?? "-")
                     }
                     HStack(spacing: 4) {
-                        Text(String(localized: "樓層")).frame(width: labelWidth, alignment: .trailing)
+                        Text(String(localized: "樓層")).lineLimit(1).frame(width: labelWidth, alignment: .trailing)
                         Text(session?.floorDisplay ?? "-")
                         FloorConventionBadge(onDark: true, compact: true)
                     }
@@ -4363,7 +4365,7 @@ struct ContentView: View {
                 .font(.system(size: labelSize, weight: .medium))
                 .foregroundStyle(.white.opacity(0.9))
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.leading, 12)
+                .padding(.leading, 6)
             } else {
                 Text(formatParkingElapsed())
                     .font(.system(size: elapsedSize, weight: .bold))
@@ -4931,9 +4933,11 @@ struct ContentView: View {
             let content = UNMutableNotificationContent()
             let hours = reminderMinute / 60
             let mins = reminderMinute % 60
-            let timeStr = hours > 0 ? "\(hours)小時\(mins)分鐘" : "\(mins)分鐘"
+            let timeStr = hours > 0
+                ? String(format: String(localized: "%d小時%d分鐘"), hours, mins)
+                : String(format: String(localized: "%d分鐘"), mins)
             content.title = String(localized: "泊車時間提醒")
-            content.body = String(localized: "你已經泊車\(timeStr)")
+            content.body = String(format: String(localized: "你已經泊車%@"), timeStr)
             content.sound = .default
 
             let id = "parking-reminder-scheduled-\(halfHour)"
@@ -4984,9 +4988,11 @@ struct ContentView: View {
         let content = UNMutableNotificationContent()
         let hours = minutes / 60
         let mins = minutes % 60
-        let timeStr = hours > 0 ? "\(hours)小時\(mins)分鐘" : "\(mins)分鐘"
+        let timeStr = hours > 0
+            ? String(format: String(localized: "%d小時%d分鐘"), hours, mins)
+            : String(format: String(localized: "%d分鐘"), mins)
         content.title = String(localized: "泊車時間提醒")
-        content.body = String(localized: "你已經泊車\(timeStr)")
+        content.body = String(format: String(localized: "你已經泊車%@"), timeStr)
         content.sound = .default
         let req = UNNotificationRequest(identifier: "parking-reminder-\(minutes)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
@@ -5410,7 +5416,7 @@ struct ContentView: View {
     private func startNavigationToMeter(_ meter: ParkingMeter) {
         dismissMeterDetail()
         guard let location = locationManager.lastLocation else {
-            meterRouteError = "尚未取得目前位置"
+            meterRouteError = String(localized: "尚未取得目前位置")
             return
         }
         meterManager.dismissNotice()
@@ -6207,7 +6213,7 @@ struct ContentView: View {
         } else if name.contains("office") || name.contains("公司") {
             return String(localized: "離公司距離")
         }
-        return "離\(dest.name)距離"
+        return String(format: String(localized: "離%@距離"), dest.name)
     }
 
     private func updateVisitStatus() {

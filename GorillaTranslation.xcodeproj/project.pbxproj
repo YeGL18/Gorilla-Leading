@@ -26,6 +26,8 @@
 		A10019 /* DotMatrixView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20020 /* DotMatrixView.swift */; };
 		A10021 /* AppLanguage.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20021 /* AppLanguage.swift */; };
 		A10022 /* LanguageManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20022 /* LanguageManager.swift */; };
+		A10023 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L30001 /* Localizable.strings */; };
+		A10024 /* Localizable.strings in Widget Resources */ = {isa = PBXBuildFile; fileRef = L30001 /* Localizable.strings */; };
 		AM10001 /* AMapConfig.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20001 /* AMapConfig.swift */; };
 		AM10002 /* AmapNaviManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20002 /* AmapNaviManager.swift */; };
 		AM10003 /* FloatingLaneGuidanceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20003 /* FloatingLaneGuidanceView.swift */; };
@@ -142,8 +144,8 @@
 		F3A0A010B2C3D4E5F6071829 /* sfx_floor_curve_appear.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_floor_curve_appear.mp3; sourceTree = "<group>"; };
 		F3A0A011B2C3D4E5F6071829 /* sfx_floor_curve_locked.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_floor_curve_locked.mp3; sourceTree = "<group>"; };
 		F3A0A012B2C3D4E5F6071829 /* sfx_meter_destination.mp3 */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = audio.mp3; path = sfx_meter_destination.mp3; sourceTree = "<group>"; };
-		L10001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = en.lproj/Localizable.strings; sourceTree = "<group>"; };
-		L10002 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
+		L10001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Localization/en.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L10002 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "Localization/zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
 		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
 		ME20001 /* MeterData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MeterData.swift; sourceTree = "<group>"; };
@@ -459,6 +461,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10024 /* Localizable.strings in Widget Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -466,6 +469,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10023 /* Localizable.strings in Resources */,
 				A10012 /* Assets.xcassets in Resources */,
 				A10013 /* Preview Assets.xcassets in Resources */,
 				F3A0C004B2C3D4E5F6071829 /* sfx_acceleration_overlay.mp3 in Resources */,

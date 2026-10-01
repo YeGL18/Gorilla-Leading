@@ -55,7 +55,7 @@ struct AnimatedBackground: View {
             let h = geometry.size.height
             let elapsed = clock.elapsed
             let colors = orbColors
-            let glowStrength = overlapGlowEnabled ? (isDark ? 1.4 : 0.25) : 1.0
+            let glowStrength = overlapGlowEnabled ? (isDark ? 1.6 : 0.6) : 1.0
             let orbBlend: BlendMode = overlapGlowEnabled ? .plusLighter : .normal
 
             ZStack {
