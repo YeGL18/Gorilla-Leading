@@ -38,6 +38,7 @@ final class GorillaActivityManager {
         }
 
         var content = newState
+        content.languageCode = Bundle.main.preferredLocalizations.first ?? "en"
         if forceRefresh {
             content.renderNonce = Int(Date().timeIntervalSince1970)
         }
@@ -50,8 +51,10 @@ final class GorillaActivityManager {
             Task {
                 if stateChanged {
                     let alert = AlertConfiguration(
-                        title: "Gorilla 泊車記憶",
-                        body: LocalizedStringResource(stringLiteral: content.state.label),
+                        title: LocalizedStringResource(stringLiteral:
+                            GorillaActivityLocalization.string("Gorilla 泊車記憶", languageCode: content.languageCode)),
+                        body: LocalizedStringResource(stringLiteral:
+                            content.state.localizedLabel(languageCode: content.languageCode)),
                         sound: .default
                     )
                     await activity.update(

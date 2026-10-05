@@ -4,6 +4,8 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case system = ""
     case english = "en"
     case traditionalChinese = "zh-Hant"
+    case simplifiedChinese = "zh-Hans"
+    case japanese = "ja"
 
     var id: String { rawValue }
 
@@ -12,6 +14,8 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .system: return "跟隨系統"
         case .english: return "English"
         case .traditionalChinese: return "繁體中文"
+        case .simplifiedChinese: return "简体中文"
+        case .japanese: return "日本語"
         }
     }
 
@@ -20,6 +24,8 @@ enum AppLanguage: String, CaseIterable, Identifiable {
         case .system: return "🌐"
         case .english: return "🇺🇸"
         case .traditionalChinese: return "🇹🇼"
+        case .simplifiedChinese: return "🇨🇳"
+        case .japanese: return "🇯🇵"
         }
     }
 }

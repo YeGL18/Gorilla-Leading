@@ -13,18 +13,18 @@ struct MeterNotice: Identifiable {
     let expiresAt: Date
     var title: String {
         switch kind {
-        case .destination: return "檢測到\(destinationName)附近有 \(count) 個空置咪錶位"
-        case .nearby: return "檢測到附近有 \(count) 個空置咪錶位"
-        case .stationary: return "檢測到旁邊的咪錶位"
+        case .destination: return String(format: String(localized: "檢測到%@附近有 %d 個空置咪錶位"), destinationName, count)
+        case .nearby: return String(format: String(localized: "檢測到附近有 %d 個空置咪錶位"), count)
+        case .stationary: return String(localized: "檢測到旁邊的咪錶位")
         }
     }
     /// 彈窗主動作：空置咪錶（附近／目的地）→ 導航去個錶位；
     /// 人就喺個錶位隔離 → 前往繳費
     var actionTitle: String {
         switch kind {
-        case .destination: return "前往咪錶位"
-        case .nearby: return "導航"
-        case .stationary: return "前往繳費"
+        case .destination: return String(localized: "前往咪錶位")
+        case .nearby: return String(localized: "導航")
+        case .stationary: return String(localized: "前往繳費")
         }
     }
     var actionSymbol: String {
@@ -43,6 +43,7 @@ final class ParkingMeterManager: ObservableObject {
     @Published private(set) var loading = false
     @Published private(set) var statusRefreshing = false
     @Published private(set) var errorMessage: String?
+    @Published private(set) var statusErrorMessage: String?
     @Published private(set) var revision = 0
     @Published var selectedMeter: ParkingMeter?
     @Published private(set) var notice: MeterNotice?
@@ -137,7 +138,7 @@ final class ParkingMeterManager: ObservableObject {
             lastSpacesFetch = Date()
             defaults.set(lastSpacesFetch, forKey: "meterSpacesV2FetchedAt")
             errorMessage = nil
-        } catch { errorMessage = "位置資料未能更新：\(error.localizedDescription)" }
+        } catch { errorMessage = String(format: String(localized: "位置資料未能更新：%@"), error.localizedDescription) }
     }
 
     func refreshStatus(force: Bool = false) async {
@@ -163,8 +164,13 @@ final class ParkingMeterManager: ObservableObject {
             lastStatusFetch = Date()
             stalePublished = false
             errorMessage = nil
+            statusErrorMessage = nil
             revision += 1
-        } catch { errorMessage = "狀態未能更新：\(error.localizedDescription)" }
+        } catch {
+            let message = String(format: String(localized: "狀態未能更新：%@"), error.localizedDescription)
+            statusErrorMessage = message
+            errorMessage = message
+        }
     }
 
     func state(_ meter: ParkingMeter, now: Date = Date()) -> MeterDisplayState {

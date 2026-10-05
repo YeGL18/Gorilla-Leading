@@ -104,9 +104,6 @@ struct SpeedView: View {
     /// 所以每次回前景都換個新 timer（見 onChange(of: scenePhase)）。
     @State private var gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
-    /// 呼吸動畫：true/false 交替驅動透明度脈動
-    @State private var breatheIn = false
-
     let showMap: Bool
     let animationClock: AnimationClock
     @Binding var mapCamera: MKMapCamera?
@@ -234,7 +231,9 @@ struct SpeedView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .blur(radius: adjustedBlur)
+                            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showParallaxToggle)
                             .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier + (showParallaxToggle ? -10 : 0))
+                            .transaction { $0.animation = nil }
                         }
                     }
                     // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大。G 值模式效果更強。
@@ -259,10 +258,13 @@ struct SpeedView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showParallaxToggle)
                     .offset(
                         x: speedParallaxEnabled ? parallaxX * 24 * parallaxMultiplier : 0,
                         y: speedParallaxEnabled ? parallaxY * 24 * parallaxMultiplier : 0
                     )
+                    // CoreMotion already smooths these samples; never inherit a repeating UI animation.
+                    .transaction { $0.animation = nil }
                     // 雙擊時速數字：彈出視差模式切換膠囊
                     .onTapGesture(count: 2) {
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
@@ -399,16 +401,8 @@ struct SpeedView: View {
             }
         }
         // 視差取樣率跟背景動畫幀率對齊：進出專注模式／改幀率都即時生效
-        .onChange(of: focusMode) { _, newMode in
+        .onChange(of: focusMode) { _, _ in
             syncParallaxFrameRate()
-            // 呼吸動畫：進入專注模式時啟動脈動，退出時停止
-            if newMode != nil {
-                withAnimation(.easeInOut(duration: 2.0).repeatForever(autoreverses: true)) {
-                    breatheIn = true
-                }
-            } else {
-                breatheIn = false
-            }
         }
         .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
         .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
@@ -494,12 +488,6 @@ struct SpeedView: View {
         let active = focusMode != nil
         let glowColor = focusMode?.color ?? .green
         let baseColor: Color = colorScheme == .dark ? .white : .black
-        // 呼吸曲線：breatheIn=true 時亮、false 時暗
-        let iconOpacity     = active ? (breatheIn ? 1.0 : 0.7) : 1.0
-        let innerGlowAlpha  = active ? (breatheIn ? 0.85 : 0.3) : 0.0
-        let outerGlowAlpha  = active ? (breatheIn ? 0.55 : 0.15) : 0.0
-        let innerRadius     = active ? (breatheIn ? 7 : 4) : 0
-        let outerRadius     = active ? (breatheIn ? 14 : 8) : 0
         return Button {
             if active {
                 onExitFocus()
@@ -508,11 +496,7 @@ struct SpeedView: View {
             }
         } label: {
             // 規格同主頁左側按鈕一致：44×44、icon 20pt、液態玻璃
-            Image(systemName: active ? "leaf.fill" : "leaf")
-                .font(.system(size: 20, weight: .medium))
-                .foregroundStyle(active ? glowColor.opacity(iconOpacity) : baseColor)
-                .shadow(color: active ? glowColor.opacity(innerGlowAlpha) : .clear, radius: CGFloat(innerRadius))
-                .shadow(color: active ? glowColor.opacity(outerGlowAlpha) : .clear, radius: CGFloat(outerRadius))
+            FocusModeSymbol(active: active, glowColor: glowColor, baseColor: baseColor)
                 .frame(width: 44, height: 44)
         }
         .buttonStyle(.glass)
@@ -1035,6 +1019,24 @@ private struct SpeedDigitsText: View {
 
 // MARK: - 時速數字視差條件修飾器
 
+private struct FocusModeSymbol: View {
+    let active: Bool
+    let glowColor: Color
+    let baseColor: Color
+    @State private var breatheIn = false
+
+    var body: some View {
+        Image(systemName: active ? "leaf.fill" : "leaf")
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(active ? glowColor.opacity(breatheIn ? 1 : 0.7) : baseColor)
+            .shadow(color: active ? glowColor.opacity(breatheIn ? 0.85 : 0.3) : .clear, radius: active ? (breatheIn ? 7 : 4) : 0)
+            .shadow(color: active ? glowColor.opacity(breatheIn ? 0.55 : 0.15) : .clear, radius: active ? (breatheIn ? 14 : 8) : 0)
+            .animation(active ? .easeInOut(duration: 2).repeatForever(autoreverses: true) : .easeOut(duration: 0.2), value: breatheIn)
+            .onAppear { breatheIn = active }
+            .onChange(of: active) { _, value in breatheIn = value }
+    }
+}
+
 private struct SpeedParallaxModifier: ViewModifier {
     let enabled: Bool
     let parallaxX: Double
@@ -1047,6 +1049,7 @@ private struct SpeedParallaxModifier: ViewModifier {
                 .rotation3DEffect(.degrees(parallaxX * 12 * multiplier), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
                 .rotation3DEffect(.degrees(parallaxY * 12 * multiplier), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
                 .offset(x: parallaxX * -20 * multiplier, y: parallaxY * -20 * multiplier)
+                .transaction { $0.animation = nil }
         } else {
             content
         }

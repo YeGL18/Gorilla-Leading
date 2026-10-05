@@ -224,6 +224,7 @@
 "更新" = "Updated";
 "每層高度" = "Height per floor";
 "未知" = "Unknown";
+"離場時間未記錄" = "Departure time not recorded";
 "Unknown" = "Unknown";
 "信心" = "Confidence ";
 "清除" = "Clear";
@@ -761,3 +762,159 @@
 "選擇車輛" = "Select Vehicle";
 "開啟入錶易" = "Open HKeMeter";
 "預測目的地測試" = "Destination Prediction Test";
+
+/* ============================================ */
+/* Settings - Car Bluetooth                     */
+/* ============================================ */
+"我嘅車藍牙" = "My Car Bluetooth";
+"清除選擇" = "Clear Selection";
+"最近見到" = "Recently Seen";
+"未見到任何車載藍牙裝置。手機同架車藍牙連住之後，呢度會自動出現。" = "No car Bluetooth devices seen yet. They show up here once your phone connects to your car's Bluetooth.";
+"最後見到：%@" = "Last seen: %@";
+"選定之後，只有呢部車嘅藍牙斷線先會計入落車判定，藍牙耳機／家用音響斷線唔會誤判。未選定就用「啱啱揸緊車」推斷落車。" = "Once selected, only this car's Bluetooth disconnect counts as leaving the car; headphones and home speakers won't trigger it. Without a selection, exits are inferred from recent driving.";
+
+/* Live Activity and Dynamic Island */
+"停留中" = "Stopped";
+"泊車中" = "Parked";
+"開車中" = "Driving";
+"逗留中" = "Visiting";
+"步行中" = "Walking";
+"騎車中" = "Cycling";
+"目的地：" = "To: ";
+"LiveActivity.minute.short" = "min";
+
+// Parking meter details and manual corrections
+"移除咪錶標注" = "Remove meter annotation";
+"已開啟" = "On";
+"已關閉" = "Off";
+"%@ %@咪錶" = "%@ · Meter %@";
+"%@咪錶" = "%@ · Parking meter";
+"請選擇車型" = "Select vehicle";
+"私家車" = "Private car";
+"的士" = "Taxi";
+"輕型貨車" = "Light goods vehicle";
+"中／重型貨車" = "Medium/heavy goods vehicle";
+"巴士／旅遊巴" = "Bus/coach";
+"一般車輛" = "General vehicles";
+"貨車" = "Goods vehicles";
+"車型未提供" = "Vehicle type unavailable";
+"不包括中／重型貨車、巴士、電單車及單車" = "Excludes medium/heavy goods vehicles, buses, motorcycles and bicycles";
+"收費暫無資料" = "Fee unavailable";
+"%d 分鐘 / HK$%.2f" = "%d min / HK$%.2f";
+"泊車時限暫無資料" = "Parking limit unavailable";
+"每次最長可購買 %d 小時" = "Up to %d hr per payment";
+"每次最長可購買 %d 分鐘" = "Up to %d min per payment";
+"收費時段暫無資料（%@）" = "Charging hours unavailable (%@)";
+"空置" = "Available";
+"空置 · 不適用所選車型" = "Available · Unsuitable vehicle";
+"被佔用" = "Occupied";
+"適用車型未知" = "Vehicle eligibility unknown";
+"不適用所選車型" = "Unsuitable for selected vehicle";
+"更新於 %@" = "Updated %@";
+"檢測到%@附近有 %d 個空置咪錶位" = "%2$d available metered spaces near %1$@";
+"檢測到附近有 %d 個空置咪錶位" = "%d available metered spaces nearby";
+"檢測到旁邊的咪錶位" = "Parking meter detected beside you";
+"前往咪錶位" = "Go to meter";
+"位置資料未能更新：%@" = "Unable to update locations: %@";
+"狀態未能更新：%@" = "Unable to update status: %@";
+"%d 個咪錶位" = "%d metered spaces";
+"%@，%d 個泊位，%@" = "%@, %d spaces, %@";
+"星期一至六 08:00–24:00（公眾假期除外）" = "Mon–Sat 08:00–24:00 (except public holidays)";
+"星期一至六 08:00–20:00（公眾假期除外）" = "Mon–Sat 08:00–20:00 (except public holidays)";
+"星期一至六 08:00–24:00；星期日及公眾假期 10:00–22:00" = "Mon–Sat 08:00–24:00; Sun/holidays 10:00–22:00";
+"每日 07:00–20:00" = "Daily 07:00–20:00";
+"每日 08:00–21:00" = "Daily 08:00–21:00";
+"每日 07:00–19:00" = "Daily 07:00–19:00";
+"每日 08:00–20:00" = "Daily 08:00–20:00";
+"每日 08:00–24:00" = "Daily 08:00–24:00";
+"每日 19:00–24:00" = "Daily 19:00–24:00";
+"星期一至六 08:00–20:00；星期日禁止泊車" = "Mon–Sat 08:00–20:00; no parking on Sunday";
+"星期一至六 08:00–20:00；星期日及公眾假期 10:00–22:00" = "Mon–Sat 08:00–20:00; Sun/holidays 10:00–22:00";
+"星期一至五 17:00–24:00（08:00–17:00 禁止泊車）；星期六 08:00–24:00；星期日及公眾假期 10:00–22:00" = "Mon–Fri 17:00–24:00 (no parking 08:00–17:00); Sat 08:00–24:00; Sun/holidays 10:00–22:00";
+"星期一至五 17:30–24:00；星期六 08:00–24:00；星期日及公眾假期 10:00–24:00" = "Mon–Fri 17:30–24:00; Sat 08:00–24:00; Sun/holidays 10:00–24:00";
+// Parking altitude capture and confirmation
+"短暫停頓" = "Brief stop";
+"經過閘機" = "Passing gate";
+"確認停泊" = "Checking stop";
+"等待高度穩定" = "Waiting for altitude";
+"估算樓層" = "Estimated floor";
+"已保存" = "Saved";
+"確認樓層" = "Confirm floor";
+"增加樓層" = "Floor up";
+"減少樓層" = "Floor down";
+"行車後降至 20 km/h 以下開始樓層探測；停穩 10 秒且高度穩定後停止採樣。只在前景採樣。" = "Floor detection starts when driving slows below 20 km/h. Sampling ends after 10 seconds stopped with stable altitude. Foreground only.";
+// Confirm parking before ending altitude capture
+"已泊好車？" = "Have you parked?";
+"未泊好" = "Not yet";
+"已泊好" = "Parked";
+"繼續探測" = "Still detecting";
+"行車後降至 20 km/h 以下開始樓層探測；停穩 10 秒後詢問是否已泊好，未確認就繼續採樣，每隔 10 秒再問。只在前景採樣。" = "Floor detection starts when driving slows below 20 km/h. After 10 seconds stopped with stable altitude, you are asked whether you have parked. Sampling continues until you confirm, with another prompt every 10 seconds. Foreground only.";
+
+/* Per-visit parking floors */
+"每個地點固定樓層" = "One Floor per Place";
+"相同地點不同樓層" = "Multiple Floors per Place";
+"地點樓層判定" = "Parking Floor Mode";
+"切換不會合併或刪除舊記錄。不同樓層模式會保留每次泊車樓層，並按樓層分組。" = "Changing modes keeps existing records. Multiple-floor mode keeps each visit’s floor and groups visits by floor.";
+"樓層與上次不同" = "Different Parking Floor";
+"這次停另一樓層" = "Different Floor This Time";
+"上次記錯了，一併修正" = "Also Correct the Previous Visit";
+"上次是 %@，這次是 %@。只保存這次，還是修正上次的樓層？" = "Last time: %@. This time: %@. Keep this visit only, or also correct the previous floor?";
+"起點樓層" = "Starting Floor";
+"起點 %@" = "Start %@";
+"氣壓計只能量度高度變化。起點預設為地面；若已在停車場內開始探測，請選擇實際起點樓層。" = "The barometer measures height changes, not absolute floors. The starting floor defaults to ground level. If detection started inside a car park, select the actual starting floor.";
+"命名此樓層" = "Name This Floor";
+"所有停車點" = "All Parking Points";
+"已手動確認" = "Manually Confirmed";
+"持續採樣中" = "Sampling";
+"已完成停泊" = "Parking Complete";
+"等待行車" = "Waiting for Driving";
+"歸納樓層" = "Facility Floors";
+"所有樓層" = "All Floors";
+"樓層未確認" = "Floor Unconfirmed";
+"樓層名稱會同步到這一樓層的停車點及到訪記錄。" = "The floor name applies to parking points and visits on this floor.";
+"氣壓探測" = "Barometer";
+"高度變化" = "Height Change";
+"同位置的上落客區與地下停車場可分別設定歸納樓層；跨樓層停車場選擇所有樓層。" = "For overlapping drop-off areas and underground car parks, set each facility’s floor. Choose All Floors for a car park spanning multiple floors.";
+"樓層校準" = "Floor Calibration";
+"樓層變化" = "Floors Travelled";
+"學習記錄" = "Calibration History";
+"位置" = "Location";
+"光球配色" = "Orb Palette";
+"App 啟動音效" = "App Launch Sound";
+"原有音效" = "Original";
+"啟動音效 2" = "Launch Sound 2";
+"逗留／開車音效" = "Stay / Driving Sounds";
+"新音效" = "New";
+"試聽啟動音效" = "Preview Launch Sound";
+"試聽逗留" = "Preview Stay";
+"試聽開車" = "Preview Driving";
+"泊車時間提醒音效" = "Parking Time Reminder Sound";
+"逗留與開車音效會成組切換。泊車時間提醒使用獨立通知音效。" = "Stay and driving sounds switch as a pair. Parking time reminders use a separate notification sound.";
+
+// Parking history groups
+"已確認" = "Confirmed";
+"估算" = "Estimated";
+"最新" = "Latest";
+"選取" = "Select";
+"此樓層" = "This Floor";
+"停車記錄" = "Parking History";
+"修正樓層" = "Correct Floor";
+"修正歷史樓層" = "Correct Past Floors";
+"確認修正" = "Confirm Correction";
+"%d 次記錄" = "%d visits";
+"停車記錄 · %d" = "History · %d";
+"只修正所選記錄，不會更改其他記錄、停車場或真實位置。" = "Only selected visits will change. Other visits, parking areas and actual locations stay unchanged.";
+"將 %d 筆記錄的樓層修正為 %@？" = "Change the floor of %d visits to %@?";
+/* Parking area editing */
+"調整停車場範圍" = "Edit Parking Area";
+"合併停車場" = "Merge Parking Areas";
+"範圍不可交叉或過小" = "The boundary must not cross itself or be too small.";
+"新增頂點" = "Add Vertex";
+"移除頂點" = "Remove Vertex";
+"範圍頂點" = "Boundary Vertex";
+"%d 個頂點" = "%d Vertices";
+"恢復自動圓形範圍" = "Restore Automatic Circle";
+"恢復" = "Restore";
+"合併" = "Merge";
+"合併保留每次停車的位置、時間及樓層，並沿用所選停車場的名稱與自訂範圍。" = "Merging preserves each visit’s location, time and floor. The selected parking area’s name and custom boundary are retained.";
+"將「%@」的 %d 次記錄合併到「%@」？相同樓層的名稱以所選停車場為準。" = "Merge %2$d visits from “%1$@” into “%3$@”? Existing floor names in the selected area take priority.";

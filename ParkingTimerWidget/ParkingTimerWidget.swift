@@ -22,10 +22,11 @@ struct ParkingTimerProvider: TimelineProvider {
         let departed = defaults.bool(forKey: "hasDeparted")
 
         guard !departed,
-              let savedTime = defaults.object(forKey: "parkingStartTime") as? Date else {
+              let arrival = defaults.object(forKey: "parkingStartTime") as? Date else {
             return ParkingTimerEntry(date: Date(), entryTime: nil, duration: 0, location: nil)
         }
 
+        let savedTime = ParkingEntryClock.restoredEntry(for: arrival, defaults: defaults)
         let duration = Date().timeIntervalSince(savedTime)
         let location = defaults.string(forKey: "parkingEntryLocation")
         return ParkingTimerEntry(date: Date(), entryTime: savedTime, duration: duration, location: location)
@@ -58,7 +59,7 @@ struct ParkingTimerWidgetEntryView: View {
                 HStack(spacing: 4) {
                     Image(systemName: "car.fill")
                         .font(.system(size: 12))
-                    Text("泊車計時")
+                    Text(GorillaActivityLocalization.string("泊車計時"))
                         .font(.system(size: 13, weight: .semibold))
                 }
                 .foregroundStyle(.white.opacity(0.8))
@@ -85,7 +86,7 @@ struct ParkingTimerWidgetEntryView: View {
                 Image(systemName: "car.fill")
                     .font(.system(size: 20))
                     .foregroundStyle(.white.opacity(0.5))
-                Text("未泊車")
+                Text(GorillaActivityLocalization.string("未泊車"))
                     .font(.system(size: 13))
                     .foregroundStyle(.white.opacity(0.5))
             }
@@ -113,7 +114,7 @@ struct ParkingTimerLockScreenView: View {
     @ViewBuilder var body: some View {
         if let entryTime = entry.entryTime {
             VStack(alignment: .leading, spacing: 2) {
-                Text("泊車記憶")
+                Text(GorillaActivityLocalization.string("泊車記憶"))
                     .font(.system(size: 10, weight: .semibold))
                     .foregroundStyle(.white.opacity(0.7))
 
@@ -130,7 +131,7 @@ struct ParkingTimerLockScreenView: View {
                 }
             }
         } else {
-            Text("泊車記憶")
+            Text(GorillaActivityLocalization.string("泊車記憶"))
                 .font(.system(size: 10))
                 .foregroundStyle(.white.opacity(0.5))
         }
@@ -152,8 +153,8 @@ struct ParkingTimerWidget: Widget {
             ParkingTimerWidgetEntryView(entry: entry)
                 .containerBackground(.fill.tertiary, for: .widget)
         }
-        .configurationDisplayName("泊車計時")
-        .description("顯示泊車入場時間與已計時時長")
+        .configurationDisplayName(GorillaActivityLocalization.string("泊車計時"))
+        .description(GorillaActivityLocalization.string("顯示泊車入場時間與已計時時長"))
         .supportedFamilies([.systemMedium, .accessoryRectangular])
     }
 }

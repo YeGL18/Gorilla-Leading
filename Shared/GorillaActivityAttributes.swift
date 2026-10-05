@@ -1,6 +1,44 @@
 import ActivityKit
 import SwiftUI
 
+enum ParkingEntryClock {
+    static func restoredEntry(for arrival: Date, defaults: UserDefaults) -> Date {
+        guard defaults.object(forKey: "parkingStartTime") as? Date == arrival,
+              let entry = defaults.object(forKey: "parkingEntryTime") as? Date else { return arrival }
+        return entry
+    }
+
+    static func adjustmentMinutes(entry: Date, arrival: Date) -> Int {
+        Int((entry.timeIntervalSince(arrival) / 60).rounded())
+    }
+
+    static func save(arrival: Date, entry: Date, defaults: UserDefaults) {
+        defaults.set(arrival, forKey: "parkingStartTime")
+        defaults.set(entry, forKey: "parkingEntryTime")
+    }
+}
+
+enum GorillaActivityLocalization {
+    static let sharedLanguageKey = "gorillaAppLanguageCode"
+
+    static var languageCode: String {
+        UserDefaults(suiteName: "group.com.gorilla.translate")?.string(forKey: sharedLanguageKey)
+            ?? Bundle.main.preferredLocalizations.first
+            ?? "en"
+    }
+
+    static func string(_ key: String, languageCode: String? = nil) -> String {
+        let requested = languageCode ?? self.languageCode
+        let code = Bundle.preferredLocalizations(
+            from: Bundle.main.localizations,
+            forPreferences: [requested]
+        ).first ?? "en"
+        guard let path = Bundle.main.path(forResource: code, ofType: "lproj"),
+              let bundle = Bundle(path: path) else { return key }
+        return bundle.localizedString(forKey: key, value: key, table: "Localizable")
+    }
+}
+
 // MARK: - Activity State
 
 /// The six live states shown in the Dynamic Island & Lock Screen.
@@ -13,7 +51,7 @@ enum GorillaActivityState: String, Codable, Hashable {
     case walking             // 步行中 — green, figure.walk icon
     case cycling             // 騎車中 — green, bicycle icon
 
-    var label: String {
+    private var labelKey: String {
         switch self {
         case .stationary:          return "停留中"
         case .parking:             return "泊車中"
@@ -22,6 +60,12 @@ enum GorillaActivityState: String, Codable, Hashable {
         case .walking:             return "步行中"
         case .cycling:             return "騎車中"
         }
+    }
+
+    var label: String { localizedLabel(languageCode: nil) }
+
+    func localizedLabel(languageCode: String?) -> String {
+        GorillaActivityLocalization.string(labelKey, languageCode: languageCode)
     }
 
     var color: Color {
@@ -82,6 +126,8 @@ struct GorillaActivityAttributes: ActivityAttributes {
         // Stationary context (停留中)
         var destinationName: String?  // 家
         var distanceText: String?     // 46.1 km
+        /// The host app's selected language; optional for activities created by older builds.
+        var languageCode: String? = nil
         /// Foreground-refresh nonce: guarantees the update payload differs from
         /// the archived render so the system re-renders with the latest widget
         /// binary (otherwise iOS can keep showing a stale render forever).

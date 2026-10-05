@@ -55,7 +55,7 @@ struct AnimatedBackground: View {
             let h = geometry.size.height
             let elapsed = clock.elapsed
             let colors = orbColors
-            let glowStrength = overlapGlowEnabled ? (isDark ? 1.6 : 0.6) : 1.0
+            let glowStrength = overlapGlowEnabled ? (isDark ? 1.6 : 1.05) : 1.0
             let orbBlend: BlendMode = overlapGlowEnabled ? .plusLighter : .normal
 
             ZStack {
@@ -66,7 +66,8 @@ struct AnimatedBackground: View {
                 )
                 .ignoresSafeArea()
 
-                Circle()
+                ZStack {
+                    Circle()
                     .fill(Color(hex: colors[0].hex).opacity(min(1, colors[0].opacity * glowStrength) * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 450 * orbSizeMultiplier, height: 450 * orbSizeMultiplier)
@@ -76,7 +77,7 @@ struct AnimatedBackground: View {
                     )
                     .blendMode(orbBlend)
 
-                Circle()
+                    Circle()
                     .fill(Color(hex: colors[1].hex).opacity(min(1, colors[1].opacity * glowStrength) * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 500 * orbSizeMultiplier, height: 500 * orbSizeMultiplier)
@@ -86,7 +87,7 @@ struct AnimatedBackground: View {
                     )
                     .blendMode(orbBlend)
 
-                Circle()
+                    Circle()
                     .fill(Color(hex: colors[2].hex).opacity(min(1, colors[2].opacity * glowStrength) * (orbEnabled ? 1 : 0)))
                     .blur(radius: 100)
                     .frame(width: 420 * orbSizeMultiplier, height: 420 * orbSizeMultiplier)
@@ -95,6 +96,8 @@ struct AnimatedBackground: View {
                         y: h * 0.02 + CGFloat(cos(elapsed * 0.42 + 4.2)) * h * 0.32
                     )
                     .blendMode(orbBlend)
+                }
+                .compositingGroup()
             }
         }
         .ignoresSafeArea()

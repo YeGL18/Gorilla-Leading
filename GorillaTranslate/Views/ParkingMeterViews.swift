@@ -15,9 +15,8 @@ extension MeterDisplayState {
 
 final class MeterAnnotation: NSObject, MKAnnotation {
     let meter: ParkingMeter
-    var pendingAppearance = true
     dynamic var coordinate: CLLocationCoordinate2D
-    var title: String? { "\(meter.street) \(meter.id)" }
+    var title: String? { "\(meter.displayStreet) \(meter.id)" }
     init(_ meter: ParkingMeter) {
         self.meter = meter
         coordinate = meter.coordinate.wgs84ToGCJ02
@@ -37,12 +36,12 @@ final class MeterGroupAnnotation: NSObject, MKAnnotation {
         let longitude = meters.reduce(0) { $0 + $1.longitude } / Double(meters.count)
         coordinate = CLLocationCoordinate2D(latitude: latitude, longitude: longitude).wgs84ToGCJ02
         title = meters[0].bayType.title
-        subtitle = "\(meters.count) 個咪錶位"
+        subtitle = String(format: String(localized: "%d 個咪錶位"), meters.count)
         super.init()
     }
 }
 
-final class MeterAnnotationView: MKMarkerAnnotationView {
+final class MeterAnnotationView: FadingMarkerAnnotationView {
     @MainActor
     func configure(
         _ meters: [ParkingMeter],
@@ -54,7 +53,7 @@ final class MeterAnnotationView: MKMarkerAnnotationView {
         let isCluster = annotation is MKClusterAnnotation || annotation is MeterGroupAnnotation
         if let cluster = annotation as? MKClusterAnnotation {
             cluster.title = first.bayType.title
-            cluster.subtitle = "\(meters.count) 個咪錶位"
+            cluster.subtitle = String(format: String(localized: "%d 個咪錶位"), meters.count)
         }
         markerTintColor = state.uiColor
         glyphTintColor = state == .incompatible ? .black : .white
@@ -66,7 +65,8 @@ final class MeterAnnotationView: MKMarkerAnnotationView {
         collisionMode = .circle
         displayPriority = .defaultHigh
         isAccessibilityElement = true
-        accessibilityLabel = "\(first.bayType.title)，\(meters.count) 個泊位，\(state.title)"
+        accessibilityLabel = String(format: String(localized: "%@，%d 個泊位，%@"), first.bayType.title, meters.count, state.title)
+        refreshAppearanceSnapshot()
     }
 }
 
@@ -74,6 +74,7 @@ final class MeterAnnotationView: MKMarkerAnnotationView {
 final class MeterMapLayer {
     private var annotations: [String: MeterAnnotation] = [:]
     private var lastRevision = -1
+    private var lastMeters: [ParkingMeter]?
     private(set) var clusteringEnabled = true
     static func members(_ annotation: MKAnnotation?) -> [ParkingMeter] {
         if let meter = annotation as? MeterAnnotation { return [meter.meter] }
@@ -84,20 +85,14 @@ final class MeterMapLayer {
         return []
     }
     func sync(map: MKMapView, meters: [ParkingMeter], manager: ParkingMeterManager) {
+        guard lastMeters != meters || lastRevision != manager.revision else { return }
+        lastMeters = meters
         let wanted = Dictionary(uniqueKeysWithValues: meters.map { ($0.id, $0) })
         let removed = annotations.values.filter { wanted[$0.meter.id] != $0.meter }
         for item in removed {
             annotations.removeValue(forKey: item.meter.id)
-            if let view = map.view(for: item) {
-                UIView.animate(withDuration: 0.24, animations: {
-                    view.alpha = 0
-                }, completion: { [weak map] _ in
-                    map?.removeAnnotation(item)
-                })
-            } else {
-                map.removeAnnotation(item)
-            }
         }
+        map.removeAnnotations(removed)
         let added = meters.filter { annotations[$0.id] == nil }.map(MeterAnnotation.init)
         for item in added { annotations[item.meter.id] = item }
         map.addAnnotations(added)
@@ -150,22 +145,6 @@ final class MeterMapLayer {
             ?? MeterAnnotationView(annotation: annotation, reuseIdentifier: reuseID)
         view.annotation = annotation
         view.configure(meters, manager: manager, clusteringEnabled: clusteringEnabled)
-        let appearingMeters: [MeterAnnotation]
-        if let meter = annotation as? MeterAnnotation {
-            appearingMeters = meter.pendingAppearance ? [meter] : []
-        } else if let cluster = annotation as? MKClusterAnnotation {
-            appearingMeters = cluster.memberAnnotations.compactMap { $0 as? MeterAnnotation }
-                .filter(\.pendingAppearance)
-        } else {
-            appearingMeters = []
-        }
-        if !appearingMeters.isEmpty {
-            for meter in appearingMeters { meter.pendingAppearance = false }
-            view.alpha = 0
-            UIView.animate(withDuration: 0.28) { view.alpha = 1 }
-        } else {
-            view.alpha = 1
-        }
         return view
     }
 }
@@ -251,9 +230,10 @@ struct MeterDetailCapsule: View {
                     .frame(width: 160)
                 }
             } else {
-                VStack(spacing: compactLayout ? 8 : 12) {
+                VStack(alignment: .leading, spacing: compactLayout ? 8 : 12) {
                     capsuleHeader
                     statusBlock(state)
+                    Divider()
                     detailsBlock(state)
                     actionButtons(vertical: false)
                 }
@@ -266,8 +246,8 @@ struct MeterDetailCapsule: View {
     }
 
     private var capsuleHeader: some View {
-        HStack {
-            Text("\(meter.street) · \(meter.id)")
+        HStack(alignment: .center, spacing: 8) {
+            Text("\(meter.displayStreet) · \(meter.id)")
                 .font(.headline)
                 .lineLimit(horizontalLayout ? 2 : 1)
             Spacer(minLength: 8)
@@ -292,51 +272,68 @@ struct MeterDetailCapsule: View {
 
     @ViewBuilder
     private func statusBlock(_ state: MeterDisplayState) -> some View {
-        Text(state.title)
-            .font(.system(size: horizontalLayout || compactLayout ? 22 : 25, weight: .bold))
-            .foregroundStyle(state.color)
-            .multilineTextAlignment(horizontalLayout ? .leading : .center)
-            .contentTransition(.numericText())
-            .animation(.snappy(duration: 0.35), value: state)
-        if manager.vehicle != .unset && !meter.bayType.accepts(manager.vehicle), state != .incompatible {
-            Text(meter.bayType == .unknown ? "適用車型未知" : "不適用所選車型")
-                .foregroundStyle(.yellow)
-                .font(.subheadline.bold())
-        }
-        if let fetched = manager.lastStatusFetch {
-            Text("更新於 \(fetched.formatted(date: .omitted, time: .standard))")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(state.title)
+                .font(.system(size: horizontalLayout || compactLayout ? 22 : 25, weight: .bold))
+                .foregroundStyle(state.color)
                 .contentTransition(.numericText())
-                .animation(.snappy(duration: 0.35), value: fetched)
+                .animation(.snappy(duration: 0.35), value: state)
+            if manager.vehicle != .unset && !meter.bayType.accepts(manager.vehicle), state != .incompatible {
+                Text(meter.bayType == .unknown ? String(localized: "適用車型未知") : String(localized: "不適用所選車型"))
+                    .foregroundStyle(.yellow)
+                    .font(.subheadline.bold())
+            }
+            if let fetched = manager.lastStatusFetch {
+                Text(String(format: String(localized: "更新於 %@"), fetched.formatted(date: .omitted, time: .standard)))
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .contentTransition(.numericText())
+                    .animation(.snappy(duration: 0.35), value: fetched)
+            }
+            if let error = manager.statusErrorMessage {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
         }
-        if let error = manager.errorMessage, error.hasPrefix("狀態") {
-            Text(error).font(.caption).foregroundStyle(.red)
-        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
     private func detailsBlock(_ state: MeterDisplayState) -> some View {
-        VStack(alignment: horizontalLayout ? .leading : .center, spacing: compactLayout || horizontalLayout ? 5 : 8) {
-            Label(meter.bayType.title, systemImage: meter.bayType.symbol).font(.subheadline.bold())
+        VStack(alignment: .leading, spacing: compactLayout || horizontalLayout ? 6 : 9) {
+            detailRow(meter.bayType.title, symbol: meter.bayType.symbol, prominent: true)
             if meter.bayType == .general {
-                Text(meter.bayType.detail).font(.caption).foregroundStyle(.secondary)
+                Text(meter.bayType.detail)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 28)
             }
-            Text(meter.feeText).font(.headline)
-            Text(meter.limitText).font(.subheadline)
-            Text(meter.hoursText).font(.caption).foregroundStyle(.secondary)
-                .multilineTextAlignment(horizontalLayout ? .leading : .center)
-            Text("車型及泊車限制以現場標誌為準").font(.caption2).foregroundStyle(.secondary)
+            detailRow(meter.feeText, symbol: "creditcard", prominent: true)
+            detailRow(meter.limitText, symbol: "clock")
+            detailRow(meter.hoursText, symbol: "calendar")
+            Text("車型及泊車限制以現場標誌為準")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
         }
-        .frame(maxWidth: .infinity, alignment: horizontalLayout ? .leading : .center)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func detailRow(_ text: String, symbol: String, prominent: Bool = false) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Image(systemName: symbol)
+                .frame(width: 20)
+                .foregroundStyle(.secondary)
+            Text(text)
+                .font(prominent ? .subheadline.weight(.semibold) : .subheadline)
+                .foregroundStyle(prominent ? .primary : .secondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 
     @ViewBuilder
     private func actionButtons(vertical: Bool) -> some View {
         if vertical {
             Button(action: onNavigate) {
-                Label("導航", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                navigationButtonLabel
             }
             .buttonStyle(.glass)
             Button(action: onPay) {
@@ -348,8 +345,7 @@ struct MeterDetailCapsule: View {
         } else {
             HStack(spacing: 12) {
                 Button(action: onNavigate) {
-                    Label("導航", systemImage: "arrow.triangle.turn.up.right.diamond.fill")
-                        .frame(maxWidth: .infinity, minHeight: 44)
+                    navigationButtonLabel
                 }.buttonStyle(.glass)
                 Button(action: onPay) {
                     Label("前往繳費", systemImage: "creditcard.fill")
@@ -358,6 +354,17 @@ struct MeterDetailCapsule: View {
                 .buttonStyle(.borderedProminent).tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
             }
         }
+    }
+
+    private var navigationButtonLabel: some View {
+        HStack(alignment: .center, spacing: 6) {
+            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                .frame(width: 18)
+            Text("導航")
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: .infinity, minHeight: 44)
     }
 }
 
@@ -419,7 +426,7 @@ struct MeterNoticeCapsule: View {
     var body: some View {
         VStack(spacing: 14) {
             Text(notice.title).font(.headline).multilineTextAlignment(.center)
-            Text("\(notice.meter.street) · \(notice.meter.id)").font(.subheadline).foregroundStyle(.secondary)
+            Text("\(notice.meter.displayStreet) · \(notice.meter.id)").font(.subheadline).foregroundStyle(.secondary)
 
             if notice.kind == .nearby {
                 nearbyActions

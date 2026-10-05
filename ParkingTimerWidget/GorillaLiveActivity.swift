@@ -41,7 +41,7 @@ struct GorillaLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.leading) {
                     HStack(spacing: 8) {
                         tileIcon(context.state.state, size: 30, symbolSize: 13)
-                        Text(context.state.state.label)
+                        Text(context.state.state.localizedLabel(languageCode: context.state.languageCode))
                             .font(.system(size: 19, weight: .semibold))
                             .foregroundStyle(.white)
                             .lineLimit(1)
@@ -78,10 +78,11 @@ struct GorillaLiveActivity: Widget {
                     Image(systemName: context.state.state.symbol)
                         .font(.system(size: 12, weight: .bold))
                         .foregroundStyle(context.state.state.color)
-                    Text(context.state.state.label)
+                    Text(context.state.state.localizedLabel(languageCode: context.state.languageCode))
                         .font(.system(size: 13, weight: .medium))
                         .foregroundStyle(.white)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                 }
             } compactTrailing: {
                 // Timer: live-updating via TimelineView (compact auto-refresh)
@@ -105,18 +106,18 @@ struct GorillaLiveActivity: Widget {
     }
 
     /// Live-updating timer — SF Rounded semibold + tabular digits, native .timer
-    /// with English locale (pure numbers, no 時/分/秒).
+    /// in the language selected for the host app.
     private func timerText(_ state: GorillaActivityAttributes.ContentState, size: CGFloat, color: Color) -> some View {
         Text(state.startDate, style: .timer)
             .font(.system(size: size, weight: .semibold, design: .rounded))
             .monospacedDigit()
             .foregroundStyle(color)
             .multilineTextAlignment(.trailing)
-            .environment(\.locale, Locale(identifier: "en"))
+            .environment(\.locale, Locale(identifier: state.languageCode ?? GorillaActivityLocalization.languageCode))
     }
 
     /// Compact timer — SF Rounded semibold + tabular digits, native .timer
-    /// with English locale (pure numbers, no 時/分/秒).
+    /// in the language selected for the host app.
     private func compactTimerText(_ state: GorillaActivityAttributes.ContentState) -> some View {
         Text(state.startDate, style: .timer)
             .font(.system(size: 14, weight: .semibold, design: .rounded))
@@ -125,17 +126,18 @@ struct GorillaLiveActivity: Widget {
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .frame(maxWidth: 60, alignment: .trailing)
-            .environment(\.locale, Locale(identifier: "en"))
+            .environment(\.locale, Locale(identifier: state.languageCode ?? GorillaActivityLocalization.languageCode))
     }
 }
 
 // MARK: - Shared timer text (SF Rounded semibold + tabular digits,
-// native .timer, English locale — pure numbers, no 時/分/秒)
+// native .timer, using the host app's selected language)
 
 struct GorillaTimerText: View {
     let startDate: Date
     let size: CGFloat
     let color: Color
+    let languageCode: String?
 
     var body: some View {
         Text(startDate, style: .timer)
@@ -145,7 +147,7 @@ struct GorillaTimerText: View {
             .lineLimit(1)
             .minimumScaleFactor(0.6)
             .multilineTextAlignment(.trailing)
-            .environment(\.locale, Locale(identifier: "en"))
+            .environment(\.locale, Locale(identifier: languageCode ?? GorillaActivityLocalization.languageCode))
     }
 }
 
@@ -164,14 +166,15 @@ struct GorillaLockScreenView: View {
                         .foregroundStyle(state.state == .stationary ? GorillaLADesign.pauseGlyph : .white)
                         .frame(width: 34, height: 34)
                         .background(state.state.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-                    Text(state.state.label)
+                    Text(state.state.localizedLabel(languageCode: state.languageCode))
                         .font(.system(size: 21, weight: .semibold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                         .minimumScaleFactor(0.8)
                 }
                 Spacer()
-                GorillaTimerText(startDate: state.startDate, size: 28, color: GorillaLADesign.timerColor)
+                GorillaTimerText(startDate: state.startDate, size: 28, color: GorillaLADesign.timerColor,
+                                 languageCode: state.languageCode)
             }
 
             Spacer()
@@ -191,6 +194,10 @@ struct GorillaLockScreenView: View {
 
 struct GorillaInfoRow: View {
     let state: GorillaActivityAttributes.ContentState
+
+    private var minuteUnit: String {
+        GorillaActivityLocalization.string("LiveActivity.minute.short", languageCode: state.languageCode)
+    }
 
     var body: some View {
         switch state.state {
@@ -232,7 +239,7 @@ struct GorillaInfoRow: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), "mins")
+                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -240,7 +247,8 @@ struct GorillaInfoRow: View {
             // destination label above distance · road · eta — left aligned
             HStack(alignment: .bottom, spacing: 20) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("目的地: \(state.destinationName ?? "-")")
+                    Text(GorillaActivityLocalization.string("目的地：", languageCode: state.languageCode)
+                         + (state.destinationName ?? "-"))
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
@@ -254,7 +262,7 @@ struct GorillaInfoRow: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), "mins")
+                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -266,7 +274,7 @@ struct GorillaInfoRow: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), "mins")
+                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -279,7 +287,7 @@ struct GorillaInfoRow: View {
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), "mins")
+                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

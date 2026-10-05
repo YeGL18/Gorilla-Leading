@@ -111,6 +111,39 @@ private struct DuoHingeStateReader: ViewModifier {
     }
 }
 
+private struct ParkingRecognitionToggle: View {
+    @Binding var enabled: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Button {
+            enabled.toggle()
+        } label: {
+            ZStack {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .scaleEffect(enabled ? 1 : 0.82)
+                    .rotationEffect(.degrees(enabled ? 0 : -12))
+                Capsule()
+                    .fill(Color.white)
+                    .frame(width: 2, height: 17)
+                    .rotationEffect(.degrees(-45))
+                    .scaleEffect(enabled ? 0.2 : 1)
+                    .opacity(enabled ? 0 : 1)
+            }
+            .frame(width: 30, height: 30)
+            .glassEffect(.regular, in: .circle)
+            .opacity(enabled ? 0.95 : 0.5)
+            .scaleEffect(enabled ? 1 : 0.94)
+            .animation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 0.68), value: enabled)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "VLM 車位識別"))
+        .accessibilityValue(enabled ? String(localized: "已開啟") : String(localized: "已關閉"))
+    }
+}
+
 private struct ParkingLotChangePanel: View {
     let stage: Int
     let nearbyLots: [(lot: ParkingLotRecord, distance: Double)]
@@ -224,6 +257,206 @@ private struct ParkingLotChangePanel: View {
     }
 }
 
+private struct ParkingStopConfirmationView: View {
+    let onContinue: () -> Void
+    let onConfirm: () -> Void
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text(String(localized: "已泊好車？"))
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier("parkingStopQuestion")
+            HStack(spacing: 12) {
+                Button(action: onContinue) {
+                    Text(String(localized: "未泊好"))
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .buttonStyle(.glass)
+                .accessibilityIdentifier("continueAltitudeSampling")
+                Button(action: onConfirm) {
+                    Label(String(localized: "已泊好"), systemImage: "checkmark")
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity, minHeight: 44)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.75)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(.teal)
+                .accessibilityIdentifier("confirmVehicleParked")
+            }
+        }
+        .padding(.horizontal, 20)
+    }
+}
+
+private struct FloorCaptureConfirmationView: View {
+    let confirmed: Bool
+    let onChange: (Int) -> Void
+    let onConfirm: (Bool) -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @State private var floor: Int
+    @State private var revision = 0
+    @State private var countdownProgress: CGFloat = 0
+    @State private var countingDown = false
+    @State private var interacting = false
+    @State private var changed = false
+    @State private var submitted = false
+
+    init(initialFloor: Int, confirmed: Bool, onChange: @escaping (Int) -> Void,
+         onConfirm: @escaping (Bool) -> Void) {
+        _floor = State(initialValue: initialFloor)
+        self.confirmed = confirmed
+        self.onChange = onChange
+        self.onConfirm = onConfirm
+    }
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Text(confirmed ? String(localized: "已鎖定樓層")
+                 : changed ? String(localized: "已保存") : String(localized: "估算樓層"))
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 72)
+                .multilineTextAlignment(.center)
+            VStack(spacing: -5) {
+                floorArrow("chevron.up", delta: 1, label: String(localized: "增加樓層"))
+                Text(ParkingFloorStore.formatFloor(floor))
+                    .font(.system(size: 30, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .frame(width: 108, height: 32)
+                    .minimumScaleFactor(0.6)
+                    .lineLimit(1)
+                    .accessibilityLabel(String(localized: "樓層"))
+                    .accessibilityIdentifier("captureFloor")
+                    .accessibilityValue(ParkingFloorStore.formatFloor(floor))
+                    .accessibilityAdjustableAction { direction in
+                        if direction == .increment { changeFloor(by: 1) }
+                        if direction == .decrement { changeFloor(by: -1) }
+                    }
+                floorArrow("chevron.down", delta: -1, label: String(localized: "減少樓層"))
+            }
+            .frame(height: 110)
+            .contentShape(Rectangle())
+            .gesture(DragGesture(minimumDistance: 12)
+                .onChanged { _ in
+                    guard !interacting, !submitted else { return }
+                    interacting = true
+                    resetCountdown()
+                }
+                .onEnded { value in
+                    interacting = false
+                    let steps = Int((-value.translation.height / 30).rounded())
+                    changeFloor(by: steps)
+                })
+            Button {
+                submit(manual: true)
+            } label: {
+                Image(systemName: confirmed ? "checkmark.circle.fill" : "checkmark")
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.teal)
+                    .frame(width: 44, height: 44)
+                    .background(.thinMaterial, in: Circle())
+                    .overlay {
+                        Circle().trim(from: 0, to: countdownProgress)
+                            .stroke(.teal, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
+                            .rotationEffect(.degrees(-90))
+                    }
+                    .scaleEffect(countingDown && !reduceMotion ? 1.2 : 1)
+                    .symbolEffect(.bounce, value: confirmed)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 64, height: 64)
+            .accessibilityLabel(String(localized: "確認樓層"))
+            .accessibilityIdentifier("confirmCaptureFloor")
+            .disabled(submitted || confirmed)
+        }
+        .task(id: revision) {
+            guard scenePhase == .active, !interacting, !submitted, !confirmed else { return }
+            do {
+                try await Task.sleep(for: .seconds(10))
+                try Task.checkCancellation()
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) { countingDown = true }
+                withAnimation(.linear(duration: 3)) { countdownProgress = 1 }
+                try await Task.sleep(for: .seconds(3))
+                try Task.checkCancellation()
+                submit(manual: false)
+            } catch { /* User interaction or leaving the foreground cancels the countdown. */ }
+        }
+        .onChange(of: scenePhase) { _, _ in resetCountdown() }
+    }
+
+    private func floorArrow(_ symbol: String, delta: Int, label: String) -> some View {
+        Button { changeFloor(by: delta) } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 15, weight: .bold))
+                .frame(width: 44, height: 44)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(label)
+        .accessibilityIdentifier(delta > 0 ? "captureFloorUp" : "captureFloorDown")
+        .disabled(submitted || confirmed || (delta > 0 ? floor >= 30 : floor <= -10))
+    }
+
+    private func changeFloor(by delta: Int) {
+        guard !submitted, !confirmed else { return }
+        let next = max(-10, min(30, floor + delta))
+        if next != floor {
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.25)) { floor = next }
+            changed = true
+            onChange(next)
+        }
+        resetCountdown()
+    }
+
+    private func resetCountdown() {
+        var transaction = Transaction()
+        transaction.disablesAnimations = true
+        withTransaction(transaction) { countdownProgress = 0; countingDown = false }
+        revision += 1
+    }
+
+    private func submit(manual: Bool) {
+        guard !submitted, !confirmed else { return }
+        submitted = true
+        revision += 1
+        onConfirm(manual)
+    }
+}
+
+private enum DestinationSearchCategory {
+    case destinations, learned, lots
+}
+
+struct DestinationSearchMenuItems: View {
+    struct Item: Identifiable {
+        let id: String
+        let name: String
+        let symbol: String
+        var color: Color = .accentColor
+    }
+
+    let items: [Item]
+    let selectedID: String?
+    let onSelect: (String) -> Void
+    var body: some View {
+        ForEach(items) { item in
+            Button {
+                onSelect(item.id)
+            } label: {
+                Label(item.name, systemImage: selectedID == item.id ? "checkmark" : item.symbol)
+                    .foregroundStyle(item.color)
+            }
+            .accessibilityIdentifier("destinationSearch-\(item.id)")
+        }
+    }
+}
+
 struct ContentView: View {
     private struct CapsuleDragState: Equatable {
         var mode: Int = 0
@@ -263,7 +496,6 @@ struct ContentView: View {
     @State private var presentedMeterNotice: MeterNotice?
     private let meterTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var isInForeground = true
-    @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     
     @State private var selectedTab: Int = 1
     @State private var settingsSheetVisible = false
@@ -544,10 +776,14 @@ struct ContentView: View {
     @State private var floorCurveBaseAltitude: Double = 0
     @State private var floorCurveLocked = false
     @State private var floorCurveLockedFloor: Int = 0
-    @State private var floorCurveSampleTimer: Timer?
+    @State private var floorCurveCaptureID: UUID?
+    @State private var floorCurveConfirmed = false
+    @State private var floorCurveLastSampleDate: Date?
+    @State private var floorCurveGatePassUntil: Date?
+    @State private var floorCurveGateTimer: Timer?
+    @State private var floorCurveStopConfirmationID: UUID?
+    @State private var showCaptureReferenceFloor = false
     @State private var floorCurveDismissTimer: Timer?
-    @State private var floorCurveDescendingCount: Int = 0
-    @State private var floorCurveAppearTime: Date? = nil
     @State private var floorCurveLockAnimating: Bool = false
     @State private var isFloorCurveInCapsule: Bool = false
     // 光效動畫
@@ -581,11 +817,15 @@ struct ContentView: View {
     /// 非開車到達時為 true（步行/跑步/騎行到達），控制 UI 標籤和靈動島狀態
     @State private var isNonAutomotiveArrival: Bool = false
     @State private var selectedParkingPointID: UUID?
+    @State private var parkingRecordsGroup: ParkingRecordGroup?
+    @State private var editingParkingBoundary: ParkingLotRecord?
+    @State private var mergingParkingLot: ParkingLotRecord?
     @State private var changingParkingLotPointID: UUID?
     @State private var parkingLotExpansionStage = 0
     @State private var newParkingLotName = ""
     @State private var showNewParkingLotAlert = false
     @State private var renamingPointName = ""
+    @State private var renamingPointFloor: Int?
     @State private var showRenamePointAlert = false
     @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
     /// 專注模式（nil = 關閉）—— 時速頁左下角按鈕控制
@@ -630,6 +870,13 @@ struct ContentView: View {
 
         let defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
         if let savedTime = defaults.object(forKey: "parkingStartTime") as? Date {
+            let savedEntry = ParkingEntryClock.restoredEntry(for: savedTime, defaults: defaults)
+            let adjustment = ParkingEntryClock.adjustmentMinutes(entry: savedEntry, arrival: savedTime)
+            _parkingEntryTime = State(initialValue: savedEntry)
+            _timeAdjustAccumulated = State(initialValue: adjustment)
+            if adjustment != 0 {
+                _timeAdjustText = State(initialValue: String(localized: "已調整") + "\(adjustment)" + String(localized: "分鐘"))
+            }
             let departed = defaults.bool(forKey: "hasDeparted")
             let savedManualDeparted = defaults.bool(forKey: "manualDeparted")
             if departed && savedManualDeparted {
@@ -644,10 +891,9 @@ struct ContentView: View {
                 }
             } else if !departed {
                 _parkingStartTime = State(initialValue: savedTime)
-                _parkingEntryTime = State(initialValue: savedTime)
                 _hasDeparted = State(initialValue: false)
-                _capsuleDuration = State(initialValue: Date().timeIntervalSince(savedTime))
-                _parkingElapsed = State(initialValue: Date().timeIntervalSince(savedTime))
+                _capsuleDuration = State(initialValue: Date().timeIntervalSince(savedEntry))
+                _parkingElapsed = State(initialValue: Date().timeIntervalSince(savedEntry))
                 _timerRunning = State(initialValue: false)
                 _lastKnownArrivalDate = State(initialValue: defaults.object(forKey: "lastKnownArrivalDate") as? Date)
                 let savedNonAuto = defaults.bool(forKey: "isNonAutomotiveArrival")
@@ -904,6 +1150,9 @@ struct ContentView: View {
             Button("確定", role: .cancel) { meterRouteError = nil }
         } message: { Text(meterRouteError ?? "") }
         .onAppear {
+            if LanguageManager.syncSharedLanguage() {
+                WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
+            }
             meterManager.prepare()
             meterManager.setActive(true)
             if meterManager.isEnabled && meterManager.vehicle == .unset { meterManager.needsVehicleSelection = true }
@@ -935,6 +1184,9 @@ struct ContentView: View {
             isInForeground = (phase == .active)
             if phase == .active {
                 DispatchQueue.main.async {
+                    if LanguageManager.syncSharedLanguage() {
+                        WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
+                    }
                     // 重置速度濾波器，避免殘留舊值
                     locationManager.resetSpeedFilter()
                     locationManager.startLocationServicesIfNeeded()
@@ -957,8 +1209,12 @@ struct ContentView: View {
                     // 啟動 60 秒定期同步 compact trailing 計時器
                     startActivitySyncTimer()
                 }
+            } else if phase == .background {
+                parkingFloorStore.barometer.suspendCapture()
+                stopFloorCurveDetection()
             }
         }
+        .background { floorCaptureEvents }
         .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
             if let photo = notification.object as? UIImage {
                 guard isParkingMemoryExpanded else { return }
@@ -970,7 +1226,8 @@ struct ContentView: View {
             guard let location = location else { return }
             timePhaseManager.fetchSunTimes(for: location.coordinate)
             // 追蹤低速時的 GPS 位置（用於修正泊車位置）
-            if parkingFloorStore.barometer.currentSpeedKmh < 20 {
+            if parkingFloorStore.barometer.currentSpeedKmh >= 0,
+               parkingFloorStore.barometer.currentSpeedKmh < 20 {
                 parkingFloorStore.lastStationaryCoordinate = location.coordinate
             }
             // 有目的地時自動刷新 ETA
@@ -995,115 +1252,7 @@ struct ContentView: View {
                 reroute(from: location.coordinate)
             }
         }
-        .onReceive(locationManager.$visits) { visits in
-            guard let lastVisit = visits.first else { return }
-
-            if lastVisit.departureDate != nil {
-                // 到訪結束：自動停止計時
-                if timerRunning && lastKnownArrivalDate == lastVisit.arrivalDate {
-                    timerRunning = false
-                    parkingTimer?.invalidate()
-                    parkingTimer = nil
-                    stopParkingReminder()
-                    hasDeparted = true
-                    departureTime = lastVisit.departureDate
-                    showDepartedLabel = true
-                    clearParkingContributions()
-                    // 離場自動認定：全程冇手動調過樓層就把自動判斷當正確答案
-                    parkingFloorStore.acceptPredictedFloorAtDeparture()
-                    // 清理樓層曲線鎖定狀態
-                    parkingFloorStore.floorCurveLockedFloor = nil
-                    parkingFloorStore.lastStationaryCoordinate = nil
-                    // 系統自動偵測到離開 — 推送通知
-                    let content = UNMutableNotificationContent()
-                    if isNonAutomotiveArrival && !hasParkingSpotData {
-                        content.title = String(localized: "Gorilla 記憶")
-                        content.body = String(localized: "記憶已退出")
-                    } else {
-                        content.title = String(localized: "Gorilla 記憶")
-                        content.body = String(localized: "記憶已退出")
-                    }
-                    content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
-                    let req = UNNotificationRequest(identifier: "parking-departed-\(UUID().uuidString)", content: content, trigger: nil)
-                    UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            showDepartedLabel = false
-                        }
-                    }
-                    saveParkingState()
-                    WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
-                }
-                if hasDeparted, let dep = departureTime {
-                    departureElapsed = Date().timeIntervalSince(dep)
-                    departureElapsedTimer?.invalidate()
-                    let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-                        guard hasDeparted, let d = departureTime else { return }
-                        let e = Date().timeIntervalSince(d)
-                        DispatchQueue.main.async {
-                            departureElapsed = e
-                        }
-                    }
-                    departureElapsedTimer = timer
-                    RunLoop.main.add(timer, forMode: .common)
-                }
-            } else {
-                // 新的到訪：自動開始計時
-                let newArrival = lastVisit.arrivalDate
-                // Guard: if user manually departed, the old visit is still active — don't restart
-                // unless this is genuinely a different arrival (new visit event)
-                if manualDeparted && newArrival == parkingStartTime { return }
-                if lastKnownArrivalDate != newArrival {
-                    lastKnownArrivalDate = newArrival
-                    parkingEntryTime = newArrival
-                    parkingStartTime = newArrival
-                    capsuleDuration = 0
-                    parkingElapsed = 0
-                    hasDeparted = false
-                    manualDeparted = false
-                    timerRunning = false
-                    departureElapsedTimer?.invalidate()
-                    departureElapsedTimer = nil
-                    startPersistentTimer()
-                    // 系統自動偵測到泊車 — 推送通知
-                    let content = UNMutableNotificationContent()
-                    if isNonAutomotiveArrival && !hasParkingSpotData {
-                        content.title = String(localized: "Gorilla 記憶")
-                        content.body = String(localized: "記憶已開啟")
-                    } else {
-                        content.title = String(localized: "Gorilla 記憶")
-                        content.body = String(localized: "記憶已開啟")
-                    }
-                    content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
-                    let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
-                    UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
-                    // 車藍牙斷聯：優化泊車點坐標 + 咪錶標注（每個斷聯事件只用一次）
-                    var carExitCoordinate: CLLocationCoordinate2D?
-                    if lastVisit.isAutomotive,
-                       let exitEvent = locationManager.latestSettledCarExit(
-                           near: CLLocationCoordinate2D(latitude: lastVisit.latitude, longitude: lastVisit.longitude),
-                           around: lastVisit.arrivalDate
-                       ) {
-                        carExitCoordinate = exitEvent.coordinate
-                        locationManager.markCarExitConsumed(exitEvent.id)
-                    }
-                    let meterAnnotation = meterManager.inferMeterAnnotation(
-                        at: carExitCoordinate ?? CLLocationCoordinate2D(latitude: lastVisit.latitude, longitude: lastVisit.longitude),
-                        navigationTargetID: meterRouteTarget?.id
-                    )
-                    parkingFloorStore.recordParkingPoint(from: lastVisit, defaultLotName: defaultNewLotName(visitAddress: lastVisit.address), preferredCoordinate: carExitCoordinate, meter: meterAnnotation)
-                    // Bug 1 修復：強制 SwiftUI 重新渲染地圖（確保停車點標記出現）
-                    parkingFloorStore.objectWillChange.send()
-                    // Show parking info on new arrival
-                    parkingInfoDisplayMode = true
-                    // 只有在用戶尚未手動拍照識別時才清除（避免覆蓋已有的泊車資訊）
-                    let hasExistingData = llmSpotNumber != nil || llmAreaCode != nil || llmFloorText != nil || llmFloorIndex != nil
-                    if !hasExistingData {
-                        clearParkingContributions()
-                    }
-                }
-            }
-        }
+        .onReceive(locationManager.$visits, perform: handleVisitUpdates)
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
             if expanded {
                 // Bug 2 修復：防禦性檢查，確保狀態穩定後再啟動相機
@@ -1122,8 +1271,9 @@ struct ContentView: View {
                     hasDeparted = false
                     manualDeparted = false
                     parkingEntryTime = Date()
-                    parkingStartTime = Date()
-                    lastKnownArrivalDate = Date()
+                    parkingStartTime = parkingEntryTime
+                    lastKnownArrivalDate = parkingStartTime
+                    resetParkingTimeAdjustment()
                     capsuleDuration = 0
                     parkingElapsed = 0
                     timerRunning = false
@@ -1330,91 +1480,107 @@ struct ContentView: View {
         if showingRoute { recalculateRoute() }
     }
 
+    private var searchDestinations: [Destination] {
+        let city = locationManager.currentLocality
+        return destinationManager.destinations.filter { destination in
+            if !city.isEmpty, let locality = destination.locality, !locality.isEmpty {
+                return locality == city
+            }
+            guard let location = locationManager.lastLocation else { return true }
+            return location.distance(from: CLLocation(latitude: destination.coordinate.latitude,
+                                                       longitude: destination.coordinate.longitude)) < 30_000
+        }.sorted { $0.name < $1.name }
+    }
+
+    private var searchParkingLots: [ParkingLotRecord] {
+        let city = locationManager.currentLocality
+        return parkingFloorStore.lots.filter { lot in
+            guard let name = lot.name, !name.isEmpty else { return false }
+            if !city.isEmpty, let locality = lot.locality, !locality.isEmpty, locality != city { return false }
+            return !hasSearchDestination(near: lot.centerCoordinate)
+        }.sorted { ($0.name ?? "") < ($1.name ?? "") }
+    }
+
+    private var searchLearnedPlaces: [PlaceInfo] {
+        tripPredictor.placeCatalog.values.filter {
+            $0.kind == .addressCluster && !hasSearchDestination(near: $0.coordinate)
+        }.sorted { $0.displayName < $1.displayName }
+    }
+
+    private func hasSearchDestination(near coordinate: CLLocationCoordinate2D) -> Bool {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        return destinationManager.destinations.contains {
+            location.distance(from: CLLocation(latitude: $0.coordinate.latitude,
+                                                longitude: $0.coordinate.longitude)) < 200
+        }
+    }
+
+    @ViewBuilder
+    private var destinationSearchMenuContent: some View {
+        Button { showingAddDestination = true } label: {
+            Label(String(localized: "新增目的地"), systemImage: "plus")
+        }
+        if !searchDestinations.isEmpty {
+            Menu { destinationSearchItems(for: .destinations) } label: {
+                Label(String(format: String(localized: "我的目的地（%d）"), searchDestinations.count),
+                      systemImage: "mappin.and.ellipse")
+            }
+        }
+        if !searchLearnedPlaces.isEmpty {
+            Menu { destinationSearchItems(for: .learned) } label: {
+                Label(String(format: String(localized: "學習地點（%d）"), searchLearnedPlaces.count),
+                      systemImage: "mappin.circle")
+            }
+        }
+        if !searchParkingLots.isEmpty {
+            Menu { destinationSearchItems(for: .lots) } label: {
+                Label(String(format: String(localized: "停車場（%d）"), searchParkingLots.count),
+                      systemImage: "car.fill")
+            }
+        }
+    }
+
+    private func destinationSearchItems(for category: DestinationSearchCategory) -> some View {
+        let items: [DestinationSearchMenuItems.Item]
+        switch category {
+        case .destinations:
+            items = searchDestinations.map {
+                .init(id: $0.id.uuidString, name: $0.name, symbol: "mappin.and.ellipse", color: $0.color)
+            }
+        case .learned:
+            items = searchLearnedPlaces.map { .init(id: $0.key, name: $0.displayName, symbol: "mappin.circle") }
+        case .lots:
+            items = searchParkingLots.map { .init(id: $0.id.uuidString, name: $0.name ?? "",
+                                                 symbol: "car.fill", color: .orange) }
+        }
+        return DestinationSearchMenuItems(items: items,
+            selectedID: category == .destinations ? destinationManager.selectedDestination?.id.uuidString : nil) { id in
+            switch category {
+            case .destinations:
+                if let destination = destinationManager.destinations.first(where: { $0.id.uuidString == id }) {
+                    selectMapDestination(destination)
+                }
+            case .learned:
+                if let place = tripPredictor.placeCatalog[id] {
+                    selectMapDestination(destinationManager.findOrCreateDestination(for: place))
+                }
+            case .lots:
+                guard let lot = parkingFloorStore.lots.first(where: { $0.id.uuidString == id }) else { return }
+                var destination = destinationManager.findOrCreateDestination(for:
+                    PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "",
+                              latitude: lot.centerLatitude, longitude: lot.centerLongitude,
+                              lotID: lot.id, updatedAt: lot.updatedAt))
+                if destination.locality == nil, !locationManager.currentLocality.isEmpty {
+                    destination.locality = locationManager.currentLocality
+                    destinationManager.updateDestination(destination)
+                }
+                selectMapDestination(destination)
+            }
+        }
+    }
+
     private var duoSearchMenu: some View {
-        Menu {
-            Button {
-                showingAddDestination = true
-            } label: {
-                Label(String(localized: "新增目的地"), systemImage: "plus")
-            }
-
-            let city = locationManager.currentLocality
-            let destinations = destinationManager.destinations.filter { destination in
-                if !city.isEmpty, let locality = destination.locality, !locality.isEmpty {
-                    return locality == city
-                }
-                guard let location = locationManager.lastLocation else { return true }
-                return location.distance(from: CLLocation(latitude: destination.coordinate.latitude,
-                                                           longitude: destination.coordinate.longitude)) < 30_000
-            }
-            if !destinations.isEmpty {
-                Divider()
-                Menu {
-                    ForEach(destinations.sorted(by: { $0.name < $1.name })) { destination in
-                        Button { selectMapDestination(destination) } label: {
-                            Label(destination.name, systemImage: "mappin.and.ellipse")
-                        }
-                    }
-                } label: {
-                    Label(String(format: String(localized: "我的目的地（%d）"), destinations.count), systemImage: "mappin.and.ellipse")
-                }
-            }
-
-            let lots = parkingFloorStore.lots.filter { lot in
-                guard let name = lot.name, !name.isEmpty else { return false }
-                if !city.isEmpty, let locality = lot.locality, !locality.isEmpty, locality != city { return false }
-                let lotLocation = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
-                return !destinationManager.destinations.contains { destination in
-                    lotLocation.distance(from: CLLocation(latitude: destination.coordinate.latitude,
-                                                          longitude: destination.coordinate.longitude)) < 200
-                }
-            }
-            if !lots.isEmpty {
-                Divider()
-                Menu {
-                    ForEach(lots.sorted(by: { ($0.name ?? "") < ($1.name ?? "") }), id: \.id) { lot in
-                        Button {
-                            var destination = destinationManager.findOrCreateDestination(
-                                for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "",
-                                               latitude: lot.centerLatitude, longitude: lot.centerLongitude,
-                                               lotID: lot.id, updatedAt: lot.updatedAt))
-                            if destination.locality == nil, !city.isEmpty {
-                                destination.locality = city
-                                destinationManager.updateDestination(destination)
-                            }
-                            selectMapDestination(destination)
-                        } label: {
-                            Label(lot.name ?? "", systemImage: "car.fill")
-                        }
-                    }
-                } label: {
-                    Label(String(format: String(localized: "停車場（%d）"), lots.count), systemImage: "car.fill")
-                }
-            }
-
-            let learned = tripPredictor.placeCatalog.values.filter { place in
-                guard place.kind == .addressCluster else { return false }
-                let placeLocation = CLLocation(latitude: place.latitude, longitude: place.longitude)
-                return !destinationManager.destinations.contains { destination in
-                    placeLocation.distance(from: CLLocation(latitude: destination.coordinate.latitude,
-                                                            longitude: destination.coordinate.longitude)) < 200
-                }
-            }
-            if !learned.isEmpty {
-                Divider()
-                Menu {
-                    ForEach(Array(learned.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
-                        Button {
-                            selectMapDestination(destinationManager.findOrCreateDestination(for: place))
-                        } label: {
-                            Label(place.displayName, systemImage: "mappin.circle")
-                        }
-                    }
-                } label: {
-                    Label(String(format: String(localized: "學習地點（%d）"), learned.count), systemImage: "mappin.circle")
-                }
-            }
-        } label: {
+        Menu { destinationSearchMenuContent } label: {
             Label("搜尋目的地", systemImage: "magnifyingglass")
         }
     }
@@ -1572,7 +1738,8 @@ struct ContentView: View {
             let mapCenterOffsetX: CGFloat = (newLandscape && capsuleOnRight
                 ? (isParkingMemoryExpanded ? 420.0 : 300.0)
                 : 0)
-            let mapCenterOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 2 : 0
+            let mapCenterOffsetY: CGFloat = isDuoSeatedMode
+                ? geo.size.height / 2 : -2 * MapCameraMotion.trackingPointDownshift
             let hingeUpperOffsetY: CGFloat = isDuoSeatedMode ? -geo.size.height / 4 : 0
             let hingeLowerOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 4 : 0
             Color.clear.onAppear {
@@ -1634,13 +1801,13 @@ struct ContentView: View {
 
                     ZStack {
                         // 底層：模糊版地圖（邊緣模糊效果）
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, radialVignetteOuterOpacity: 1, onMapBlankTap: {}, onSelectHKLocation: { _ in })
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, radialVignetteOuterOpacity: 1, onMapBlankTap: {}, onSelectHKLocation: { _ in })
                         .blur(radius: 25)
                         .mask(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius).inset(by: 28).blur(radius: 22))
                         .allowsHitTesting(false)
 
                         // 頂層：清晰地圖（中心區域，邊緣透明）
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                             withAnimation(.easeOut(duration: 0.28)) {
                                 selectedParkingPointID = id
                             }
@@ -1676,7 +1843,7 @@ struct ContentView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
                 } else {
                     // 正常模式：全屏地圖
-                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: Array(parkingFloorStore.allPoints.prefix(30)), parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                         withAnimation(.easeOut(duration: 0.28)) {
                             selectedParkingPointID = id
                         }
@@ -1809,126 +1976,7 @@ struct ContentView: View {
                                 }
 
                                 Menu {
-                                    Button {
-                                        showingAddDestination = true
-                                    } label: {
-                                        Label(String(localized: "新增目的地"), systemImage: "plus")
-                                    }
-
-                                    // 更名停車場（排除重複 + 排除唔同地區嘅）
-                                    let currentCity = locationManager.currentLocality
-                                    let namedLots = parkingFloorStore.lots.filter { lot in
-                                        guard let name = lot.name, !name.isEmpty else { return false }
-                                        // 排除同手動目的地距離 <200m 嘅
-                                        let isDuplicate = destinationManager.destinations.contains { dest in
-                                            let a = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
-                                            let b = CLLocation(latitude: dest.coordinate.latitude, longitude: dest.coordinate.longitude)
-                                            return a.distance(from: b) < 200
-                                        }
-                                        guard !isDuplicate else { return false }
-                                        // 排除唔同城市嘅（有 locality 且唔同就排除）
-                                        if !currentCity.isEmpty, let lotCity = lot.locality, !lotCity.isEmpty {
-                                            return lotCity == currentCity
-                                        }
-                                        return true
-                                    }
-                                    if !namedLots.isEmpty {
-                                        Divider()
-                                        Menu {
-                                            ForEach(namedLots.sorted(by: { ($0.name ?? "") < ($1.name ?? "") }), id: \.id) { lot in
-                                                Button {
-                                                    var dest = destinationManager.findOrCreateDestination(
-                                                        for: PlaceInfo(key: "lot:\(lot.id)", kind: .namedLot, displayName: lot.name ?? "", latitude: lot.centerLatitude, longitude: lot.centerLongitude, lotID: lot.id, updatedAt: lot.updatedAt)
-                                                    )
-                                                    // 填充 locality
-                                                    if dest.locality == nil, !currentCity.isEmpty {
-                                                        dest.locality = currentCity
-                                                        destinationManager.updateDestination(dest)
-                                                    }
-                                                    destinationManager.selectDestination(dest)
-                                                    if isCapsuleExpanded { refreshETA() }
-                                                    if showingRoute { recalculateRoute() }
-                                                } label: {
-                                                    HStack {
-                                                        Image(systemName: "car.fill")
-                                                            .font(.system(size: 10))
-                                                            .foregroundColor(.orange)
-                                                        Text(lot.name ?? "")
-                                                    }
-                                                }
-                                            }
-                                        } label: {
-                                            Label(String(format: String(localized: "停車場（%d）"), namedLots.count), systemImage: "car.fill")
-                                        }
-                                    }
-
-                                    // 學習地點（排除重複）
-                                    let clusters = TripPredictor.shared.placeCatalog.values.filter { place in
-                                        guard place.kind == .addressCluster else { return false }
-                                        let isDuplicate = destinationManager.destinations.contains { dest in
-                                            let a = CLLocation(latitude: place.latitude, longitude: place.longitude)
-                                            let b = CLLocation(latitude: dest.coordinate.latitude, longitude: dest.coordinate.longitude)
-                                            return a.distance(from: b) < 200
-                                        }
-                                        return !isDuplicate
-                                    }
-                                    if !clusters.isEmpty {
-                                        Divider()
-                                        Menu {
-                                            ForEach(Array(clusters.sorted(by: { $0.displayName < $1.displayName })), id: \.key) { place in
-                                                Button {
-                                                    let dest = destinationManager.findOrCreateDestination(for: place)
-                                                    destinationManager.selectDestination(dest)
-                                                    if isCapsuleExpanded { refreshETA() }
-                                                    if showingRoute { recalculateRoute() }
-                                                } label: {
-                                                    HStack {
-                                                        Image(systemName: "mappin.and.ellipse")
-                                                            .font(.system(size: 10))
-                                                            .foregroundColor(.blue)
-                                                        Text(place.displayName)
-                                                    }
-                                                }
-                                            }
-                                        } label: {
-                                            Label(String(format: String(localized: "學習地點（%d）"), clusters.count), systemImage: "mappin.and.ellipse")
-                                        }
-                                    }
-
-                                    // 手動添加嘅目的地（按城市篩選）
-                                    let filteredDestinations = destinationManager.destinations.filter { dest in
-                                        // 有 locality 且唔同就排除
-                                        if !currentCity.isEmpty, let destCity = dest.locality, !destCity.isEmpty {
-                                            return destCity == currentCity
-                                        }
-                                        // 冇 locality 嘅舊數據，用距離判斷（同城大約 <30km）
-                                        if let loc = locationManager.lastLocation {
-                                            let destLoc = CLLocation(latitude: dest.coordinate.latitude, longitude: dest.coordinate.longitude)
-                                            return loc.distance(from: destLoc) < 30000
-                                        }
-                                        return true
-                                    }
-                                    if !filteredDestinations.isEmpty {
-                                        Divider()
-                                        Menu {
-                                            ForEach(filteredDestinations.sorted(by: { $0.name < $1.name })) { destination in
-                                                Button {
-                                                    destinationManager.selectDestination(destination)
-                                                    if isCapsuleExpanded { refreshETA() }
-                                                    if showingRoute { recalculateRoute() }
-                                                } label: {
-                                                    HStack {
-                                                        Circle()
-                                                            .fill(destination.color)
-                                                            .frame(width: 8, height: 8)
-                                                        Text(destination.name)
-                                                    }
-                                                }
-                                            }
-                                        } label: {
-                                            Label(String(format: String(localized: "我的目的地（%d）"), filteredDestinations.count), systemImage: "mappin.and.ellipse")
-                                        }
-                                    }
+                                    destinationSearchMenuContent
                                 } label: {
                                     Image(systemName: "magnifyingglass")
                                         .font(.system(size: 20, weight: .medium))
@@ -2138,6 +2186,19 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(item: $editingParkingBoundary) { lot in
+            ParkingBoundaryEditor(store: parkingFloorStore, lot: lot)
+        }
+        .sheet(item: $mergingParkingLot) { lot in
+            ParkingLotMergeView(store: parkingFloorStore, sourceID: lot.id)
+        }
+        .sheet(item: $parkingRecordsGroup) { group in
+            ParkingRecordListView(store: parkingFloorStore, lotID: group.id.lotID, groupID: group.id) { pointID in
+                changingParkingLotPointID = nil
+                parkingLotExpansionStage = 0
+                withAnimation(.smooth) { selectedParkingPointID = pointID }
+            }
+        }
         .sheet(isPresented: $showingAddDestination) {
             AddDestinationView()
                 .environmentObject(destinationManager)
@@ -2161,7 +2222,7 @@ struct ContentView: View {
                         llmFloorIndex = idx ?? llmFloorIndex
                         parkingFloorStore.updateLLMData(
                             spotNumber: llmSpotNumber, areaCode: llmAreaCode,
-                            floorText: llmFloorText, floorIndex: idx
+                            floorText: llmFloorText, floorIndex: idx, userConfirmedFloor: true
                         )
                     } else {
                         parkingFloorStore.updateLLMData(
@@ -2378,7 +2439,7 @@ struct ContentView: View {
                     parkingFloorStore.updateLLMData(
                         spotNumber: llmSpotNumber, areaCode: llmAreaCode,
                         floorText: confirmedFloorText,
-                        floorIndex: pendingFloorIndex ?? floorIndex
+                        floorIndex: pendingFloorIndex ?? floorIndex, userConfirmedFloor: true
                     )
                     if let photoID = currentRecognizingPhotoID ?? parkingPhotoContributions.keys.first {
                         parkingPhotoContributions[photoID, default: [:]]["floor"] = confirmedFloorText ?? floorText
@@ -2438,236 +2499,297 @@ struct ContentView: View {
 
     // MARK: - Floor Curve Popup (Auto Garage Detection)
 
-    /// 啟動地庫下降偵測
-    private func startFloorCurveDetection() {
-        floorCurveSampleTimer?.invalidate()
-        // 低速時每 0.25 秒偵測一次，高速時每 1 秒一次
-        let interval: TimeInterval = parkingFloorStore.barometer.currentSpeedKmh < 20 ? 0.25 : 1.0
-        floorCurveSampleTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { _ in
-            DispatchQueue.main.async {
-                self.checkGarageDescent()
-                // 動態調整頻率
-                self.adjustDetectionFrequency()
+    private func handleVisitUpdates(_ visits: [LocationManager.VisitRecord]) {
+        guard let lastVisit = visits.first else { return }
+
+        if lastVisit.departureDate != nil {
+            // 到訪結束：自動停止計時
+            if timerRunning && lastKnownArrivalDate == lastVisit.arrivalDate {
+                timerRunning = false
+                parkingTimer?.invalidate()
+                parkingTimer = nil
+                stopParkingReminder()
+                hasDeparted = true
+                departureTime = lastVisit.departureDate
+                showDepartedLabel = true
+                clearParkingContributions()
+                // 清理樓層曲線鎖定狀態
+                parkingFloorStore.lastStationaryCoordinate = nil
+                // 系統自動偵測到離開 — 推送通知
+                let content = UNMutableNotificationContent()
+                if isNonAutomotiveArrival && !hasParkingSpotData {
+                    content.title = String(localized: "Gorilla 記憶")
+                    content.body = String(localized: "記憶已退出")
+                } else {
+                    content.title = String(localized: "Gorilla 記憶")
+                    content.body = String(localized: "記憶已退出")
+                }
+                content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
+                let req = UNNotificationRequest(identifier: "parking-departed-\(UUID().uuidString)", content: content, trigger: nil)
+                UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 30) {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        showDepartedLabel = false
+                    }
+                }
+                saveParkingState()
+                WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
+            }
+            if hasDeparted, let dep = departureTime {
+                departureElapsed = Date().timeIntervalSince(dep)
+                departureElapsedTimer?.invalidate()
+                let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
+                    guard hasDeparted, let d = departureTime else { return }
+                    let e = Date().timeIntervalSince(d)
+                    DispatchQueue.main.async {
+                        departureElapsed = e
+                    }
+                }
+                departureElapsedTimer = timer
+                RunLoop.main.add(timer, forMode: .common)
+            }
+        } else {
+            // 新的到訪：自動開始計時
+            let newArrival = lastVisit.arrivalDate
+            // Guard: if user manually departed, the old visit is still active — don't restart
+            // unless this is genuinely a different arrival (new visit event)
+            if manualDeparted && newArrival == parkingStartTime { return }
+            if lastKnownArrivalDate != newArrival {
+                lastKnownArrivalDate = newArrival
+                if parkingStartTime != newArrival {
+                    parkingEntryTime = newArrival
+                    resetParkingTimeAdjustment()
+                }
+                parkingStartTime = newArrival
+                capsuleDuration = 0
+                parkingElapsed = 0
+                hasDeparted = false
+                manualDeparted = false
+                timerRunning = false
+                departureElapsedTimer?.invalidate()
+                departureElapsedTimer = nil
+                startPersistentTimer()
+                // 系統自動偵測到泊車 — 推送通知
+                let content = UNMutableNotificationContent()
+                if isNonAutomotiveArrival && !hasParkingSpotData {
+                    content.title = String(localized: "Gorilla 記憶")
+                    content.body = String(localized: "記憶已開啟")
+                } else {
+                    content.title = String(localized: "Gorilla 記憶")
+                    content.body = String(localized: "記憶已開啟")
+                }
+                content.sound = UNNotificationSound(named: UNNotificationSoundName("gorilla_parking_status_notifi.mp3"))
+                let req = UNNotificationRequest(identifier: "parking-arrived-\(UUID().uuidString)", content: content, trigger: nil)
+                UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
+                // 車藍牙斷聯：優化泊車點坐標 + 咪錶標注（每個斷聯事件只用一次）
+                var carExitCoordinate: CLLocationCoordinate2D?
+                if lastVisit.isAutomotive,
+                   let exitEvent = locationManager.latestSettledCarExit(
+                       near: CLLocationCoordinate2D(latitude: lastVisit.latitude, longitude: lastVisit.longitude),
+                       around: lastVisit.arrivalDate
+                   ) {
+                    carExitCoordinate = exitEvent.coordinate
+                    locationManager.markCarExitConsumed(exitEvent.id)
+                }
+                let meterAnnotation = meterManager.inferMeterAnnotation(
+                    at: carExitCoordinate ?? CLLocationCoordinate2D(latitude: lastVisit.latitude, longitude: lastVisit.longitude),
+                    navigationTargetID: meterRouteTarget?.id
+                )
+                parkingFloorStore.recordParkingPoint(from: lastVisit, defaultLotName: defaultNewLotName(visitAddress: lastVisit.address), preferredCoordinate: carExitCoordinate, meter: meterAnnotation)
+                // Bug 1 修復：強制 SwiftUI 重新渲染地圖（確保停車點標記出現）
+                parkingFloorStore.objectWillChange.send()
+                // Show parking info on new arrival
+                parkingInfoDisplayMode = true
+                // 只有在用戶尚未手動拍照識別時才清除（避免覆蓋已有的泊車資訊）
+                let hasExistingData = llmSpotNumber != nil || llmAreaCode != nil || llmFloorText != nil || llmFloorIndex != nil
+                if !hasExistingData {
+                    clearParkingContributions()
+                }
             }
         }
     }
 
-    /// 根據速度動態調整偵測頻率
-    private func adjustDetectionFrequency() {
+    private var floorCaptureEvents: some View {
+        Color.clear.frame(width: 0, height: 0)
+            .sheet(isPresented: $showCaptureReferenceFloor) { floorReferencePicker }
+            .alert(String(localized: "樓層與上次不同"), isPresented: Binding(
+                get: { parkingFloorStore.floorReview != nil },
+                set: { _ in }
+            )) {
+                Button(String(localized: "這次停另一樓層"), role: .cancel) {
+                    parkingFloorStore.resolveFloorReview(correctPrevious: false)
+                }
+                Button(String(localized: "上次記錯了，一併修正")) {
+                    parkingFloorStore.resolveFloorReview(correctPrevious: true)
+                }
+            } message: {
+                if let review = parkingFloorStore.floorReview {
+                    Text(String(format: String(localized: "上次是 %@，這次是 %@。只保存這次，還是修正上次的樓層？"),
+                        ParkingFloorStore.formatFloor(review.previousFloor, coordinate: review.coordinate),
+                        ParkingFloorStore.formatFloor(review.selectedFloor, coordinate: review.coordinate)))
+                }
+            }
+            .onReceive(parkingFloorStore.barometer.$stopConfirmationID.removeDuplicates()) { id in
+                DispatchQueue.main.async {
+                    guard parkingFloorStore.barometer.stopConfirmationID == id else { return }
+                    withAnimation(.smooth(duration: 0.4)) { floorCurveStopConfirmationID = id }
+                    if id != nil, !isFloorCurveInCapsule, !floorCurveLocked {
+                        withAnimation(.smooth(duration: 0.4)) { isFloorCurveInCapsule = true }
+                    }
+                }
+            }
+            .onReceive(parkingFloorStore.barometer.$gatePassUntil.removeDuplicates()) { until in
+                floorCurveGateTimer?.invalidate()
+                withAnimation(.smooth(duration: 0.3)) { floorCurveGatePassUntil = until }
+                if let until, until > Date() {
+                    floorCurveGateTimer = Timer.scheduledTimer(withTimeInterval: until.timeIntervalSinceNow, repeats: false) { _ in
+                        withAnimation(.smooth(duration: 0.3)) { floorCurveGatePassUntil = nil }
+                    }
+                }
+            }
+            .onReceive(parkingFloorStore.barometer.$captureID.removeDuplicates()) { id in
+                DispatchQueue.main.async {
+                    guard parkingFloorStore.barometer.captureID == id else { return }
+                    if let id, parkingFloorStore.barometer.completedResult == nil, id != floorCurveCaptureID {
+                        triggerFloorCurvePopup()
+                    } else if id == nil, parkingFloorStore.barometer.completedResult == nil, isFloorCurveInCapsule {
+                        if let until = parkingFloorStore.barometer.gatePassUntil, until > Date() {
+                            let dismissedID = floorCurveCaptureID
+                            floorCurveDismissTimer?.invalidate()
+                            floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: until.timeIntervalSinceNow, repeats: false) { _ in
+                                guard floorCurveCaptureID == dismissedID else { return }
+                                dismissFloorCurve()
+                            }
+                        } else {
+                            dismissFloorCurve()
+                        }
+                    }
+                }
+            }
+            .onReceive(parkingFloorStore.barometer.$samples.map { $0.last }.removeDuplicates()) { sample in
+                if let sample { appendFloorCurveSample(sample) }
+            }
+            .onReceive(parkingFloorStore.barometer.$completedResult.map { $0?.id }.removeDuplicates()) { id in
+                DispatchQueue.main.async {
+                    guard parkingFloorStore.barometer.completedResult?.id == id else { return }
+                    if let id, let result = parkingFloorStore.barometer.completedResult,
+                       result.id == id, id == floorCurveCaptureID {
+                        lockFloorCurve(result: result)
+                    } else if id == nil, floorCurveLocked, isFloorCurveInCapsule {
+                        dismissFloorCurve()
+                    }
+                }
+            }
+    }
+
+    private func startFloorCurveDetection() {
         let barometer = parkingFloorStore.barometer
-        let newInterval: TimeInterval = barometer.currentSpeedKmh < 20 ? 0.25 : 1.0
-        let currentInterval = floorCurveSampleTimer?.timeInterval ?? 1.0
-        // 頻率變化超過 0.1 秒才重啟
-        if abs(newInterval - currentInterval) > 0.1 {
-            startFloorCurveDetection()
+        if let id = barometer.captureID, id != floorCurveCaptureID, barometer.completedResult == nil {
+            triggerFloorCurvePopup()
+        }
+        if let result = barometer.completedResult, result.id == floorCurveCaptureID, !floorCurveLocked {
+            lockFloorCurve(result: result)
         }
     }
 
-    /// 停止偵測
+    private var floorReferencePicker: some View {
+        ParkingReferenceFloorView(barometer: parkingFloorStore.barometer)
+        .presentationDetents([.medium])
+    }
+
     private func stopFloorCurveDetection() {
-        floorCurveSampleTimer?.invalidate()
-        floorCurveSampleTimer = nil
+        floorCurveGateTimer?.invalidate()
+        floorCurveGateTimer = nil
+        floorCurveGatePassUntil = nil
         floorCurveDismissTimer?.invalidate()
         floorCurveDismissTimer = nil
     }
 
-    /// 檢查是否正在下降入地庫
-    private func checkGarageDescent() {
-        // 已經顯示緊就唔好重複觸發
-        guard !isFloorCurveInCapsule else { return }
-
-        let barometer = parkingFloorStore.barometer
-        guard barometer.samples.count >= 3 else { return }  // 3 個樣本即可開始（~3 秒）
-
-        // 取最近 3 個樣本（減少延遲）
-        let recent = Array(barometer.samples.suffix(3))
-        let speeds = recent.map { $0.speedKmh }
-
-        // 全部都要低速（< 20 km/h）
-        guard speeds.allSatisfy({ $0 < 20 }) else {
-            floorCurveDescendingCount = 0
-            return
-        }
-
-        if floorCurveTriggerMode == 0 {
-            // 模式 A（純速度）：速度 < 20 就觸發，不需要海拔持續下降
-            floorCurveDescendingCount += 1
-            if floorCurveDescendingCount >= 2 {
-                triggerFloorCurvePopup()
-            }
-        } else {
-            // 模式 B（速度 + 海拔）：需要偵測到海拔變化
-            let alts = recent.map { $0.relativeAltitude }
-            // 檢查海拔是否有明顯變化（總變化 > 0.15m，更敏感）
-            let altChange = (alts.max() ?? 0) - (alts.min() ?? 0)
-            if altChange > 0.15 {
-                floorCurveDescendingCount += 1
-                // 連續 2 次檢測到變化才觸發
-                if floorCurveDescendingCount >= 2 {
-                    triggerFloorCurvePopup()
-                }
-            } else {
-                floorCurveDescendingCount = 0
-            }
-        }
-    }
-
-    /// 觸發彈窗
     private func triggerFloorCurvePopup() {
         let barometer = parkingFloorStore.barometer
-        guard let lastSample = barometer.samples.last else { return }
-
-        floorCurveBaseAltitude = lastSample.relativeAltitude
-        floorCurveHistory = [0] // 起始點為 0
+        guard let id = barometer.captureID else { return }
+        floorCurveDismissTimer?.invalidate()
+        floorCurveCaptureID = id
+        floorCurveLastSampleDate = nil
+        floorCurveBaseAltitude = barometer.captureReferenceAltitude ?? barometer.samples.first?.relativeAltitude ?? 0
+        floorCurveHistory = [0]
         floorCurveHorizontalPositions = [0]
         floorCurveLocked = false
+        floorCurveConfirmed = false
         floorCurveLockedFloor = 0
-        floorCurveDescendingCount = 0
-
-        floorCurveAppearTime = Date()
+        floorCurveStopConfirmationID = nil
         floorCurveLockAnimating = false
-
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             isFloorCurveInCapsule = true
         }
-
-        // 播放樓層探測態出現音效
         sfxPlayer.playFloorCurveAppear()
-
-        // 開始 0.5 秒採樣
-        startFloorCurveSampling()
-
-        // 監聽停留偵測
-        startStationaryMonitoring()
     }
 
-    /// 0.5 秒採樣海拔
-    private func startFloorCurveSampling() {
-        floorCurveSampleTimer?.invalidate()
-        floorCurveSampleTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            DispatchQueue.main.async {
-                guard self.isFloorCurveInCapsule, !self.floorCurveLocked else { return }
-                let barometer = self.parkingFloorStore.barometer
-                guard let lastSample = barometer.samples.last else { return }
-                // 速度為0時不加新數據點，但保持現有曲線不動
-                guard barometer.currentSpeedKmh > 0.5 else { return }
-                let relativeAlt = lastSample.relativeAltitude - self.floorCurveBaseAltitude
-                let metersTravelled = barometer.currentSpeedKmh / 3.6 * 0.5
-                let nextX = (self.floorCurveHorizontalPositions.last ?? 0) + CGFloat(metersTravelled) * 0.95
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    self.floorCurveHistory.append(relativeAlt)
-                    self.floorCurveHorizontalPositions.append(nextX)
-                }
+    private func appendFloorCurveSample(_ sample: BarometerSample) {
+        guard !floorCurveLocked,
+              floorCurveCaptureID == parkingFloorStore.barometer.captureID,
+              floorCurveLastSampleDate.map({ sample.timestamp > $0 }) ?? true else { return }
+        let interval = floorCurveLastSampleDate.map { sample.timestamp.timeIntervalSince($0) } ?? 0
+        if floorCurveLastSampleDate == nil {
+            floorCurveBaseAltitude = parkingFloorStore.barometer.captureReferenceAltitude ?? sample.relativeAltitude
+        }
+        floorCurveLastSampleDate = sample.timestamp
+        let distance = max(0, sample.speedKmh) / 3.6 * min(2, interval)
+        let x = (floorCurveHorizontalPositions.last ?? 0) + CGFloat(distance) * 0.95
+        withAnimation(.easeInOut(duration: 0.2)) {
+            floorCurveHistory.append(CGFloat(sample.relativeAltitude - floorCurveBaseAltitude))
+            floorCurveHorizontalPositions.append(x)
+            if floorCurveHistory.count > 900 {
+                floorCurveHistory.removeFirst()
+                floorCurveHorizontalPositions.removeFirst()
             }
         }
     }
 
-    /// 監聽停留偵測
-    private func startStationaryMonitoring() {
-        var lastAltitudeSample: Double? = nil
-        var unchangedSeconds: Int = 0
-        // 用 Timer 每秒檢查 stationaryAltitude 或速度 = 0
-        Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
-            DispatchQueue.main.async {
-                guard self.isFloorCurveInCapsule else {
-                    timer.invalidate()
-                    return
-                }
-                let barometer = self.parkingFloorStore.barometer
-
-                // 檢查海拔是否有變化
-                let currentAlt = barometer.samples.last?.relativeAltitude
-                if let last = lastAltitudeSample, let cur = currentAlt {
-                    if abs(cur - last) < 0.05 {
-                        unchangedSeconds += 1
-                    } else {
-                        unchangedSeconds = 0
-                    }
-                }
-                lastAltitudeSample = currentAlt
-
-                // 海拔5秒無變化且速度為0，自動關閉
-                if unchangedSeconds >= 5 && barometer.currentSpeedKmh <= 0.5 {
-                    timer.invalidate()
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                        self.dismissFloorCurve()
-                    }
-                    return
-                }
-
-                // 樓層探測態出現後至少等 10 秒才能鎖定
-                guard let appearTime = self.floorCurveAppearTime,
-                      Date().timeIntervalSince(appearTime) >= 10.0 else { return }
-
-                // 條件 1：stationaryAltitude 已計算（10 秒低速）
-                if let statAlt = barometer.stationaryAltitude {
-                    self.lockFloorCurve(statAlt: statAlt)
-                    timer.invalidate()
-                    return
-                }
-
-                // 條件 2：速度 = 0（停車了），立即鎖定
-                if barometer.currentSpeedKmh <= 0.5 {
-                    // 用最近 10 個樣本的平均海拔作為 stationary altitude
-                    let recent = barometer.samples.suffix(10)
-                    guard recent.count >= 3 else { return }
-                    let smoothedAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
-                    self.lockFloorCurve(statAlt: smoothedAlt)
-                    timer.invalidate()
-                }
-            }
-        }
-    }
-
-    /// 鎖定樓層
-    private func lockFloorCurve(statAlt: Double) {
+    private func lockFloorCurve(result: ParkingAltitudeResult) {
         guard !floorCurveLocked else { return }
+        let coordinate = result.latitude.flatMap { lat in result.longitude.map {
+            CLLocationCoordinate2D(latitude: lat, longitude: $0)
+        }} ?? locationManager.mapReferenceLocation?.coordinate
+            ?? CLLocationCoordinate2D(latitude: 22.3, longitude: 114.17)
+        let estimated = parkingFloorStore.estimatedFloor(near: coordinate, delta: result.deltaMeters,
+                                                       referenceFloor: result.referenceFloorIndex ?? 0)
+        floorCurveLockedFloor = result.selectedFloor ?? max(-10, min(30, estimated))
         floorCurveLocked = true
-        // 播放樓層鎖定音效
+        floorCurveStopConfirmationID = nil
+        parkingFloorStore.saveCapturedFloor(captureID: result.id, floor: floorCurveLockedFloor,
+                                            userConfirmed: false)
         sfxPlayer.playFloorCurveLocked()
-        // 模糊漸入動畫
-        floorCurveLockAnimating = false
-        withAnimation(.easeInOut(duration: 0.5)) {
-            floorCurveLockAnimating = true
-        }
+        withAnimation(.easeInOut(duration: 0.5)) { floorCurveLockAnimating = true }
+    }
 
-        // 計算樓層
-        let barometer = parkingFloorStore.barometer
-        let recent = barometer.samples.suffix(10)
-        let currentAlt = recent.map { $0.relativeAltitude }.reduce(0, +) / Double(recent.count)
-        let delta = currentAlt - statAlt
-        // 找最近的停車場，用佢嘅 learnedMetersPerFloor
-        let currentCoord = locationManager.lastLocation?.coordinate
-        let nearestLotIdx = currentCoord.flatMap { parkingFloorStore.findLotIndex(near: $0, radiusMeters: 180) }
-        let mpF: Double
-        let offset: Double
-        if let idx = nearestLotIdx, let learned = parkingFloorStore.lots[idx].learnedMetersPerFloor {
-            mpF = learned
-            offset = parkingFloorStore.lots[idx].learnedOffsetMeters ?? 0
-        } else {
-            mpF = 3.0
-            offset = 0
-        }
-        let adjusted = delta - offset
-        let raw = adjusted / mpF
-        floorCurveLockedFloor = Int(raw.rounded(.toNearestOrAwayFromZero))
+    private func changeCapturedFloor(_ floor: Int) {
+        guard let id = floorCurveCaptureID else { return }
+        withAnimation(.smooth(duration: 0.25)) { floorCurveLockedFloor = floor }
+        parkingFloorStore.saveCapturedFloor(captureID: id, floor: floor, userConfirmed: true)
+    }
 
-        // Bug 3b 修復：保存鎖定樓層到 ParkingFloorStore
-        // 但如果已有照片識別的樓層，或已泊車狀態，不要覆蓋
-        let lockedFloor = floorCurveLockedFloor
-        let hasPhotoFloor = llmFloorIndex != nil || llmFloorText != nil
-        let alreadyParked = !hasDeparted && parkingFloorStore.allPoints.contains(where: { $0.predictedFloorIndex != nil || $0.manualFloorIndex != nil })
-        if !hasPhotoFloor && !alreadyParked {
-            parkingFloorStore.updateActivePointFromFloorCurve(lockedFloor: lockedFloor, coordinate: currentCoord)
-        }
-
-        // 5 秒後自動關閉
+    private func confirmCapturedFloor(manual: Bool) {
+        guard let id = floorCurveCaptureID, !floorCurveConfirmed else { return }
+        parkingFloorStore.saveCapturedFloor(captureID: id, floor: floorCurveLockedFloor,
+                                            userConfirmed: manual)
+        parkingFloorStore.requestFloorReview(captureID: id)
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { floorCurveConfirmed = true }
         floorCurveDismissTimer?.invalidate()
-        floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
-            DispatchQueue.main.async {
-                self.dismissFloorCurve()
-            }
+        floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { _ in
+            guard floorCurveCaptureID == id else { return }
+            dismissFloorCurve()
         }
+    }
+
+    private func confirmVehicleParked(promptID: UUID) {
+        guard let id = floorCurveCaptureID else { return }
+        parkingFloorStore.barometer.confirmParking(captureID: id, promptID: promptID)
+    }
+
+    private func continueFloorSampling(promptID: UUID) {
+        guard let id = floorCurveCaptureID else { return }
+        parkingFloorStore.barometer.deferParkingConfirmation(captureID: id, promptID: promptID)
     }
 
     /// 重置 lift-scale 拖動狀態
@@ -2723,10 +2845,9 @@ struct ContentView: View {
 
     /// 關閉彈窗
     private func dismissFloorCurve() {
+        let dismissedID = floorCurveCaptureID
         floorCurveDismissTimer?.invalidate()
         floorCurveDismissTimer = nil
-        floorCurveSampleTimer?.invalidate()
-        floorCurveSampleTimer = nil
         withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
             isFloorCurveInCapsule = false
             isCapsuleExpanded = true
@@ -2736,16 +2857,35 @@ struct ContentView: View {
         // animateLightEffectRetract()
         // 重置
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-            floorCurveHistory = []
-            floorCurveHorizontalPositions = []
+            guard floorCurveCaptureID == dismissedID, !isFloorCurveInCapsule else { return }
+            if !parkingFloorStore.barometer.isUpdating || parkingFloorStore.barometer.captureID != dismissedID {
+                floorCurveHistory = []
+                floorCurveHorizontalPositions = []
+            }
             floorCurveLocked = false
+            floorCurveConfirmed = false
             floorCurveLockAnimating = false
-            floorCurveDescendingCount = 0
-            floorCurveAppearTime = nil
         }
     }
 
     /// 膠囊內嘅樓層探測內容
+    private var floorCaptureStopStatus: (title: String, seconds: Int?)? {
+        let barometer = parkingFloorStore.barometer
+        if let until = floorCurveGatePassUntil, until > Date() {
+            return (String(localized: "經過閘機"), nil)
+        }
+        guard let since = barometer.stationarySince, let last = barometer.samples.last else { return nil }
+        let elapsed = last.timestamp.timeIntervalSince(since)
+        if elapsed < 8 {
+            return (String(localized: "短暫停頓"), max(1, Int(ceil(8 - elapsed))))
+        }
+        if elapsed < 10 {
+            return (String(localized: "確認停泊"), max(1, Int(ceil(10 - elapsed))))
+        }
+        if floorCurveStopConfirmationID != nil { return nil }
+        return (String(localized: "繼續探測"), nil)
+    }
+
     private var floorCurveCapsuleContent: some View {
         let accentColor: Color = (floorCurveHistory.last ?? 0) < 0 ? .blue : .green
         let barometer = parkingFloorStore.barometer
@@ -2762,11 +2902,33 @@ struct ContentView: View {
                         .font(.system(size: 28))
                         .foregroundStyle(adaptiveTextColor(opacity: 0.8))
                 }
-                Text("樓層探測")
-                    .font(.system(size: 20, weight: .bold))
+                Button { showCaptureReferenceFloor = true } label: {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(String(localized: "樓層探測"))
+                            .font(.system(size: 20, weight: .bold))
+                        Text(String(format: String(localized: "起點 %@"),
+                            ParkingFloorStore.formatFloor(barometer.referenceFloorIndex)))
+                            .font(.system(size: 10))
+                    }
                     .foregroundStyle(adaptiveTextColor())
+                }
+                .buttonStyle(.plain)
+                .disabled(floorCurveLocked)
                 Spacer()
                 HStack(spacing: 6) {
+                    if !floorCurveLocked, let status = floorCaptureStopStatus {
+                        Text(status.title)
+                            .font(.system(size: 14, weight: .semibold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                        if let seconds = status.seconds {
+                        Text("(\(seconds)s)")
+                            .font(.system(size: 12, weight: .semibold, design: .rounded))
+                            .monospacedDigit()
+                            .contentTransition(.numericText(countsDown: true))
+                            .animation(.smooth(duration: 0.3), value: seconds)
+                        }
+                    } else {
                     Text(floorCurveLocked ? ParkingFloorStore.formatFloor(floorCurveLockedFloor) : String(format: "%+.1fm", relativeAlt))
                         .font(.system(size: 24, weight: .bold, design: .rounded))
                         .foregroundStyle(.primary)
@@ -2774,8 +2936,9 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.2), value: floorCurveLocked)
                         .scaleEffect(floorCurveLocked ? 1.05 : 1.0)
                         .animation(.spring(response: 0.3, dampingFraction: 0.6), value: floorCurveLocked)
+                    }
 
-                    if floorCurveLocked {
+                    if floorCurveConfirmed {
                         Image(systemName: "lock.fill")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundStyle(.teal)
@@ -2785,14 +2948,14 @@ struct ContentView: View {
                         FloorConventionBadge(compact: true)
                     }
                 }
-                if floorCurveLocked {
+                if floorCurveConfirmed {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20))
                         .foregroundStyle(.teal)
                         .symbolEffect(.bounce, value: floorCurveLocked)
                         .blur(radius: floorCurveLockAnimating ? 0 : 6)
                         .opacity(floorCurveLockAnimating ? 1 : 0)
-                } else {
+                } else if !floorCurveLocked {
                     Image(systemName: relativeAlt < 0 ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
                         .font(.system(size: 20))
                         .foregroundStyle(accentColor)
@@ -2833,20 +2996,27 @@ struct ContentView: View {
             .padding(.horizontal, 8)
             .background(accentColor.opacity(0.1))
             .cornerRadius(12)
-            .blur(radius: floorCurveLocked ? (floorCurveLockAnimating ? 4 : 0) : 0)
+            .blur(radius: floorCurveLocked ? (floorCurveLockAnimating ? 4 : 0)
+                  : floorCurveStopConfirmationID != nil ? 4 : 0)
             .animation(.easeInOut(duration: 0.4), value: floorCurveLockAnimating)
+            .animation(.smooth(duration: 0.4), value: floorCurveStopConfirmationID)
             .padding(.horizontal, 12)
             .overlay {
-                // 鎖定後在曲線區域內顯示確認訊息
-                if floorCurveLocked {
-                    HStack(spacing: 8) {
-                        Image(systemName: "checkmark.seal.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.teal)
-                        Text("已鎖定樓層")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundStyle(.primary)
-                    }
+                if let promptID = floorCurveStopConfirmationID, !floorCurveLocked {
+                    ParkingStopConfirmationView(
+                        onContinue: { continueFloorSampling(promptID: promptID) },
+                        onConfirm: { confirmVehicleParked(promptID: promptID) }
+                    )
+                    .id(promptID)
+                    .transition(.opacity.combined(with: .scale(scale: 0.96)))
+                } else if floorCurveLocked {
+                    FloorCaptureConfirmationView(
+                        initialFloor: floorCurveLockedFloor,
+                        confirmed: floorCurveConfirmed,
+                        onChange: changeCapturedFloor,
+                        onConfirm: confirmCapturedFloor
+                    )
+                    .id(floorCurveCaptureID)
                     .blur(radius: floorCurveLockAnimating ? 0 : 8)
                     .opacity(floorCurveLockAnimating ? 1 : 0)
                     .transition(.opacity)
@@ -3527,6 +3697,7 @@ struct ContentView: View {
             syncLiveActivity()
         }
         .onChange(of: parkingFloorStore.lots) { _, _ in syncLiveActivity() }
+        .onChange(of: parkingFloorStore.floorMode) { _, _ in syncLiveActivity() }
         .onAppear {
             startCompactRotation(openingByState: true)
         }
@@ -3650,7 +3821,7 @@ struct ContentView: View {
             }
             .opacity(addressReveal)
             .blur(radius: 20 * (1 - addressReveal))
-            .animation(.easeInOut(duration: 2), value: compactSlot)
+            .animation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6), value: compactSlot)
         }
         .transition(AnyTransition.blurFade)
     }
@@ -3864,8 +4035,9 @@ struct ContentView: View {
                             hasDeparted = false
                             manualDeparted = false
                             parkingEntryTime = Date()
-                            parkingStartTime = Date()
-                            lastKnownArrivalDate = Date()
+                            parkingStartTime = parkingEntryTime
+                            lastKnownArrivalDate = parkingStartTime
+                            resetParkingTimeAdjustment()
                             capsuleDuration = 0
                             parkingElapsed = 0
                             timerRunning = false
@@ -4037,7 +4209,7 @@ struct ContentView: View {
         if let departure = lastVisit.departureDate {
             date = departure
         } else {
-            date = lastVisit.arrivalDate
+            date = lastVisit.arrivalDate == parkingStartTime ? parkingEntryTime : lastVisit.arrivalDate
         }
         let interval = Date().timeIntervalSince(date)
         let hours = Int(interval / 3600)
@@ -4219,11 +4391,7 @@ struct ContentView: View {
     private func parkingTimeAdjustButtons(buttonSize: CGFloat, iconSize: CGFloat) -> some View {
         HStack(spacing: parkingMemoryUsesLandscapeLayout ? 6 : 8) {
             Button(action: {
-                timeAdjustAccumulated -= 1
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    parkingEntryTime = parkingEntryTime.addingTimeInterval(-60)
-                }
-                showAdjustText()
+                adjustParkingEntryTime(by: -1)
             }) {
                 Image(systemName: "minus")
                     .font(.system(size: iconSize, weight: .bold))
@@ -4232,11 +4400,7 @@ struct ContentView: View {
                     .glassEffect(.regular, in: .rect(cornerRadius: 8))
             }
             Button(action: {
-                timeAdjustAccumulated += 1
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    parkingEntryTime = parkingEntryTime.addingTimeInterval(60)
-                }
-                showAdjustText()
+                adjustParkingEntryTime(by: 1)
             }) {
                 Image(systemName: "plus")
                     .font(.system(size: iconSize, weight: .bold))
@@ -4585,7 +4749,7 @@ struct ContentView: View {
 
     private func saveParkingState() {
         let d = Self.appGroupDefaults ?? .standard
-        d.set(parkingStartTime, forKey: "parkingStartTime")
+        ParkingEntryClock.save(arrival: parkingStartTime, entry: parkingEntryTime, defaults: d)
         d.set(hasDeparted, forKey: "hasDeparted")
         d.set(manualDeparted, forKey: "manualDeparted")
         d.set(departureTime, forKey: "parkingDepartureTime")
@@ -4722,9 +4886,18 @@ struct ContentView: View {
             departureTime = nil
             departureElapsed = 0
 
-            parkingEntryTime = lastVisit.arrivalDate
+            if parkingStartTime != lastVisit.arrivalDate {
+                parkingEntryTime = ParkingEntryClock.restoredEntry(for: lastVisit.arrivalDate,
+                    defaults: Self.appGroupDefaults ?? .standard)
+                resetParkingTimeAdjustment()
+                timeAdjustAccumulated = ParkingEntryClock.adjustmentMinutes(
+                    entry: parkingEntryTime, arrival: lastVisit.arrivalDate)
+                if timeAdjustAccumulated != 0 { showAdjustText() }
+            }
             parkingStartTime = lastVisit.arrivalDate
             lastKnownArrivalDate = lastVisit.arrivalDate
+            parkingElapsed = Date().timeIntervalSince(parkingEntryTime)
+            capsuleDuration = parkingElapsed
             if !timerRunning {
                 startPersistentTimer()
             }
@@ -4755,12 +4928,14 @@ struct ContentView: View {
     private func startPersistentTimer() {
         guard !timerRunning else { return }
         timerRunning = true
+        parkingElapsed = Date().timeIntervalSince(parkingEntryTime)
+        capsuleDuration = parkingElapsed
         // 非自己開車（打車、步行等）唔需要泊車時間提醒
         if !isNonAutomotiveArrival {
             startParkingReminder()
         }
         let d = Self.appGroupDefaults ?? .standard
-        d.set(parkingStartTime, forKey: "parkingStartTime")
+        ParkingEntryClock.save(arrival: parkingStartTime, entry: parkingEntryTime, defaults: d)
         d.set(hasDeparted, forKey: "hasDeparted")
         d.set(manualDeparted, forKey: "manualDeparted")
         d.set(departureTime, forKey: "parkingDepartureTime")
@@ -4772,12 +4947,10 @@ struct ContentView: View {
         parkingTimer?.invalidate()
         let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
             let entry = parkingEntryTime
-            let start = parkingStartTime
             let e = Date().timeIntervalSince(entry)
-            let d = Date().timeIntervalSince(start)
             DispatchQueue.main.async {
                 parkingElapsed = e
-                capsuleDuration = d
+                capsuleDuration = e
             }
             // 專注模式（極致）：連 widget timeline 每秒刷新都慳埋
             if !focusCutsDetection {
@@ -4919,7 +5092,10 @@ struct ContentView: View {
     private func scheduleParkingNotifications() {
         let center = UNUserNotificationCenter.current()
         // 先移除舊嘅泊車提醒
-        center.removePendingNotificationRequests(withIdentifiers: ["parking-reminder-scheduled"])
+        center.removePendingNotificationRequests(withIdentifiers:
+            ["parking-reminder-scheduled"] + stride(from: 30, through: 180, by: 30).map {
+                "parking-reminder-scheduled-\($0)"
+            })
 
         let entryTime = parkingEntryTime
 
@@ -4927,7 +5103,7 @@ struct ContentView: View {
         var identifiers: [String] = []
         for halfHour in stride(from: 30, through: 180, by: 30) {
             let reminderMinute = halfHour - 5  // 整點前5分鐘
-            let secondsFromNow = Double(reminderMinute) * 60 - parkingElapsed
+            let secondsFromNow = entryTime.addingTimeInterval(Double(reminderMinute) * 60).timeIntervalSinceNow
             guard secondsFromNow > 10 else { continue }  // 至少10秒後
 
             let content = UNMutableNotificationContent()
@@ -4938,7 +5114,7 @@ struct ContentView: View {
                 : String(format: String(localized: "%d分鐘"), mins)
             content.title = String(localized: "泊車時間提醒")
             content.body = String(format: String(localized: "你已經泊車%@"), timeStr)
-            content.sound = .default
+            content.sound = UNNotificationSound(named: UNNotificationSoundName(SFXPreferences.parkingReminderFile))
 
             let id = "parking-reminder-scheduled-\(halfHour)"
             identifiers.append(id)
@@ -4993,7 +5169,7 @@ struct ContentView: View {
             : String(format: String(localized: "%d分鐘"), mins)
         content.title = String(localized: "泊車時間提醒")
         content.body = String(format: String(localized: "你已經泊車%@"), timeStr)
-        content.sound = .default
+        content.sound = UNNotificationSound(named: UNNotificationSoundName(SFXPreferences.parkingReminderFile))
         let req = UNNotificationRequest(identifier: "parking-reminder-\(minutes)", content: content, trigger: nil)
         UNUserNotificationCenter.current().add(req, withCompletionHandler: nil)
     }
@@ -5034,7 +5210,7 @@ struct ContentView: View {
         // 專注模式（平衡／極致）：維持完全唔輪播，唔干擾駕駛
         guard !focusCutsInfoAndETA else { return }
         if openingByState {
-            withAnimation(.easeInOut(duration: 2)) {
+            withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
                 compactSlot = isParkedOrStationary ? .status : .speed
             }
         }
@@ -5057,7 +5233,7 @@ struct ContentView: View {
         compactSlotTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
             DispatchQueue.main.async {
                 guard self.compactSlotGeneration == gen else { return }
-                withAnimation(.easeInOut(duration: 2)) {
+                withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
                     self.compactSlot = self.nextCompactSlot()
                 }
                 if self.compactSlot == .address {
@@ -5097,7 +5273,7 @@ struct ContentView: View {
     private func interruptForNewPOI() {
         guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
         guard !focusCutsInfoAndETA else { return }
-        withAnimation(.easeInOut(duration: 2)) {
+        withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
             compactSlot = .address
         }
         startAddressAlternatingIfNeeded(force: true)
@@ -5118,8 +5294,8 @@ struct ContentView: View {
     }
 
     private func parkingPointCapsule(point: ParkingPointRecord) -> some View {
-        let currentFloor = point.manualFloorIndex ?? point.predictedFloorIndex ?? 0
-        let hasFloor = point.manualFloorIndex != nil || point.predictedFloorIndex != nil
+        let currentFloor = point.effectiveFloorIndex ?? 0
+        let hasFloor = point.effectiveFloorIndex != nil
         let currentLot = parkingFloorStore.lot(containing: point.id)
         let isChangingLot = changingParkingLotPointID == point.id
         let nearbyLots = nearbyParkingLots(for: point, excluding: currentLot?.id)
@@ -5135,7 +5311,8 @@ struct ContentView: View {
             VStack(spacing: 12) {
                 VStack(spacing: 6) {
                     HStack(spacing: 4) {
-                        Text(currentLot?.name ?? (point.address.isEmpty
+                        Color.clear.frame(width: 28, height: 28)
+                        Text(currentLot?.displayName(for: point, mode: parkingFloorStore.floorMode) ?? (point.address.isEmpty
                               ? (point.isAutomotive ? String(localized: "停車點") : String(localized: "逗留點"))
                               : point.address))
                             .font(.system(size: 16, weight: .semibold))
@@ -5143,9 +5320,28 @@ struct ContentView: View {
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
-                        Button {
-                            renamingPointName = currentLot?.name ?? ""
-                            showRenamePointAlert = true
+                        Menu {
+                            Button(String(localized: "地點改名")) {
+                                renamingPointFloor = nil
+                                renamingPointName = currentLot?.name ?? ""
+                                showRenamePointAlert = true
+                            }
+                            if parkingFloorStore.floorMode == .perVisit, hasFloor {
+                                Button(String(localized: "命名此樓層")) {
+                                    renamingPointFloor = currentFloor
+                                    renamingPointName = currentLot?.floorNames?[String(currentFloor)] ?? ""
+                                    showRenamePointAlert = true
+                                }
+                            }
+                            if let currentLot {
+                                Divider()
+                                Button { editingParkingBoundary = currentLot } label: {
+                                    Label(String(localized: "調整停車場範圍"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                                }
+                                Button { mergingParkingLot = currentLot } label: {
+                                    Label(String(localized: "合併停車場"), systemImage: "arrow.triangle.merge")
+                                }
+                            }
                         } label: {
                             Image(systemName: "pencil")
                                 .font(.system(size: 12, weight: .semibold))
@@ -5158,7 +5354,8 @@ struct ContentView: View {
                     }
 
                     HStack(spacing: 6) {
-                        Text(String(localized: "樓層") + " \(ParkingFloorStore.formatFloor(currentFloor, coordinate: point.coordinate))")
+                        Text(String(localized: "樓層") + " " + (hasFloor
+                            ? ParkingFloorStore.formatFloor(currentFloor, coordinate: point.coordinate) : String(localized: "未知")))
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -5166,6 +5363,24 @@ struct ContentView: View {
                             .animation(.easeInOut(duration: 0.18), value: currentFloor)
                         FloorConventionBadge(coordinate: point.coordinate, compact: true)
                     }
+                    HStack(spacing: 6) {
+                        Text(point.createdAt, format: .dateTime.month().day().hour().minute())
+                            .monospacedDigit()
+                        if hasFloor { Text(point.floorStatusLabel) }
+                        if hasFloor && !point.isFloorConfirmed && point.isAutomotive {
+                            Button {
+                                parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor)
+                            } label: {
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .frame(width: 44, height: 44)
+                                    .glassEffect(.regular, in: .circle)
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(String(localized: "確認樓層"))
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
 
                     // 咪錶標注（lot 名照舊，呢度單獨標明旁邊嘅咪錶）
                     if let meterTag = point.meterTag {
@@ -5177,14 +5392,29 @@ struct ContentView: View {
                                 .font(.system(size: 12, weight: .medium))
                                 .foregroundStyle(.secondary)
                                 .lineLimit(1)
+                            Button {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    parkingFloorStore.removeMeterAnnotation(pointID: point.id)
+                                }
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 10, weight: .semibold))
+                                    .frame(width: 28, height: 28)
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel(String(localized: "移除咪錶標注"))
                         }
                     }
 
                     if !hasFloor {
                         HStack(spacing: 4) {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                            Text("氣壓計採集中…")
+                            if parkingFloorStore.barometer.isUpdating {
+                                ProgressView().scaleEffect(0.6)
+                            }
+                            Text(parkingFloorStore.barometer.isUpdating
+                                 ? String(localized: "氣壓計採集中…") : String(localized: "樓層未確認"))
                                 .font(.system(size: 12))
                                 .foregroundStyle(.tertiary)
                         }
@@ -5203,7 +5433,7 @@ struct ContentView: View {
                             .glassEffect(.regular, in: .capsule)
                     }
                     .buttonStyle(.plain)
-                    
+
                     Button {
                         parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor + 1)
                     } label: {
@@ -5230,6 +5460,16 @@ struct ContentView: View {
                             .glassEffect(.regular, in: .capsule)
                     }
                     .buttonStyle(.plain)
+                }
+
+                if let group = parkingFloorStore.recordGroup(containing: point.id) {
+                    Button { parkingRecordsGroup = group } label: {
+                        Label(String(format: String(localized: "停車記錄 · %d"), group.records.count),
+                              systemImage: "clock.arrow.circlepath")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.glass)
+                    .controlSize(.small)
                 }
 
                 Button {
@@ -5280,18 +5520,24 @@ struct ContentView: View {
             .padding(.horizontal, 28)
             .offset(y: isLandscape ? 38 : 56)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .alert("地點改名", isPresented: $showRenamePointAlert) {
+            .alert(renamingPointFloor == nil ? String(localized: "地點改名") : String(localized: "命名此樓層"),
+                   isPresented: $showRenamePointAlert) {
                 TextField("名稱", text: $renamingPointName)
                 Button("確定") {
                     let newName = renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !newName.isEmpty, let lot = currentLot {
-                        parkingFloorStore.setLotName(lotID: lot.id, name: newName)
+                    if let lot = currentLot {
+                        if let floor = renamingPointFloor {
+                            parkingFloorStore.setFloorName(lotID: lot.id, floor: floor, name: newName)
+                        } else {
+                            parkingFloorStore.setLotName(lotID: lot.id, name: newName)
+                        }
                     }
                 }
-                .disabled(renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(renamingPointFloor == nil && renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 Button("取消", role: .cancel) {}
             } message: {
-                Text("改名會同步到地圖標點、學習地點同搜尋選單。")
+                Text(renamingPointFloor == nil ? String(localized: "改名會同步到地圖標點、學習地點同搜尋選單。")
+                     : String(localized: "樓層名稱會同步到這一樓層的停車點及到訪記錄。"))
             }
         }
         .alert("新增停車場", isPresented: $showNewParkingLotAlert) {
@@ -5333,16 +5579,8 @@ struct ContentView: View {
         excluding currentLotID: UUID?
     ) -> [(lot: ParkingLotRecord, distance: Double)] {
         let pointLocation = CLLocation(latitude: point.latitude, longitude: point.longitude)
-        let currentLocality = currentLotID.flatMap { id in
-            parkingFloorStore.lots.first(where: { $0.id == id })?.locality
-        }
         return parkingFloorStore.lots.compactMap { lot in
             guard lot.id != currentLotID else { return nil }
-            if let currentLocality, !currentLocality.isEmpty,
-               let locality = lot.locality, !locality.isEmpty,
-               locality != currentLocality {
-                return nil
-            }
             let distance = pointLocation.distance(from: CLLocation(
                 latitude: lot.centerLatitude,
                 longitude: lot.centerLongitude
@@ -5559,6 +5797,25 @@ struct ContentView: View {
                 }
             }
         }
+    }
+
+    private func resetParkingTimeAdjustment() {
+        adjustHideWorkItem?.cancel()
+        timeAdjustAccumulated = 0
+        timeAdjustText = nil
+    }
+
+    private func adjustParkingEntryTime(by minutes: Int) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            parkingEntryTime = parkingEntryTime.addingTimeInterval(Double(minutes) * 60)
+            parkingElapsed = Date().timeIntervalSince(parkingEntryTime)
+            capsuleDuration = parkingElapsed
+        }
+        timeAdjustAccumulated = ParkingEntryClock.adjustmentMinutes(entry: parkingEntryTime, arrival: parkingStartTime)
+        showAdjustText()
+        saveParkingState()
+        syncLiveActivity(forceRefresh: true)
+        if timerRunning && !hasDeparted && !isNonAutomotiveArrival { startParkingReminder() }
     }
 
     private func showAdjustText() {
@@ -5987,10 +6244,7 @@ struct ContentView: View {
 
     /// 當前活躍停車點（updateLLMData 寫嘅都係佢）—— 換算樓層慣例同編輯器初始值用
     private var activeParkingPoint: ParkingPointRecord? {
-        if let id = parkingFloorStore.activeLotID, let lot = parkingFloorStore.lots.first(where: { $0.id == id }) {
-            return lot.points.first
-        }
-        return parkingFloorStore.lots.first?.points.first
+        parkingFloorStore.currentPoint
     }
 
     /// 新停車場預設名：POI／大廈名 > 街道名（visit 地址）> 地區名
@@ -6244,8 +6498,13 @@ struct ContentView: View {
             let gpsLocationChanged = isGPSLocationChanged()
             let motion = locationManager.currentMotionActivity
 
-            // CMMotionActivity 是硬體感測器，比 GPS 速度更可靠
-            if motion?.walking == true && speed > 1 {
+            // Motion can lag behind departure; walking must not override driving speed.
+            if motion?.automotive == true && speed > 1 {
+                walkingStartTime = nil
+                cyclingStartTime = nil
+                visitStatus = "已開車"
+                lastMovementTime = Date()
+            } else if motion?.walking == true && speed > 1 && speed <= 12 {
                 // 步行中：CMMotionActivity 說步行 + GPS 有移動 → 已步行
                 if visitStatus != "已步行" {
                     walkingStartTime = Date()
@@ -6365,7 +6624,7 @@ struct ContentView: View {
         case "已泊車":
             // 有車位資訊時強制顯示泊車
             activityState = (isNonAutomotiveArrival && !hasParkingSpotData) ? .nonAutomotiveParking : .parking
-            anchor = parkingStartTime
+            anchor = parkingEntryTime
         case "已開車":
             activityState = .driving
             anchor = departureTime ?? parkingStartTime
@@ -6379,7 +6638,7 @@ struct ContentView: View {
             activityState = .stationary
             anchor = hasDeparted
                 ? (stationaryStartTime ?? departureTime ?? parkingStartTime)
-                : parkingStartTime
+                : parkingEntryTime
         }
 
         var content = GorillaActivityAttributes.ContentState(
@@ -6395,20 +6654,20 @@ struct ContentView: View {
                 content.etaMinutes = max(1, Int(secs / 60))
             }
         case .parking:
-            let session = parkingFloorStore.currentSession
+            let session = parkingFloorStore.session(forArrival: locationManager.visits.first?.arrivalDate ?? parkingStartTime)
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
             content.area = session?.areaCode
             content.floor = session?.floorDisplay
             content.spot = session?.spotNumber
         case .nonAutomotiveParking:
-            let session = parkingFloorStore.currentSession
+            let session = parkingFloorStore.session(forArrival: locationManager.visits.first?.arrivalDate ?? parkingStartTime)
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
             content.area = session?.areaCode
             // Non-automotive: no floor/spot
         case .stationary:
-            let session = parkingFloorStore.currentSession
+            let session = hasDeparted ? parkingFloorStore.currentSession : parkingFloorStore.session(forArrival: locationManager.visits.first?.arrivalDate ?? parkingStartTime)
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
             content.area = session?.areaCode
@@ -6518,30 +6777,8 @@ struct ContentView: View {
                 .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
 
             // VLM 車位識別開關（照片預覽框左下角細玻璃鈕）
-            Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    vlmRecognitionEnabled.toggle()
-                }
-            } label: {
-                ZStack {
-                    Image(systemName: "sparkles")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                    if !vlmRecognitionEnabled {
-                        // 關閉態：手畫斜線（避免靠唔確定存唔存在嘅 slash symbol）
-                        Capsule()
-                            .fill(Color.white)
-                            .frame(width: 2, height: 17)
-                            .rotationEffect(.degrees(-45))
-                    }
-                }
-                .frame(width: 30, height: 30)
-                .glassEffect(.regular, in: .circle)
-                .opacity(vlmRecognitionEnabled ? 0.95 : 0.5)
-            }
-            .buttonStyle(.plain)
+            ParkingRecognitionToggle(enabled: $vlmRecognitionEnabled)
             .position(x: 26, y: camH - 26)
-            .accessibilityLabel(vlmRecognitionEnabled ? "VLM 車位識別（已開啟）" : "VLM 車位識別（已關閉）")
 
             // Delete button on selected photo (positioned at photo's top-left corner)
             if let idx = selectedPhotoIndex, idx < photoStorage.photos.count,

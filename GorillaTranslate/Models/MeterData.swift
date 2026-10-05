@@ -6,12 +6,12 @@ enum MeterVehicle: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var title: String {
         switch self {
-        case .unset: return "請選擇車型"
-        case .privateCar: return "私家車"
-        case .taxi: return "的士"
-        case .lightGoods: return "輕型貨車"
-        case .mediumHeavyGoods: return "中／重型貨車"
-        case .coach: return "巴士／旅遊巴"
+        case .unset: return String(localized: "請選擇車型")
+        case .privateCar: return String(localized: "私家車")
+        case .taxi: return String(localized: "的士")
+        case .lightGoods: return String(localized: "輕型貨車")
+        case .mediumHeavyGoods: return String(localized: "中／重型貨車")
+        case .coach: return String(localized: "巴士／旅遊巴")
         }
     }
 }
@@ -20,10 +20,10 @@ enum MeterBayType: String, CaseIterable {
     case general = "A", goods = "G", coach = "C", unknown = "?"
     var title: String {
         switch self {
-        case .general: return "一般車輛"
-        case .goods: return "貨車"
-        case .coach: return "巴士／旅遊巴"
-        case .unknown: return "車型未提供"
+        case .general: return String(localized: "一般車輛")
+        case .goods: return String(localized: "貨車")
+        case .coach: return String(localized: "巴士／旅遊巴")
+        case .unknown: return String(localized: "車型未提供")
         }
     }
     var symbol: String {
@@ -35,7 +35,7 @@ enum MeterBayType: String, CaseIterable {
         }
     }
     var detail: String {
-        self == .general ? "不包括中／重型貨車、巴士、電單車及單車" : title
+        self == .general ? String(localized: "不包括中／重型貨車、巴士、電單車及單車") : title
     }
     func accepts(_ vehicle: MeterVehicle) -> Bool {
         switch self {
@@ -60,31 +60,66 @@ struct ParkingMeter: Identifiable, Hashable {
     let operatingPeriod: String
     let paymentUnit: Double?
     let timeUnit: Int?
+    var englishStreet: String? = nil
+    var englishDistrict: String? = nil
+    var displayStreet: String {
+        usesEnglishPlaceNames ? (englishStreet ?? street) : street
+    }
+    var displayDistrict: String {
+        usesEnglishPlaceNames ? (englishDistrict ?? district) : district
+    }
+    private var usesEnglishPlaceNames: Bool {
+        let language = Bundle.main.preferredLocalizations.first ?? "zh-Hant"
+        return language == "en" || language == "ja"
+    }
     var isTest: Bool { (Int(poleId) ?? 0) > 90000 }
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
     var location: CLLocation { .init(latitude: latitude, longitude: longitude) }
     var feeText: String {
-        guard let timeUnit, timeUnit > 0, let paymentUnit, paymentUnit >= 0 else { return "收費暫無資料" }
-        return "\(timeUnit) 分鐘 / HK$\(String(format: "%.2f", paymentUnit))"
+        guard let timeUnit, timeUnit > 0, let paymentUnit, paymentUnit >= 0 else { return String(localized: "收費暫無資料") }
+        return String(format: String(localized: "%d 分鐘 / HK$%.2f"), timeUnit, paymentUnit)
     }
     var limitText: String {
-        guard let lpp, lpp > 0 else { return "泊車時限暫無資料" }
-        return lpp % 60 == 0 ? "每次最長可購買 \(lpp / 60) 小時" : "每次最長可購買 \(lpp) 分鐘"
+        guard let lpp, lpp > 0 else { return String(localized: "泊車時限暫無資料") }
+        return lpp % 60 == 0
+            ? String(format: String(localized: "每次最長可購買 %d 小時"), lpp / 60)
+            : String(format: String(localized: "每次最長可購買 %d 分鐘"), lpp)
     }
     var hoursText: String {
         let code = operatingPeriod.filter { !$0.isNumber }
         let values = [
-            "A": "星期一至六 08:00–24:00（公眾假期除外）",
-            "B": "星期一至六 08:00–20:00（公眾假期除外）",
-            "D": "星期一至六 08:00–24:00；星期日及公眾假期 10:00–22:00",
-            "E": "每日 07:00–20:00", "F": "每日 08:00–21:00", "G": "每日 07:00–19:00",
-            "H": "每日 08:00–20:00", "J": "每日 08:00–24:00", "N": "每日 19:00–24:00",
-            "P": "星期一至六 08:00–20:00；星期日禁止泊車",
-            "Q": "星期一至六 08:00–20:00；星期日及公眾假期 10:00–22:00",
-            "S": "星期一至五 17:00–24:00（08:00–17:00 禁止泊車）；星期六 08:00–24:00；星期日及公眾假期 10:00–22:00",
-            "T": "星期一至五 17:30–24:00；星期六 08:00–24:00；星期日及公眾假期 10:00–24:00"
+            "A": String(localized: "星期一至六 08:00–24:00（公眾假期除外）"),
+            "B": String(localized: "星期一至六 08:00–20:00（公眾假期除外）"),
+            "D": String(localized: "星期一至六 08:00–24:00；星期日及公眾假期 10:00–22:00"),
+            "E": String(localized: "每日 07:00–20:00"), "F": String(localized: "每日 08:00–21:00"), "G": String(localized: "每日 07:00–19:00"),
+            "H": String(localized: "每日 08:00–20:00"), "J": String(localized: "每日 08:00–24:00"), "N": String(localized: "每日 19:00–24:00"),
+            "P": String(localized: "星期一至六 08:00–20:00；星期日禁止泊車"),
+            "Q": String(localized: "星期一至六 08:00–20:00；星期日及公眾假期 10:00–22:00"),
+            "S": String(localized: "星期一至五 17:00–24:00（08:00–17:00 禁止泊車）；星期六 08:00–24:00；星期日及公眾假期 10:00–22:00"),
+            "T": String(localized: "星期一至五 17:30–24:00；星期六 08:00–24:00；星期日及公眾假期 10:00–24:00")
         ]
-        return values[code] ?? "收費時段暫無資料（\(operatingPeriod)）"
+        return values[code] ?? String(format: String(localized: "收費時段暫無資料（%@）"), operatingPeriod)
+    }
+}
+
+// Inspecting a meter suspends tracking; closing it starts a fresh return countdown.
+struct MeterDetailTrackingGate {
+    enum Phase { case following, inspecting, waiting }
+    private(set) var phase: Phase = .following
+    var isPresented: Bool { phase == .inspecting }
+    var isWaiting: Bool { phase == .waiting }
+    var isPaused: Bool { phase != .following }
+
+    @discardableResult
+    mutating func setPresented(_ presented: Bool) -> Bool {
+        guard presented != isPresented else { return false }
+        phase = presented ? .inspecting : .waiting
+        return true
+    }
+
+    mutating func resume() {
+        guard !isPresented else { return }
+        phase = .following
     }
 }
 
@@ -98,10 +133,10 @@ enum MeterDisplayState: String, CaseIterable {
     case vacant, incompatible, occupied, unknown
     var title: String {
         switch self {
-        case .vacant: return "空置"
-        case .incompatible: return "空置 · 不適用所選車型"
-        case .occupied: return "被佔用"
-        case .unknown: return "未知"
+        case .vacant: return String(localized: "空置")
+        case .incompatible: return String(localized: "空置 · 不適用所選車型")
+        case .occupied: return String(localized: "被佔用")
+        case .unknown: return String(localized: "未知")
         }
     }
     static func resolve(meter: ParkingMeter, status: MeterStatus?, vehicle: MeterVehicle,
@@ -180,7 +215,9 @@ enum MeterCSV {
                                      streetKey: street.isEmpty ? id : key, latitude: lat, longitude: lon,
                                      bayType: MeterBayType(rawValue: (row["VehicleType"] ?? "").uppercased()) ?? .unknown,
                                      lpp: Int(row["LPP"] ?? ""), operatingPeriod: row["OperatingPeriod"] ?? "",
-                                     paymentUnit: Double(row["PaymentUnit"] ?? ""), timeUnit: Int(row["TimeUnit"] ?? ""))
+                                     paymentUnit: Double(row["PaymentUnit"] ?? ""), timeUnit: Int(row["TimeUnit"] ?? ""),
+                                     englishStreet: row["Street"].flatMap { $0.isEmpty ? nil : $0 },
+                                     englishDistrict: row["District"].flatMap { $0.isEmpty ? nil : $0 })
         }
         guard !unique.isEmpty else { throw ParseError.emptyDataset }
         return unique.values.sorted { $0.id < $1.id }

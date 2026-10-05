@@ -93,12 +93,9 @@ class DestinationManager: ObservableObject {
     init() {}
 
     func prepare() {
-        guard !hasLoaded else { return }
+        guard !hasLoaded, UIApplication.shared.isProtectedDataAvailable else { return }
+        loadDestinations()
         hasLoaded = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            loadDestinations()
-        }
     }
 
     // MARK: - Trip Predictor integration helpers

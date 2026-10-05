@@ -1,6 +1,7 @@
 import Foundation
 import CoreLocation
 import Combine
+import UIKit
 
 // MARK: - TimeSlot (4個 time bucket)
 enum TripTimeSlot: Int, Codable, Hashable, CaseIterable, CustomStringConvertible {
@@ -142,12 +143,9 @@ final class TripPredictor: ObservableObject {
     private init() {}
 
     func prepare() {
-        guard !hasLoaded else { return }
+        guard !hasLoaded, UIApplication.shared.isProtectedDataAvailable else { return }
+        loadState()
         hasLoaded = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            loadState()
-        }
     }
 
     // MARK: - Public APIs

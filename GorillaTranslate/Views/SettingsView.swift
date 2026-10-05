@@ -3,6 +3,7 @@ import CoreLocation
 import CoreMotion
 import MapKit
 import WidgetKit
+import Charts
 
 struct SettingsView: View {
     @State private var simSpeed: Double = 0
@@ -11,7 +12,6 @@ struct SettingsView: View {
     @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 1
     @AppStorage("highFrequencyTracking") var highFrequencyTracking: Bool = true
     @AppStorage("mapTrackingAnimation") var mapTrackingAnimation: Int = 1
-    @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
     @AppStorage("speedBlurEnabled") private var speedBlurEnabled: Bool = true
     @AppStorage("speedParallaxEnabled") private var speedParallaxEnabled: Bool = true
     @AppStorage("speedNumberHidden") private var speedNumberHidden: Bool = false
@@ -27,7 +27,6 @@ struct SettingsView: View {
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
-    @AppStorage("floorCurveTriggerMode") private var floorCurveTriggerMode: Int = 0  // 0=純速度, 1=速度+海拔
     @AppStorage("floorConvention") private var floorConvention: Int = 2  // 0=香港, 1=內地, 2=自動
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = true
     @AppStorage("launchAnimationEnabled") var launchAnimationEnabled: Bool = true
@@ -40,11 +39,13 @@ struct SettingsView: View {
     @StateObject private var previewPhaseManager = TimePhaseManager()
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
+    @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
 
     @State private var showingDestinationPicker = false
     @State private var showingAddDestination = false
     @State private var showingEditDestination = false
     @State private var editingDestination: Destination?
+    @State private var destinationsExpanded = false
 
     // Color bindings
     private var parkingColor: Binding<Color> {
@@ -73,7 +74,52 @@ struct SettingsView: View {
     var body: some View {
         NavigationStack {
             List {
-                MeterSettingsSection()
+                // ── 車藍牙：認住「我嘅車」 ──
+                Section {
+                    if let car = locationManager.myCarBluetooth {
+                        LabeledContent(String(localized: "我嘅車藍牙")) {
+                            Text(car.name).foregroundStyle(.primary)
+                        }
+                        Button(role: .destructive) {
+                            locationManager.clearMyCarBluetooth()
+                        } label: {
+                            Text(String(localized: "清除選擇"))
+                        }
+                    }
+                    if locationManager.seenBluetoothDevices.isEmpty {
+                        Text(String(localized: "未見到任何車載藍牙裝置。手機同架車藍牙連住之後，呢度會自動出現。"))
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(String(localized: "最近見到"))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        ForEach(locationManager.seenBluetoothDevices) { device in
+                            Button {
+                                locationManager.selectMyCarBluetooth(device)
+                            } label: {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(device.name)
+                                            .foregroundStyle(.primary)
+                                        Text(String(format: String(localized: "最後見到：%@"), device.lastSeen.formatted(date: .abbreviated, time: .shortened)))
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    if locationManager.myCarBluetooth?.id == device.id {
+                                        Image(systemName: "checkmark")
+                                            .fontWeight(.semibold)
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                } header: {
+                    Label(String(localized: "我嘅車藍牙"), systemImage: "car.bluetooth")
+                } footer: {
+                    Text(String(localized: "選定之後，只有呢部車嘅藍牙斷線先會計入落車判定，藍牙耳機／家用音響斷線唔會誤判。未選定就用「啱啱揸緊車」推斷落車。"))
+                }
                 // ── 1. 語言 ──
                 Section {
                     Button {
@@ -84,8 +130,14 @@ struct SettingsView: View {
                             Text(String(localized: "語言"))
                                 .foregroundStyle(.primary)
                             Spacer()
-                            Text(Bundle.main.preferredLocalizations.first?.hasPrefix("zh") == true
-                                 ? "繁體中文" : "English")
+                            Text({
+                                switch Bundle.main.preferredLocalizations.first {
+                                case "zh-Hant": "繁體中文"
+                                case "zh-Hans": "简体中文"
+                                case "ja": "日本語"
+                                default: "English"
+                                }
+                            }())
                                 .foregroundStyle(.secondary)
                             Image(systemName: "arrow.up.right")
                                 .font(.caption)
@@ -100,60 +152,14 @@ struct SettingsView: View {
 
                 // ── 2. 目的地 ──
                 Section {
-                    if destinationManager.destinations.isEmpty {
-                        Text(String(localized: "No saved destinations yet"))
-                            .foregroundStyle(.secondary)
-                    } else {
-                        ForEach(destinationManager.destinations) { destination in
-                            HStack {
-                                Circle()
-                                    .fill(destination.color)
-                                    .frame(width: 12, height: 12)
-                                Text(destination.name)
-                                Spacer()
-                                if destinationManager.selectedDestination?.id == destination.id {
-                                    Image(systemName: "checkmark")
-                                        .foregroundStyle(.blue)
-                                }
-                                if let distance = destination.formattedDistance,
-                                   let time = destination.formattedTime {
-                                    VStack(alignment: .trailing, spacing: 2) {
-                                        Text(distance)
-                                            .font(.caption)
-                                        Text(time)
-                                            .font(.caption)
-                                    }
-                                    .foregroundStyle(.secondary)
-                                }
-                            }
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                destinationManager.selectDestination(destination)
-                            }
-                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                Button(role: .destructive) {
-                                    destinationManager.deleteDestination(destination)
-                                } label: {
-                                    Image(systemName: "trash")
-                                }
-                                Button {
-                                    editingDestination = destination
-                                    showingEditDestination = true
-                                } label: {
-                                    Image(systemName: "pencil")
-                                }
-                                .tint(.blue)
-                            }
-                        }
-                    }
-                } header: {
-                    HStack {
-                        Label(String(localized: "目的地"), systemImage: "mappin.circle")
-                        Spacer()
-                        Button {
-                            showingAddDestination = true
-                        } label: {
-                            Image(systemName: "plus")
+                    DisclosureGroup(isExpanded: $destinationsExpanded) {
+                        destinationRows
+                    } label: {
+                        HStack {
+                            Label(String(localized: "目的地"), systemImage: "mappin.circle")
+                            Spacer()
+                            Text(destinationManager.destinations.count, format: .number)
+                                .foregroundStyle(.secondary)
                         }
                     }
                 }
@@ -165,12 +171,8 @@ struct SettingsView: View {
                         Text(String(localized: "Dark")).tag(1)
                         Text(String(localized: "Light")).tag(2)
                     }
-                    Picker(String(localized: "地圖樣式"), selection: $colorSchemeIndex) {
-                        Text(String(localized: "Default")).tag(0)
-                        Text("27").tag(1)
-                    }
                     Picker(String(localized: "膠囊動畫"), selection: $capsuleAnimationStyle) {
-                        Text(String(localized: "預設")).tag(0)
+                        Text(String(localized: "標準")).tag(0)
                         Text(String(localized: "提升縮放")).tag(1)
                     }
                     Picker(String(localized: "地圖風格"), selection: $mapStyleIndex) {
@@ -184,6 +186,8 @@ struct SettingsView: View {
                 } header: {
                     Label(String(localized: "外觀"), systemImage: "paintpalette")
                 }
+
+                SoundSettingsSection()
 
                 // ── 4. 自定義顏色 ──
                 Section {
@@ -241,26 +245,20 @@ struct SettingsView: View {
 
                 // ── 6. 泊車功能 ──
                 Section {
+                    Picker(String(localized: "地點樓層判定"), selection: Binding(
+                        get: { parkingFloorStore.floorMode }, set: { parkingFloorStore.setFloorMode($0) }
+                    )) {
+                        ForEach(ParkingFloorMode.allCases) { mode in Text(mode.title).tag(mode) }
+                    }
+                    Text(String(localized: "切換不會合併或刪除舊記錄。不同樓層模式會保留每次泊車樓層，並按樓層分組。"))
+                        .font(.caption).foregroundStyle(.secondary)
                     Toggle(isOn: $vlmRecognitionEnabled) {
                         Label(String(localized: "VLM 車位識別"), systemImage: "brain.head.profile")
                     }
                     Text(String(localized: "拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Toggle(isOn: $sfxAccelerationEnabled) {
-                        Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
-                    }
-                    Text(String(localized: "關閉後，時速頁嘅「加速」提示聲會停用。"))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Picker(String(localized: "樓層探測觸發"), selection: $floorCurveTriggerMode) {
-                        Text(String(localized: "純速度")).tag(0)
-                        Text(String(localized: "速度 + 海拔")).tag(1)
-                    }
-                    .pickerStyle(.segmented)
-                    Text(floorCurveTriggerMode == 0
-                        ? String(localized: "速度低於 20 km/h 時自動展開膠囊，不管有冇海拔變化。")
-                        : String(localized: "速度低於 20 km/h 且偵測到海拔變化時才展開膠囊。"))
+                    Text(String(localized: "行車後降至 20 km/h 以下開始樓層探測；停穩 10 秒後詢問是否已泊好，未確認就繼續採樣，每隔 10 秒再問。只在前景採樣。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
@@ -269,8 +267,6 @@ struct SettingsView: View {
                             Text(String(localized: "內地 (1, 2, 3…)")).tag(1)
                             Text(String(localized: "自動偵測")).tag(2)
                         }
-                        // 自動模式旁顯示當前實際生效嘅慣例（跟最新 GPS 位置判定），
-                        // 等 user 唔使估：以前淨係「自動偵測」四個字，出到去先知用錯慣例
                         if floorConvention == 2 {
                             FloorConventionBadge(compact: true)
                         }
@@ -285,6 +281,8 @@ struct SettingsView: View {
                 } header: {
                     Label(String(localized: "泊車功能"), systemImage: "car")
                 }
+
+                MeterSettingsSection()
 
                 // ── 6.5 時速顯示效果 ──
                 Section {
@@ -316,6 +314,10 @@ struct SettingsView: View {
 
                 // ── 7. 光球效果 ──
                 Section {
+                    Picker(String(localized: "光球配色"), selection: $colorSchemeIndex) {
+                        Text(String(localized: "Default")).tag(0)
+                        Text("27").tag(1)
+                    }
                     Toggle(isOn: $orbMasterEnabled) {
                         Label(String(localized: "光球效果總開關"), systemImage: "sparkles")
                     }
@@ -488,6 +490,48 @@ struct SettingsView: View {
         }
     }
     
+    @ViewBuilder
+    private var destinationRows: some View {
+        if destinationManager.destinations.isEmpty {
+            Text(String(localized: "No saved destinations yet"))
+                .foregroundStyle(.secondary)
+        }
+        ForEach(destinationManager.destinations) { destination in
+            HStack {
+                Circle().fill(destination.color).frame(width: 12, height: 12)
+                Text(destination.name)
+                Spacer()
+                if destinationManager.selectedDestination?.id == destination.id {
+                    Image(systemName: "checkmark").foregroundStyle(.blue)
+                }
+                if let distance = destination.formattedDistance, let time = destination.formattedTime {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(distance).font(.caption)
+                        Text(time).font(.caption)
+                    }
+                    .foregroundStyle(.secondary)
+                }
+            }
+            .contentShape(Rectangle())
+            .onTapGesture { destinationManager.selectDestination(destination) }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                Button(role: .destructive) {
+                    destinationManager.deleteDestination(destination)
+                } label: { Image(systemName: "trash") }
+                Button {
+                    editingDestination = destination
+                    showingEditDestination = true
+                } label: { Image(systemName: "pencil") }
+                .tint(.blue)
+            }
+        }
+        Button {
+            showingAddDestination = true
+        } label: {
+            Label(String(localized: "新增目的地"), systemImage: "plus")
+        }
+    }
+
     private func toggleAutoPlay() {
         if isAutoPlaying {
             stopAutoPlay()
@@ -557,6 +601,64 @@ struct SettingsView: View {
         case "Passing": return "arrow.triangle.swap"
         default: return "mappin.circle.fill"
         }
+    }
+}
+
+private struct SoundSettingsSection: View {
+    @AppStorage(SFXPreferences.launchKey) private var launchVersion = 0
+    @AppStorage(SFXPreferences.movementKey) private var movementVersion = 1
+    @AppStorage("sfxAccelerationEnabled") private var accelerationEnabled = false
+    @StateObject private var preview = SFXPlayer()
+
+    var body: some View {
+        Section {
+            Picker(String(localized: "App 啟動音效"), selection: $launchVersion) {
+                Text(String(localized: "原有音效")).tag(0)
+                Text(String(localized: "啟動音效 2")).tag(1)
+            }
+            Button {
+                preview.stopPreviews()
+                preview.previewLaunchSound()
+            } label: {
+                Label(String(localized: "試聽啟動音效"), systemImage: "play.circle")
+            }
+            Picker(String(localized: "逗留／開車音效"), selection: $movementVersion) {
+                Text(String(localized: "原有音效")).tag(0)
+                Text(String(localized: "新音效")).tag(1)
+            }
+            HStack {
+                Button {
+                    preview.stopPreviews()
+                    preview.playEnterStationary()
+                } label: {
+                    Label(String(localized: "試聽逗留"), systemImage: "play.circle")
+                }
+                Spacer()
+                Button {
+                    preview.stopPreviews()
+                    preview.playEnterDriving()
+                } label: {
+                    Label(String(localized: "試聽開車"), systemImage: "play.circle")
+                }
+            }
+            .buttonStyle(.borderless)
+            Button {
+                preview.stopPreviews()
+                preview.previewParkingReminder()
+            } label: {
+                Label(String(localized: "泊車時間提醒音效"), systemImage: "play.circle")
+            }
+            Toggle(isOn: $accelerationEnabled) {
+                Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
+            }
+        } header: {
+            Label(String(localized: "音效"), systemImage: "speaker.wave.2")
+        } footer: {
+            Text(String(localized: "逗留與開車音效會成組切換。泊車時間提醒使用獨立通知音效。"))
+        }
+        .onChange(of: launchVersion) { _, _ in preview.stopPreviews() }
+        .onChange(of: movementVersion) { _, _ in preview.stopPreviews() }
+        .onDisappear { preview.stopPreviews() }
     }
 }
 
@@ -718,417 +820,330 @@ struct ParkingFloorTestView: View {
 
 struct ParkingFlowTestView: View {
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
-    
-    @State private var expandedLotIDs: Set<UUID> = []
     @State private var renamingLotID: UUID?
-    @State private var renamingText: String = ""
+    @State private var renamingFloor: Int?
+    @State private var renamingText = ""
     @State private var showRenameAlert = false
-    
+    @State private var showClearAlert = false
+
     var body: some View {
         List {
             Section {
-                HStack {
-                    Text("停車場數")
-                    Spacer()
-                    Text("\(parkingFloorStore.lots.count)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-                
-                HStack {
-                    Text("停車點數")
-                    Spacer()
-                    Text("\(parkingFloorStore.allPoints.count)")
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
+                ParkingCaptureStatusView(barometer: parkingFloorStore.barometer)
+                Picker(String(localized: "地點樓層判定"), selection: Binding(
+                    get: { parkingFloorStore.floorMode }, set: { parkingFloorStore.setFloorMode($0) }
+                )) {
+                    ForEach(ParkingFloorMode.allCases) { mode in Text(mode.title).tag(mode) }
                 }
             }
-            
             if parkingFloorStore.lots.isEmpty {
+                ContentUnavailableView(String(localized: "未有任何停車點記錄"),
+                                       systemImage: "parkingsign.circle")
+            }
+            ForEach(parkingFloorStore.lots) { lot in
                 Section {
-                    Text("未有任何停車點記錄")
-                        .foregroundStyle(.secondary)
-                } header: {
-                    Label("停車場 / 停車點", systemImage: "parkingsign.circle.fill")
-                }
-            } else {
-                ForEach(parkingFloorStore.lots) { lot in
-                    Section {
-                        if expandedLotIDs.contains(lot.id) {
-                            ForEach(lot.points) { point in
-                                pointRow(point)
-                            }
-                        } else {
-                            if let first = lot.points.first {
-                                pointRow(first)
+                    NavigationLink { ParkingLotDetailView(lot: lot) } label: {
+                        LabeledContent(lot.preferredDisplayName ?? String(localized: "停車場"),
+                                       value: "\(lot.points.count)")
+                    }
+                    if parkingFloorStore.floorMode == .perVisit {
+                        ForEach(floors(in: lot), id: \.self) { floor in
+                            DisclosureGroup {
+                                ForEach(points(in: lot, floor: floor)) { point in pointLink(point) }
+                                Button {
+                                    renamingLotID = lot.id
+                                    renamingFloor = floor
+                                    renamingText = lot.floorNames?[String(floor)] ?? ""
+                                    showRenameAlert = true
+                                } label: { Label(String(localized: "命名此樓層"), systemImage: "pencil") }
+                            } label: {
+                                Label(lot.floorNames?[String(floor)]
+                                      ?? ParkingFloorStore.formatFloor(floor, coordinate: lot.centerCoordinate),
+                                      systemImage: floor < 0 ? "arrow.down.square" : "building.2")
+                                    .accessibilityIdentifier("parkingFloorGroup-\(floor)")
                             }
                         }
-                    } header: {
-                        lotHeader(lot)
+                        ForEach(lot.points.filter { $0.manualFloorIndex == nil && $0.predictedFloorIndex == nil }) {
+                            pointLink($0)
+                        }
+                    } else {
+                        ForEach(lot.points.sorted { $0.createdAt > $1.createdAt }.prefix(3)) { pointLink($0) }
+                        if lot.points.count > 3 {
+                            NavigationLink(String(localized: "所有停車點")) {
+                                List(lot.points.sorted { $0.createdAt > $1.createdAt }) { pointLink($0) }
+                                    .navigationTitle(lot.preferredDisplayName ?? String(localized: "停車場"))
+                            }
+                        }
                     }
                 }
             }
-            
             Section {
-                Button(role: .destructive) {
-                    parkingFloorStore.clearAll()
-                } label: {
-                    Label("清除全部停車點數據", systemImage: "trash")
+                Button(role: .destructive) { showClearAlert = true } label: {
+                    Label(String(localized: "清除全部停車點數據"), systemImage: "trash")
                 }
             }
         }
-        .navigationTitle("停車流程測試")
+        .navigationTitle(String(localized: "停車流程測試"))
         .navigationBarTitleDisplayMode(.inline)
-        .alert("停車場改名", isPresented: $showRenameAlert) {
-            TextField("名稱", text: $renamingText)
-            Button("取消", role: .cancel) {}
-            Button("確定") {
-                guard let id = renamingLotID else { return }
-                parkingFloorStore.setLotName(lotID: id, name: renamingText)
-                renamingLotID = nil
+        .alert(String(localized: "命名此樓層"), isPresented: $showRenameAlert) {
+            TextField(String(localized: "名稱"), text: $renamingText)
+            Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "確定")) {
+                guard let id = renamingLotID, let floor = renamingFloor else { return }
+                parkingFloorStore.setFloorName(lotID: id, floor: floor, name: renamingText)
             }
         }
-    }
-    
-    private func lotHeader(_ lot: ParkingLotRecord) -> some View {
-        let isExpanded = expandedLotIDs.contains(lot.id)
-        let title = lot.name ?? "停車場"
-        
-        return VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        if isExpanded {
-                            expandedLotIDs.remove(lot.id)
-                        } else {
-                            expandedLotIDs.insert(lot.id)
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                        Text(title)
-                            .font(.system(size: 17, weight: .semibold))
-                        Spacer()
-                        Text("\(lot.points.count) 點")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                    }
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                
-                NavigationLink {
-                    ParkingLotDetailView(lot: lot)
-                } label: {
-                    Image(systemName: "info.circle")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                
-                Button {
-                    renamingLotID = lot.id
-                    renamingText = lot.name ?? ""
-                    showRenameAlert = true
-                } label: {
-                    Image(systemName: "pencil")
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 28, height: 28)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            
-            VStack(alignment: .leading, spacing: 6) {
-                keyValue("中心", String(format: "%.6f, %.6f", lot.centerLatitude, lot.centerLongitude))
-                keyValue("半徑", "\(Int(lot.radiusMeters))m")
-                keyValue("更新", lot.updatedAt.formatted(.dateTime.year().month().day().hour().minute().second()))
-                if let m = lot.learnedMetersPerFloor {
-                    keyValue("每層高度", String(format: "%.2fm", m))
-                }
-                if let c = lot.learnedConfidence {
-                    keyValue("信心度", String(format: "%.2f", c))
-                }
-            }
+        .alert(String(localized: "清除全部停車點數據"), isPresented: $showClearAlert) {
+            Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "清除"), role: .destructive) { parkingFloorStore.clearAll() }
         }
-        .padding(.vertical, 2)
     }
-    
-    private func pointRow(_ point: ParkingPointRecord) -> some View {
-        let floor = point.displayFloor ?? "未知"
-        let conf: String = {
-            if let c = point.confidence { return String(format: "%.2f", c) }
-            return "—"
-        }()
-        
-        return VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                ZStack {
-                    Circle()
-                        .fill(Color.orange.opacity(0.15))
-                        .frame(width: 32, height: 32)
-                    Image(systemName: "parkingsign.circle.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(.orange)
-                }
-                
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(point.address.isEmpty ? "Unknown" : point.address)
-                        .font(.system(size: 16, weight: .semibold))
-                    Text(point.createdAt, format: .dateTime.year().month().day().hour().minute().second())
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-                
-                Spacer()
-                
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(floor)
-                        .font(.system(size: 16, weight: .semibold))
-                        .monospacedDigit()
-                    FloorConventionBadge(coordinate: point.coordinate, compact: true)
-                    Text("信心 \(conf)")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .monospacedDigit()
-                }
-            }
-            
+
+    private func floors(in lot: ParkingLotRecord) -> [Int] {
+        Set(lot.points.compactMap { $0.manualFloorIndex ?? $0.predictedFloorIndex }).sorted(by: >)
+    }
+
+    private func points(in lot: ParkingLotRecord, floor: Int) -> [ParkingPointRecord] {
+        lot.points.filter { ($0.manualFloorIndex ?? $0.predictedFloorIndex) == floor }
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    private func pointLink(_ point: ParkingPointRecord) -> some View {
+        NavigationLink {
+            ParkingPointDiagnosticsView(pointID: point.id)
+        } label: {
             HStack(spacing: 12) {
-                Text(String(format: "%.6f, %.6f", point.latitude, point.longitude))
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .monospacedDigit()
+                Image(systemName: point.isAutomotive ? "car.fill" : "figure.walk")
+                    .foregroundStyle(point.isAutomotive ? Color.green : Color.teal)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(point.createdAt, format: .dateTime.month().day().hour().minute())
+                    Text(point.manualFloorIndex != nil ? String(localized: "已手動確認") : String(localized: "估算樓層"))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
                 Spacer()
-                floorAdjuster(point)
+                Text(point.displayFloor ?? String(localized: "未知"))
+                    .monospacedDigit().foregroundStyle(.secondary)
             }
-        }
-        .padding(.vertical, 6)
-    }
-    
-    private func floorAdjuster(_ point: ParkingPointRecord) -> some View {
-        let current = point.manualFloorIndex ?? point.predictedFloorIndex
-        return HStack(spacing: 10) {
-            Button {
-                let next = (current ?? 0) - 1
-                parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: next)
-            } label: {
-                Image(systemName: "minus.circle.fill")
-                    .foregroundStyle(.primary)
-            }
-            .buttonStyle(.plain)
-            
-            VStack(spacing: 2) {
-                Text(ParkingFloorStore.formatFloor(current ?? 0, coordinate: point.coordinate))
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(minWidth: 26)
-                    .monospacedDigit()
-                FloorConventionBadge(coordinate: point.coordinate, compact: true)
-            }
-            
-            Button {
-                let next = (current ?? 0) + 1
-                parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: next)
-            } label: {
-                Image(systemName: "plus.circle.fill")
-                    .foregroundStyle(.primary)
-            }
-            .buttonStyle(.plain)
-            
-            Button {
-                parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: nil)
-            } label: {
-                Text("清除")
-                    .font(.system(size: 13))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(.secondary)
         }
     }
-    
-    private func keyValue(_ key: String, _ value: String) -> some View {
-        HStack {
-            Text(key)
-                .foregroundStyle(.secondary)
-            Spacer()
-            Text(value)
-                .monospacedDigit()
+}
+
+struct ParkingReferenceFloorView: View {
+    @ObservedObject var barometer: BarometerSessionManager
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    Stepper(value: $barometer.referenceFloorIndex, in: -10...30) {
+                        LabeledContent(String(localized: "起點樓層"),
+                            value: ParkingFloorStore.formatFloor(barometer.referenceFloorIndex))
+                    }
+                    .disabled(!barometer.isUpdating)
+                } footer: {
+                    Text(String(localized: "氣壓計只能量度高度變化。起點預設為地面；若已在停車場內開始探測，請選擇實際起點樓層。"))
+                }
+            }
+            .navigationTitle(String(localized: "起點樓層"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(String(localized: "完成")) { dismiss() }
+                }
+            }
+            .onChange(of: barometer.isUpdating) { _, updating in
+                if !updating { dismiss() }
+            }
         }
-        .font(.system(size: 13))
+    }
+}
+
+private struct ParkingCaptureStatusView: View {
+    @ObservedObject var barometer: BarometerSessionManager
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label(barometer.isUpdating ? String(localized: "持續採樣中")
+                  : barometer.completedResult != nil ? String(localized: "已完成停泊") : String(localized: "等待行車"),
+                  systemImage: barometer.isUpdating ? "waveform.path" : "parkingsign.circle")
+                .foregroundStyle(barometer.isUpdating ? Color.teal : Color.secondary)
+            if barometer.samples.count > 1 {
+                Chart(Array(barometer.samples.suffix(240)), id: \.timestamp) { sample in
+                    LineMark(x: .value("Time", sample.timestamp),
+                             y: .value("Height", sample.relativeAltitude - (barometer.captureReferenceAltitude ?? 0)))
+                        .foregroundStyle(Color.teal)
+                }
+                .chartXAxis(.hidden)
+                .chartYAxis { AxisMarks(position: .leading) }
+                .frame(height: 120)
+            }
+            HStack {
+                Text(String(localized: "已緩存樣本"))
+                Spacer()
+                Text("\(barometer.samples.count)").monospacedDigit().contentTransition(.numericText())
+            }
+            .font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+    }
+}
+
+struct ParkingPointDiagnosticsView: View {
+    let pointID: UUID
+    @EnvironmentObject private var store: ParkingFloorStore
+    private var point: ParkingPointRecord? { store.allPoints.first { $0.id == pointID } }
+
+    var body: some View {
+        if let point {
+            List {
+                Section {
+                    Map(initialPosition: .region(MKCoordinateRegion(center: point.coordinate,
+                        latitudinalMeters: 240, longitudinalMeters: 240)), interactionModes: []) {
+                        Marker(point.displayFloor ?? String(localized: "停車點"), coordinate: point.coordinate)
+                    }
+                    .frame(height: 200).listRowInsets(EdgeInsets())
+                    LabeledContent(String(localized: "建立"), value: point.createdAt.formatted())
+                    Stepper(value: Binding(
+                        get: { self.point?.manualFloorIndex ?? self.point?.predictedFloorIndex ?? 0 },
+                        set: { store.setManualFloor(pointID: pointID, floorIndex: $0) }
+                    ), in: -10...30) {
+                        LabeledContent(String(localized: "樓層"), value: point.displayFloor ?? String(localized: "未知"))
+                    }
+                }
+                Section(String(localized: "氣壓探測")) {
+                    Stepper(value: Binding(
+                        get: { self.point?.barometerReferenceFloorIndex ?? 0 },
+                        set: { store.setReferenceFloor(pointID: pointID, floor: $0) }
+                    ), in: -10...30) {
+                        LabeledContent(String(localized: "起點樓層"),
+                                       value: ParkingFloorStore.formatFloor(point.barometerReferenceFloorIndex ?? 0))
+                    }
+                    LabeledContent(String(localized: "高度變化"),
+                                   value: point.barometerAltitudeDeltaMeters.map { String(format: "%+.1f m", $0) } ?? "—")
+                    LabeledContent(String(localized: "已緩存樣本"), value: "\(point.barometerSampleCount ?? 0)")
+                    LabeledContent(String(localized: "信心度"),
+                                   value: point.confidence.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
+                }
+                Section(String(localized: "位置")) {
+                    LabeledContent(String(localized: "中心"), value: String(format: "%.6f, %.6f", point.latitude, point.longitude))
+                }
+            }
+            .navigationTitle(store.lot(containing: pointID)?.displayName(for: point, mode: store.floorMode)
+                             ?? String(localized: "停車點"))
+            .navigationBarTitleDisplayMode(.inline)
+        } else {
+            ContentUnavailableView(String(localized: "未知"), systemImage: "parkingsign.circle")
+        }
     }
 }
 
 struct ParkingLotDetailView: View {
     let lot: ParkingLotRecord
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
-    @State private var renamingText: String = ""
+    @State private var renamingText = ""
     @State private var showRenameAlert = false
-    
+    @State private var showRecordList = false
+    @State private var showBoundaryEditor = false
+    @State private var showMerge = false
+    @Environment(\.dismiss) private var dismiss
+    private var liveLot: ParkingLotRecord { parkingFloorStore.lots.first { $0.id == lot.id } ?? lot }
+
     var body: some View {
-        let liveLot = parkingFloorStore.lots.first(where: { $0.id == lot.id }) ?? lot
-        let barometer = parkingFloorStore.barometer
         List {
             Section {
-                keyValue("名稱", liveLot.name ?? "（未命名）")
-                keyValue("停車點數", "\(liveLot.points.count)")
-                keyValue("中心", String(format: "%.6f, %.6f", liveLot.centerLatitude, liveLot.centerLongitude))
-                keyValue("半徑", "\(Int(liveLot.radiusMeters))m")
-                keyValue("建立", liveLot.createdAt.formatted(.dateTime.year().month().day().hour().minute().second()))
-                keyValue("更新", liveLot.updatedAt.formatted(.dateTime.year().month().day().hour().minute().second()))
-                keyValue("每層高度", liveLot.learnedMetersPerFloor.map { String(format: "%.2fm", $0) } ?? "未學習")
-                keyValue("高度偏移", liveLot.learnedOffsetMeters.map { String(format: "%.2fm", $0) } ?? "未學習")
-                keyValue("學習信心度", liveLot.learnedConfidence.map { String(format: "%.3f", $0) } ?? "未學習")
-                keyValue("學習記錄數", "\((liveLot.floorLearningHistory ?? []).count)")
-                keyValue("氣壓計支援", barometer.isAvailable ? "支援" : "不支援")
-                keyValue("已緩存樣本", "\(barometer.samples.count)")
-                
+                LabeledContent(String(localized: "名稱"),
+                               value: liveLot.preferredDisplayName ?? String(localized: "未命名"))
                 Button {
                     renamingText = liveLot.name ?? ""
                     showRenameAlert = true
-                } label: {
-                    Label("改名停車場", systemImage: "pencil")
-                }
-            } header: {
-                Label("停車場資訊", systemImage: "building.2.fill")
-            }
-            
-            Section {
-                if (liveLot.floorLearningHistory ?? []).isEmpty {
-                    Text("未有樓層學習記錄：當你手動幫停車點改樓層時，系統就會用氣壓高度差去學習每層高度。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                } else {
-                    ForEach(Array((liveLot.floorLearningHistory ?? []).sorted(by: { $0.createdAt > $1.createdAt }).enumerated()), id: \.offset) { _, item in
-                        VStack(alignment: .leading, spacing: 6) {
-                            HStack {
-                                Text(item.createdAt, format: .dateTime.year().month().day().hour().minute().second())
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.secondary)
-                                Spacer()
-                                HStack(spacing: 4) {
-                                    Text("樓層 \(ParkingFloorStore.formatFloor(item.manualFloorIndex, coordinate: liveLot.points.first?.coordinate))")
-                                        .font(.system(size: 12, weight: .semibold))
-                                    FloorConventionBadge(coordinate: liveLot.points.first?.coordinate, compact: true)
-                                }
-                            }
-                            HStack(spacing: 16) {
-                                keyValue("高度差", String(format: "%.2fm", item.altitudeDeltaMeters))
-                                keyValue("每層高度", String(format: "%.2fm", item.metersPerFloor))
-                            }
+                } label: { Label(String(localized: "地點改名"), systemImage: "pencil") }
+                if parkingFloorStore.floorMode == .perVisit {
+                    Picker(String(localized: "歸納樓層"), selection: Binding(
+                        get: { liveLot.floorScopeIndex },
+                        set: { parkingFloorStore.setLotFloorScope(lotID: lot.id, floor: $0) }
+                    )) {
+                        Text(String(localized: "所有樓層")).tag(Int?.none)
+                        ForEach(-10...30, id: \.self) { floor in
+                            Text(ParkingFloorStore.formatFloor(floor, coordinate: liveLot.centerCoordinate)).tag(Int?.some(floor))
                         }
-                        .padding(.vertical, 2)
                     }
                 }
-            } header: {
-                Label("樓層學習記錄", systemImage: "book.closed.fill")
+            } footer: {
+                Text(String(localized: "同位置的上落客區與地下停車場可分別設定歸納樓層；跨樓層停車場選擇所有樓層。"))
             }
-            
+            Section(String(localized: "樓層校準")) {
+                LabeledContent(String(localized: "每層高度"),
+                    value: liveLot.learnedMetersPerFloor.map { String(format: "%.2f m", $0) } ?? "—")
+                LabeledContent(String(localized: "信心度"),
+                    value: liveLot.learnedConfidence.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
+                if let history = liveLot.floorLearningHistory, !history.isEmpty {
+                    Chart(Array(history.enumerated()), id: \.offset) { entry in
+                        PointMark(x: .value("Floors", entry.element.travelledFloors),
+                                  y: .value("Height", entry.element.altitudeDeltaMeters))
+                            .foregroundStyle(Color.teal)
+                    }
+                    .frame(height: 140)
+                    .chartXAxisLabel(String(localized: "樓層變化"))
+                    .chartYAxisLabel("m")
+                    DisclosureGroup(String(localized: "學習記錄")) {
+                        ForEach(Array(history.sorted { $0.createdAt > $1.createdAt }.enumerated()), id: \.offset) { entry in
+                            HStack {
+                                Text(entry.element.createdAt, format: .dateTime.month().day().hour().minute())
+                                Spacer()
+                                Text(ParkingFloorStore.formatFloor(entry.element.manualFloorIndex,
+                                                                   coordinate: liveLot.centerCoordinate))
+                                Text(String(format: "%+.1f m", entry.element.altitudeDeltaMeters))
+                                    .foregroundStyle(.secondary)
+                            }.font(.caption).monospacedDigit()
+                        }
+                    }
+                }
+            }
+            Section(String(localized: "所有停車點")) {
+                Button { showRecordList = true } label: {
+                    Label(String(localized: "修正歷史樓層"), systemImage: "list.bullet")
+                }
+                ForEach(liveLot.points.sorted { $0.createdAt > $1.createdAt }) { point in
+                    NavigationLink { ParkingPointDiagnosticsView(pointID: point.id) } label: {
+                        HStack {
+                            Text(point.createdAt, format: .dateTime.month().day().hour().minute())
+                            Spacer()
+                            Text(point.displayFloor ?? String(localized: "未知"))
+                                .foregroundStyle(.secondary).monospacedDigit()
+                        }
+                    }
+                }
+            }
             Section {
-                ForEach(liveLot.points.sorted(by: { $0.createdAt > $1.createdAt })) { point in
-                    pointDetailRow(point)
+                Button { showBoundaryEditor = true } label: {
+                    Label(String(localized: "調整停車場範圍"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                 }
-            } header: {
-                Label("所有停車點（含氣壓與預判）", systemImage: "parkingsign.circle.fill")
+                Button { showMerge = true } label: {
+                    Label(String(localized: "合併停車場"), systemImage: "arrow.triangle.merge")
+                }
+                DisclosureGroup(String(localized: "位置")) {
+                    LabeledContent(String(localized: "中心"),
+                        value: String(format: "%.6f, %.6f", liveLot.centerLatitude, liveLot.centerLongitude))
+                    LabeledContent(String(localized: "半徑"), value: "\(Int(liveLot.radiusMeters)) m")
+                }
             }
         }
-        .navigationTitle(liveLot.name ?? "停車場詳情")
+        .navigationTitle(liveLot.preferredDisplayName ?? String(localized: "停車場"))
         .navigationBarTitleDisplayMode(.inline)
-        .alert("停車場改名", isPresented: $showRenameAlert) {
-            TextField("名稱", text: $renamingText)
-            Button("取消", role: .cancel) {}
-            Button("確定") {
-                parkingFloorStore.setLotName(lotID: liveLot.id, name: renamingText)
-            }
+        .sheet(isPresented: $showRecordList) {
+            ParkingRecordListView(store: parkingFloorStore, lotID: lot.id, groupID: nil)
         }
-    }
-    
-    @ViewBuilder
-    private func pointDetailRow(_ point: ParkingPointRecord) -> some View {
-        let floorSource: String = {
-            if point.manualFloorIndex != nil { return "手動" }
-            if point.predictedFloorIndex != nil {
-                if point.predictedFromLotLearned == true { return "預判(已學習)" }
-                return "預判(預設)"
-            }
-            return "未知"
-        }()
-        let confText = point.confidence.map { String(format: "%.3f", $0) } ?? "—"
-        let confProgress: Double = point.confidence ?? 0
-        
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(alignment: .top) {
-                ZStack {
-                    Circle()
-                        .fill(Color.orange.opacity(0.15))
-                        .frame(width: 36, height: 36)
-                    Image(systemName: "parkingsign.circle.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.orange)
-                }
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(point.address.isEmpty ? "Unknown" : point.address)
-                        .font(.system(size: 15, weight: .semibold))
-                    Text(point.createdAt, format: .dateTime.year().month().day().hour().minute().second())
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-                VStack(alignment: .trailing, spacing: 3) {
-                    Text(point.displayFloor ?? "未知")
-                        .font(.system(size: 15, weight: .semibold))
-                        .monospacedDigit()
-                    FloorConventionBadge(coordinate: point.coordinate, compact: true)
-                    Text(floorSource)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.secondary)
-                }
-            }
-            
-            HStack {
-                Label(String(format: "%.6f, %.6f", point.latitude, point.longitude), systemImage: "location.fill")
-                Spacer()
-            }
-            .font(.system(size: 12))
-            .foregroundStyle(.secondary)
-            
-            HStack(spacing: 16) {
-                keyValue("手動樓層", point.manualFloorIndex.map { ParkingFloorStore.formatFloor($0, coordinate: point.coordinate) } ?? "—")
-                keyValue("預判樓層", point.predictedFloorIndex.map { ParkingFloorStore.formatFloor($0, coordinate: point.coordinate) } ?? "—")
-                keyValue("信心度", confText)
-                FloorConventionBadge(coordinate: point.coordinate, compact: true)
-            }
-            
-            VStack(alignment: .leading, spacing: 6) {
-                ProgressView(value: confProgress)
-                    .tint(Color.orange)
-                HStack(spacing: 16) {
-                    keyValue("氣壓高度差", point.barometerAltitudeDeltaMeters.map { String(format: "%.2fm", $0) } ?? "—")
-                    keyValue("氣壓樣本", point.barometerSampleCount.map { "\($0)" } ?? "—")
-                    keyValue("參考高度", point.barometerReferenceAltitude.map { String(format: "%.2fm", $0) } ?? "—")
-                }
-                HStack(spacing: 16) {
-                    keyValue("最終高度", point.barometerFinalAltitude.map { String(format: "%.2fm", $0) } ?? "—")
-                    keyValue("氣壓值", point.barometerPressureKPa.map { String(format: "%.2f kPa", $0) } ?? "—")
-                }
-            }
+        .sheet(isPresented: $showBoundaryEditor) {
+            ParkingBoundaryEditor(store: parkingFloorStore, lot: liveLot)
         }
-        .padding(.vertical, 6)
-    }
-    
-    private func keyValue(_ key: String, _ value: String) -> some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(key)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 13, weight: .medium))
-                .monospacedDigit()
+        .sheet(isPresented: $showMerge) {
+            ParkingLotMergeView(store: parkingFloorStore, sourceID: lot.id) { dismiss() }
+        }
+        .alert(String(localized: "地點改名"), isPresented: $showRenameAlert) {
+            TextField(String(localized: "名稱"), text: $renamingText)
+            Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "確定")) { parkingFloorStore.setLotName(lotID: lot.id, name: renamingText) }
         }
     }
 }
@@ -1368,8 +1383,8 @@ struct AltimeterTestView: View {
 
     // 速度狀態
     private var speedAge: TimeInterval { now.timeIntervalSince(barometer.lastSpeedUpdateTime) }
-    private var gpsIsStale: Bool { speedAge > 15 }
-    private var effectiveSpeed: Double { gpsIsStale ? 0 : barometer.currentSpeedKmh }
+    private var gpsIsStale: Bool { speedAge > 5 || barometer.currentSpeedKmh < 0 }
+    private var effectiveSpeed: Double { gpsIsStale ? -1 : barometer.currentSpeedKmh }
 
     // 窗口計算結果
     private var window1: BarometerSessionManager.WindowResult? {
@@ -1688,7 +1703,7 @@ struct AltimeterTestView: View {
                        ? String(format: "失效 %.0fs", speedAge)
                        : String(format: "正常 %.0fs", speedAge),
                        color: gpsIsStale ? .red : .green)
-            compactRow("標記", value: gpsIsStale ? "0（歸零）" : String(format: "%.1f", barometer.currentSpeedKmh),
+            compactRow("標記", value: gpsIsStale ? String(localized: "未知") : String(format: "%.1f", barometer.currentSpeedKmh),
                        color: gpsIsStale ? .orange : .primary)
         }
         .padding(6)
@@ -1859,7 +1874,7 @@ struct AltimeterTestView: View {
                     ? String(format: "失效（%.0f 秒冇更新）", speedAge)
                     : String(format: "正常（%.0f 秒前更新）", speedAge),
                     color: gpsIsStale ? .red : .green)
-            infoRow("速度標記", value: gpsIsStale ? "0 km/h（自動歸零）" : String(format: "%.1f km/h", barometer.currentSpeedKmh),
+            infoRow("速度標記", value: gpsIsStale ? String(localized: "未知") : String(format: "%.1f km/h", barometer.currentSpeedKmh),
                     color: gpsIsStale ? .orange : .primary)
         }
     }
@@ -2574,7 +2589,9 @@ struct VisitRecordsTestView: View {
     // MARK: - 到訪記錄卡片（一條記錄一個白色容器）
     @ViewBuilder
     private func visitCard(_ visit: LocationManager.VisitRecord) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        let name = parkingFloorStore.displayName(for: visit)
+        let missingDeparture = visit.departureDate == nil && locationManager.visits.contains { $0.arrivalDate > visit.arrivalDate }
+        return HStack(alignment: .top, spacing: 12) {
             // 左側：交通方式圖標
             ZStack {
                 Circle()
@@ -2587,7 +2604,7 @@ struct VisitRecordsTestView: View {
 
             VStack(alignment: .leading, spacing: 2) {
                 // 地點名
-                Text(visit.address.isEmpty ? "未知地點" : visit.address)
+                Text(name.isEmpty || name == "Unknown" ? String(localized: "未知") : name)
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
@@ -2606,6 +2623,10 @@ struct VisitRecordsTestView: View {
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                         dayOffsetBadge(for: dep)
+                    } else if missingDeparture {
+                        Text("未知")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.secondary)
                     } else {
                         Text("至今")
                             .font(.system(size: 13))
@@ -2627,7 +2648,7 @@ struct VisitRecordsTestView: View {
             Spacer(minLength: 8)
 
             // 右側：停留時長
-            Text(visit.duration)
+            Text(missingDeparture ? "—" : visit.duration)
                 .font(.system(size: 13, weight: .medium))
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 8)
@@ -2672,11 +2693,12 @@ struct VisitRecordsTestView: View {
     @ViewBuilder
     private func tripRow(from: LocationManager.VisitRecord, to: LocationManager.VisitRecord) -> some View {
         // 行程窗口：上一筆記錄嘅離場 → 下一筆記錄嘅到達
-        let gapStart = from.departureDate ?? to.arrivalDate
-        let gap = to.arrivalDate.timeIntervalSince(gapStart)
+        let gapStart = from.departureDate
+        let gap = to.arrivalDate.timeIntervalSince(gapStart ?? from.arrivalDate)
         // 重疊／壞數據（負數）就唔顯示行程行
         if gap > 0 {
-            let items = tripSegmentItems(from: gapStart, to: to.arrivalDate, fallback: to)
+            let items = gapStart.map { tripSegmentItems(from: $0, to: to.arrivalDate) }
+                ?? [TripSegmentItem(icon: "questionmark.circle", text: String(localized: "離場時間未記錄"))]
             HStack(alignment: .top, spacing: 24) {
                 // 左側連接線
                 Rectangle()
@@ -2710,13 +2732,12 @@ struct VisitRecordsTestView: View {
         }
     }
 
-    /// 行程分段：新記錄有 CMMotionActivity 分段數據 → 多段 `🚗33min ▶ 🚶1min ▶…`；
-    /// 舊記錄冇分段數據 → 單行 `🚗30min`
-    private func tripSegmentItems(from: Date, to: Date, fallback: LocationManager.VisitRecord) -> [TripSegmentItem] {
-        let segs = locationManager.tripSegments(from: from, to: to)
+    /// 行程分段以兩次到訪之間的實際窗口為準；重疊或缺失的偵測不猜交通方式。
+    private func tripSegmentItems(from: Date, to: Date) -> [TripSegmentItem] {
+        let segs = locationManager.tripTimeline(from: from, to: to)
         guard !segs.isEmpty else {
             return [TripSegmentItem(
-                icon: transportIcon(fallback.transportType),
+                icon: "questionmark.circle",
                 text: LocationManager.VisitRecord.formatSpan(to.timeIntervalSince(from))
             )]
         }
@@ -2734,7 +2755,8 @@ struct VisitRecordsTestView: View {
         case "Walking": return "figure.walk"
         case "Cycling": return "bicycle"
         case "Running": return "figure.run"
-        default: return "car.fill"
+        case "Stationary": return "pause.fill"
+        default: return "questionmark.circle"
         }
     }
 
@@ -4058,77 +4080,98 @@ struct PlaceManagementView: View {
 struct ParkingLotPointsView: View {
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
     let lot: ParkingLotRecord
-    @State private var showDeleteAlert = false
-    @State private var pointToDelete: ParkingPointRecord?
     @Environment(\.dismiss) private var dismiss
+    @State private var pointToDelete: ParkingPointRecord?
+    @State private var showDeleteAlert = false
+    @State private var renamingFloor: Int?
+    @State private var floorName = ""
+    @State private var showFloorNameAlert = false
 
-    // 從 parkingFloorStore 獲取最新的 lot 數據
-    private var currentLot: ParkingLotRecord? {
-        parkingFloorStore.lots.first { $0.id == lot.id }
+    private var currentLot: ParkingLotRecord? { parkingFloorStore.lots.first { $0.id == lot.id } }
+    private var floors: [Int] {
+        Set(currentLot?.points.compactMap { $0.manualFloorIndex ?? $0.predictedFloorIndex } ?? []).sorted(by: >)
     }
 
     var body: some View {
         List {
-            Section {
-                if let currentLot {
-                    ForEach(currentLot.points.sorted(by: { $0.createdAt > $1.createdAt })) { point in
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                // 優先顯示停車場名稱，其次顯示地址
-                                Text(lot.name ?? (point.address.isEmpty ? "未命名停車場" : point.address))
-                                    .font(.subheadline.weight(.semibold))
-                                Text(point.createdAt, format: .dateTime.year().month().day().hour().minute())
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                                HStack(spacing: 12) {
-                                    if let floor = point.displayFloor {
-                                        Text("樓層: \(floor)")
-                                            .font(.caption2)
-                                            .foregroundStyle(.secondary)
-                                    }
-                                    Text(String(format: "%.5f, %.5f", point.latitude, point.longitude))
-                                        .font(.caption2.monospaced())
-                                        .foregroundStyle(.secondary)
-                                }
+            if let currentLot {
+                if parkingFloorStore.floorMode == .perVisit {
+                    ForEach(floors, id: \.self) { floor in
+                        Section {
+                            ForEach(currentLot.points.filter { ($0.manualFloorIndex ?? $0.predictedFloorIndex) == floor }
+                                .sorted { $0.createdAt > $1.createdAt }) { point in pointRow(point) }
+                        } header: {
+                            HStack {
+                                Text(currentLot.floorNames?[String(floor)]
+                                     ?? ParkingFloorStore.formatFloor(floor, coordinate: currentLot.centerCoordinate))
+                                Spacer()
+                                Button {
+                                    renamingFloor = floor
+                                    floorName = currentLot.floorNames?[String(floor)] ?? ""
+                                    showFloorNameAlert = true
+                                } label: { Image(systemName: "pencil") }
+                                .accessibilityLabel(String(localized: "命名此樓層"))
                             }
-                            Spacer()
-                            Button {
-                                pointToDelete = point
-                                showDeleteAlert = true
-                            } label: {
-                                Image(systemName: "trash")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.red)
-                                    .frame(width: 32, height: 32)
-                                    .contentShape(Rectangle())
-                            }
-                            .buttonStyle(.plain)
                         }
-                        .padding(.vertical, 2)
+                    }
+                    Section(String(localized: "樓層未確認")) {
+                        ForEach(currentLot.points.filter { $0.manualFloorIndex == nil && $0.predictedFloorIndex == nil }) {
+                            pointRow($0)
+                        }
                     }
                 } else {
-                    Text("停車場已被刪除")
-                        .foregroundStyle(.secondary)
+                    ForEach(currentLot.points.sorted { $0.createdAt > $1.createdAt }) { point in pointRow(point) }
                 }
-            } header: {
-                Text("\(lot.name ?? "未命名") - \(currentLot?.points.count ?? 0) 個停車點")
+            } else {
+                Text(String(localized: "停車場已被刪除")).foregroundStyle(.secondary)
             }
         }
-        .navigationTitle("停車點管理")
+        .navigationTitle(currentLot?.preferredDisplayName ?? String(localized: "停車點管理"))
         .navigationBarTitleDisplayMode(.inline)
-        .alert("確認刪除", isPresented: $showDeleteAlert) {
-            Button("取消", role: .cancel) {}
-            Button("刪除", role: .destructive) {
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink { ParkingLotDetailView(lot: lot) } label: { Image(systemName: "info.circle") }
+            }
+        }
+        .alert(String(localized: "命名此樓層"), isPresented: $showFloorNameAlert) {
+            TextField(String(localized: "名稱"), text: $floorName)
+            Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "確定")) {
+                guard let floor = renamingFloor else { return }
+                parkingFloorStore.setFloorName(lotID: lot.id, floor: floor, name: floorName)
+            }
+        }
+        .alert(String(localized: "確認刪除"), isPresented: $showDeleteAlert) {
+            Button(String(localized: "取消"), role: .cancel) {}
+            Button(String(localized: "刪除"), role: .destructive) {
                 if let point = pointToDelete {
                     parkingFloorStore.deletePoint(pointID: point.id)
-                    // 如果刪除後停車場已無點，自動返回
-                    if currentLot == nil || currentLot?.points.isEmpty == true {
-                        dismiss()
-                    }
+                    if currentLot == nil { dismiss() }
                 }
             }
         } message: {
-            Text("確定要刪除此停車點嗎？刪除後會放入「最近刪除」，7 日內可以還原。")
+            Text(String(localized: "確定要刪除此停車點嗎？刪除後會放入「最近刪除」，7 日內可以還原。"))
+        }
+    }
+
+    private func pointRow(_ point: ParkingPointRecord) -> some View {
+        NavigationLink { ParkingPointDiagnosticsView(pointID: point.id) } label: {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(currentLot?.displayName(for: point, mode: parkingFloorStore.floorMode)
+                     ?? (point.address.isEmpty ? String(localized: "未命名停車場") : point.address))
+                    .font(.subheadline.weight(.semibold))
+                HStack {
+                    Text(point.createdAt, format: .dateTime.year().month().day().hour().minute())
+                    Spacer()
+                    if let floor = point.displayFloor { Text(floor).monospacedDigit() }
+                }
+                .font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        .swipeActions {
+            Button(role: .destructive) { pointToDelete = point; showDeleteAlert = true } label: {
+                Label(String(localized: "刪除"), systemImage: "trash")
+            }
         }
     }
 }

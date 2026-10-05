@@ -62,13 +62,10 @@ class PhotoStorage: ObservableObject {
     init() {}
 
     func prepare() {
-        guard !hasLoaded else { return }
+        guard !hasLoaded, UIApplication.shared.isProtectedDataAvailable else { return }
+        Self.ensureDirectoryExists()
+        load()
         hasLoaded = true
-        Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
-            Self.ensureDirectoryExists()
-            load()
-        }
     }
 
     static func ensureDirectoryExists() {

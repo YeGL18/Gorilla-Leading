@@ -17,18 +17,6 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 @main
 struct GorillaTranslateApp: App {
     init() {
-        LanguageManager.migrateLegacyOverride()
-        let defaults = UserDefaults.standard
-        let onboardingKey = "hasCompletedLeadingOnboarding"
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.gorilla.translation"
-        let persistedDomain = defaults.persistentDomain(forName: bundleID) ?? [:]
-
-        // Existing installs already contain app preferences or saved state. Mark only
-        // those installs as complete so the new tour remains exclusive to fresh installs.
-        if persistedDomain[onboardingKey] == nil {
-            defaults.set(!persistedDomain.isEmpty, forKey: onboardingKey)
-        }
-
         UserDefaults.standard.register(defaults: [
             "capsuleAnimationStyle": 1,
             "mapTrackingAnimation": 1,
@@ -41,6 +29,57 @@ struct GorillaTranslateApp: App {
     }
 
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+
+    var body: some Scene {
+        WindowGroup {
+            ProtectedStartupView(appDelegate: appDelegate)
+        }
+    }
+}
+
+private struct ProtectedStartupView: View {
+    let appDelegate: AppDelegate
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var ready = false
+
+    var body: some View {
+        Group {
+            if ready {
+                GorillaRootView(appDelegate: appDelegate)
+            } else {
+                Color(uiColor: .systemBackground).ignoresSafeArea()
+            }
+        }
+        .onAppear(perform: prepareIfAvailable)
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.protectedDataDidBecomeAvailableNotification)) { _ in
+            prepareIfAvailable()
+        }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { prepareIfAvailable() }
+        }
+    }
+
+    private func prepareIfAvailable() {
+        guard !ready, UIApplication.shared.isProtectedDataAvailable else { return }
+        // Never interpret inaccessible preferences as a fresh installation, or start
+        // location callbacks that could save empty stores before hydration finishes.
+        LanguageManager.migrateLegacyOverride()
+        let defaults = UserDefaults.standard
+        let onboardingKey = "hasCompletedLeadingOnboarding"
+        let bundleID = Bundle.main.bundleIdentifier ?? "com.gorilla.translation"
+        let persistedDomain = defaults.persistentDomain(forName: bundleID) ?? [:]
+        if persistedDomain[onboardingKey] == nil {
+            defaults.set(!persistedDomain.isEmpty, forKey: onboardingKey)
+        }
+        DestinationManager.shared.prepare()
+        ParkingFloorStore.shared.prepare()
+        TripPredictor.shared.prepare()
+        ready = true
+    }
+}
+
+private struct GorillaRootView: View {
+    let appDelegate: AppDelegate
     @StateObject private var destinationManager = DestinationManager.shared
     @StateObject private var locationManager = LocationManager()
     @StateObject private var parkingFloorStore = ParkingFloorStore.shared
@@ -74,8 +113,7 @@ struct GorillaTranslateApp: App {
 #endif
     }
 
-    var body: some Scene {
-        WindowGroup {
+    var body: some View {
             ZStack {
                 Group {
                     if !shouldShowOnboarding {
@@ -139,14 +177,7 @@ struct GorillaTranslateApp: App {
                 Task { @MainActor in
                     try? await Task.sleep(nanoseconds: 300_000_000)
                     SFXPlayer().playLaunchSound()
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    parkingFloorStore.prepare()
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    destinationManager.prepare()
-                    try? await Task.sleep(nanoseconds: 50_000_000)
-                    TripPredictor.shared.prepare()
                 }
             }
-        }
     }
 }

@@ -1,0 +1,7 @@
+"NSAppleIntelligenceUsageDescription" = "This app uses Apple Intelligence for on-device translation.";
+"NSCameraUsageDescription" = "This app needs camera access to take photos of your parking location.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "This app needs always-on location access to track your visits and parking location.";
+"NSLocationWhenInUseUsageDescription" = "This app uses your location to display your current speed.";
+"NSMicrophoneUsageDescription" = "This app needs microphone access for voice input.";
+"NSMotionUsageDescription" = "This app uses motion and altitude data to detect parking floor level.";
+"NSSpeechRecognitionUsageDescription" = "This app uses speech recognition to convert your voice to text for translation.";

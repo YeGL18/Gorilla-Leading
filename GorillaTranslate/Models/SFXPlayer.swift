@@ -3,10 +3,33 @@ import AVFoundation
 
 @preconcurrency import AVFoundation
 
+enum SFXPreferences {
+    static let launchKey = "launchSoundVersion"
+    static let movementKey = "movementSoundVersion"
+    static let parkingReminderFile = "sfx_parking_time_notifi.caf"
+
+    static func launchName(defaults: UserDefaults = .standard) -> String {
+        defaults.integer(forKey: launchKey) == 1 ? "gorilla_launch2" : "gorilla_launch"
+    }
+
+    static func movementVersion(defaults: UserDefaults = .standard) -> Int {
+        (defaults.object(forKey: movementKey) as? Int) == 0 ? 0 : 1
+    }
+
+    static func movementNames(version: Int) -> (stationary: String, driving: String) {
+        version == 0
+            ? ("sfx_enter_stationary", "sfx_enter_driving")
+            : ("sfx_enter_stationary_v2", "sfx_enter_driving_v2")
+    }
+}
+
 @MainActor
 final class SFXPlayer: ObservableObject {
     private var stationaryPlayer: AVAudioPlayer?
     private var drivingPlayer: AVAudioPlayer?
+    private var loadedMovementVersion: Int?
+    private var launchPreviewPlayer: AVAudioPlayer?
+    private var parkingReminderPreviewPlayer: AVAudioPlayer?
     private var accelerationPlayer: AVAudioPlayer?
     private var meterDestinationPlayer: AVAudioPlayer?
     private var destinationPredictPlayer: AVAudioPlayer?
@@ -32,18 +55,51 @@ final class SFXPlayer: ObservableObject {
         Task { @MainActor in
             try? await Task.sleep(nanoseconds: 300_000_000)
             configureAudioSession()
-            stationaryPlayer = loadPlayer(name: "sfx_enter_stationary", volume: baseVolume)
-            drivingPlayer = loadPlayer(name: "sfx_enter_driving", volume: baseVolume)
+            prepareMovementPlayers()
             accelerationPlayer = loadPlayer(name: "sfx_acceleration_overlay", volume: min(1.0, baseVolume * 1.5))
         }
     }
     
     func playEnterStationary() {
-        playOnce(&stationaryPlayer, fallbackName: "sfx_enter_stationary", volumeMultiplier: 1.5)
+        prepareMovementPlayers()
+        drivingPlayer?.stop()
+        let names = SFXPreferences.movementNames(version: loadedMovementVersion ?? 1)
+        playOnce(&stationaryPlayer, fallbackName: names.stationary, volumeMultiplier: 1.5)
     }
 
     func playEnterDriving() {
-        playOnce(&drivingPlayer, fallbackName: "sfx_enter_driving", volumeMultiplier: 1.5)
+        prepareMovementPlayers()
+        stationaryPlayer?.stop()
+        let names = SFXPreferences.movementNames(version: loadedMovementVersion ?? 1)
+        playOnce(&drivingPlayer, fallbackName: names.driving, volumeMultiplier: 1.5)
+    }
+
+    private func prepareMovementPlayers() {
+        let version = SFXPreferences.movementVersion()
+        guard loadedMovementVersion != version else { return }
+        stationaryPlayer?.stop()
+        drivingPlayer?.stop()
+        let names = SFXPreferences.movementNames(version: version)
+        stationaryPlayer = loadPlayer(name: names.stationary, volume: baseVolume)
+        drivingPlayer = loadPlayer(name: names.driving, volume: baseVolume)
+        loadedMovementVersion = version
+    }
+
+    func previewLaunchSound() {
+        launchPreviewPlayer?.stop()
+        launchPreviewPlayer = nil
+        playOnce(&launchPreviewPlayer, fallbackName: SFXPreferences.launchName())
+    }
+
+    func previewParkingReminder() {
+        playOnce(&parkingReminderPreviewPlayer, fallbackName: "sfx_parking_time_notifi", fileExtension: "caf")
+    }
+
+    func stopPreviews() {
+        launchPreviewPlayer?.stop()
+        parkingReminderPreviewPlayer?.stop()
+        stationaryPlayer?.stop()
+        drivingPlayer?.stop()
     }
 
     func playMeterDestinationNotice() {
@@ -64,7 +120,7 @@ final class SFXPlayer: ObservableObject {
             try? session.setCategory(.playback, mode: .default, options: [])
             try? session.setActive(true, options: [])
             DispatchQueue.main.async {
-                if let url = self.resolveURL(name: "gorilla_launch") {
+                if let url = self.resolveURL(name: SFXPreferences.launchName()) {
                     let p = try? AVAudioPlayer(contentsOf: url)
                     p?.delegate = nil
                     p?.volume = self.baseVolume
@@ -72,7 +128,8 @@ final class SFXPlayer: ObservableObject {
                     p?.play()
                     SFXPlayer.launchPlayer = p // 防止被回收
                     // 播放完畢後恢復 ambient session
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + (p?.duration ?? 3) + 0.1) {
+                        guard SFXPlayer.launchPlayer === p else { return }
                         SFXPlayer.launchPlayer = nil
                         self.configureAudioSession()
                     }
@@ -168,11 +225,11 @@ final class SFXPlayer: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + burstDuration, execute: stopWork)
     }
     
-    private func playOnce(_ player: inout AVAudioPlayer?, fallbackName: String, volumeMultiplier: Float = 1.0) {
+    private func playOnce(_ player: inout AVAudioPlayer?, fallbackName: String, volumeMultiplier: Float = 1.0, fileExtension: String = "mp3") {
         configureAudioSession()
         let vol = baseVolume * volumeMultiplier
         if player == nil {
-            player = loadPlayer(name: fallbackName, volume: vol)
+            player = loadPlayer(name: fallbackName, volume: vol, fileExtension: fileExtension)
         }
         guard let p = player else { return }
         p.stop()
@@ -205,8 +262,8 @@ final class SFXPlayer: ObservableObject {
         }
     }
     
-    private func loadPlayer(name: String, volume: Float) -> AVAudioPlayer? {
-        guard let url = resolveURL(name: name) else { return nil }
+    private func loadPlayer(name: String, volume: Float, fileExtension: String = "mp3") -> AVAudioPlayer? {
+        guard let url = resolveURL(name: name, fileExtension: fileExtension) else { return nil }
         do {
             let p = try AVAudioPlayer(contentsOf: url)
             p.numberOfLoops = 0
@@ -218,14 +275,14 @@ final class SFXPlayer: ObservableObject {
         }
     }
     
-    private func resolveURL(name: String) -> URL? {
-        if let url = Bundle.main.url(forResource: name, withExtension: "mp3", subdirectory: "Resources/Audio/SFX") {
+    private func resolveURL(name: String, fileExtension: String = "mp3") -> URL? {
+        if let url = Bundle.main.url(forResource: name, withExtension: fileExtension, subdirectory: "Resources/Audio/SFX") {
             return url
         }
-        if let url = Bundle.main.url(forResource: name, withExtension: "mp3", subdirectory: "Audio/SFX") {
+        if let url = Bundle.main.url(forResource: name, withExtension: fileExtension, subdirectory: "Audio/SFX") {
             return url
         }
-        return Bundle.main.url(forResource: name, withExtension: "mp3")
+        return Bundle.main.url(forResource: name, withExtension: fileExtension)
     }
 
     // MARK: - 樓層探測音效
