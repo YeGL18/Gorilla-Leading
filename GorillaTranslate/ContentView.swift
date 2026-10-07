@@ -819,6 +819,13 @@ struct ContentView: View {
     @State private var selectedParkingPointID: UUID?
     @State private var parkingRecordsGroup: ParkingRecordGroup?
     @State private var editingParkingBoundary: ParkingLotRecord?
+    /// 主地圖繪製停車場範圍模式（nil = 未啟用）：中心指針對位，「加點」逐點新增。
+    @State private var boundaryDrawLot: ParkingLotRecord?
+    @State private var boundaryDrawVertices: [ParkingBoundaryVertex] = []
+    @State private var boundaryDrawBridge = BoundaryDrawMapBridge()
+    /// 「恢復自動圓形範圍」確認
+    @State private var resettingBoundaryLot: ParkingLotRecord?
+    @State private var showResetBoundaryConfirm = false
     @State private var mergingParkingLot: ParkingLotRecord?
     @State private var changingParkingLotPointID: UUID?
     @State private var parkingLotExpansionStage = 0
@@ -1826,7 +1833,7 @@ struct ContentView: View {
                             withAnimation(.easeOut(duration: 0.28)) {
                                 selectedHKLocation = loc
                             }
-                        })
+                        }, boundaryDrawVertices: boundaryDrawLot != nil ? boundaryDrawVertices : nil, boundaryDrawBridge: boundaryDrawBridge)
                         // 圓角漸變 mask：中心清晰，向圓角邊緣軟化淡出（露出模糊層，冇硬描邊）
                         .mask(
                             RoundedRectangle(cornerRadius: darkKnightMapCornerRadius)
@@ -1862,7 +1869,7 @@ struct ContentView: View {
                         withAnimation(.easeOut(duration: 0.28)) {
                             selectedHKLocation = loc
                         }
-                    })
+                    }, boundaryDrawVertices: boundaryDrawLot != nil ? boundaryDrawVertices : nil, boundaryDrawBridge: boundaryDrawBridge)
                     .ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.5)))
                 }
@@ -2173,6 +2180,34 @@ struct ContentView: View {
                         }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .opacity(boundaryDrawLot == nil ? 1 : 0)
+                .allowsHitTesting(boundaryDrawLot == nil)
+
+            // 繪製停車場範圍工具列（跟影片版面：✕ ↩ 標題 ⊕ ✓，↩ 喺標題左手邊）
+            if boundaryDrawLot != nil {
+                VStack(spacing: 10) {
+                    if boundaryDrawVertices.count >= 3,
+                       !ParkingBoundaryGeometry.isValid(boundaryDrawVertices) {
+                        Text(String(localized: "範圍不可交叉或過小"))
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Capsule().fill(.regularMaterial))
+                    }
+                    BoundaryDrawToolbar(
+                        vertexCount: boundaryDrawVertices.count,
+                        canConfirm: ParkingBoundaryGeometry.isValid(boundaryDrawVertices),
+                        onCancel: endBoundaryDraw,
+                        onUndo: { if !boundaryDrawVertices.isEmpty { boundaryDrawVertices.removeLast() } },
+                        onAdd: addBoundaryVertexAtCenter,
+                        onConfirm: confirmBoundaryDraw
+                    )
+                }
+                .padding(.bottom, capsuleBottomPadding)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+                .zIndex(30)
+            }
         }
         .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -2188,6 +2223,16 @@ struct ContentView: View {
         }
         .sheet(item: $editingParkingBoundary) { lot in
             ParkingBoundaryEditor(store: parkingFloorStore, lot: lot)
+        }
+        .confirmationDialog(String(localized: "恢復自動圓形範圍"), isPresented: $showResetBoundaryConfirm,
+                            titleVisibility: .visible) {
+            Button(String(localized: "恢復"), role: .destructive) {
+                if let lot = resettingBoundaryLot {
+                    _ = parkingFloorStore.setBoundary(lotID: lot.id, vertices: nil)
+                }
+                resettingBoundaryLot = nil
+            }
+            Button(String(localized: "取消"), role: .cancel) { resettingBoundaryLot = nil }
         }
         .sheet(item: $mergingParkingLot) { lot in
             ParkingLotMergeView(store: parkingFloorStore, sourceID: lot.id)
@@ -5288,14 +5333,48 @@ struct ContentView: View {
         }
     }
 
+    // MARK: - 主地圖繪製停車場範圍（中心指針 + 逐點新增）
+
+    /// 由停車點彈窗鉛筆選單進入：直接喺主地圖逐點繪製範圍，唔再彈 sheet。
+    private func beginBoundaryDraw(_ lot: ParkingLotRecord) {
+        boundaryDrawBridge.initialFocus = (lot.centerCoordinate.wgs84ToGCJ02, max(450, lot.radiusMeters * 6))
+        boundaryDrawVertices = lot.boundaryVertices ?? []
+        boundaryDrawLot = lot
+        withAnimation(.easeIn(duration: 0.18)) { selectedParkingPointID = nil }
+    }
+
+    private func endBoundaryDraw() {
+        boundaryDrawLot = nil
+        boundaryDrawVertices = []
+        boundaryDrawBridge.initialFocus = nil
+    }
+
+    /// 「加點」：喺中心指針對準嘅位置加一個頂點（存 WGS84，顯示時先轉 GCJ02）。
+    private func addBoundaryVertexAtCenter() {
+        guard boundaryDrawLot != nil, boundaryDrawVertices.count < 24,
+              let coordinate = boundaryDrawBridge.centerCoordinateProvider?() else { return }
+        boundaryDrawVertices.append(ParkingBoundaryVertex(latitude: coordinate.latitude,
+                                                          longitude: coordinate.longitude))
+    }
+
+    /// 「完成」：驗證後寫入範圍（3–24 點、唔可自交、面積夠大）。
+    private func confirmBoundaryDraw() {
+        guard let lot = boundaryDrawLot, ParkingBoundaryGeometry.isValid(boundaryDrawVertices) else { return }
+        if parkingFloorStore.setBoundary(lotID: lot.id, vertices: boundaryDrawVertices) {
+            endBoundaryDraw()
+        }
+    }
+
     private var selectedParkingPoint: ParkingPointRecord? {
         guard let id = selectedParkingPointID else { return nil }
         return parkingFloorStore.allPoints.first(where: { $0.id == id })
     }
 
     private func parkingPointCapsule(point: ParkingPointRecord) -> some View {
-        let currentFloor = point.effectiveFloorIndex ?? 0
-        let hasFloor = point.effectiveFloorIndex != nil
+        let floorIndex = point.effectiveFloorIndex
+        let currentFloor = floorIndex ?? 0
+        let floorText = point.displayFloor
+        let hasFloor = floorText != nil
         let currentLot = parkingFloorStore.lot(containing: point.id)
         let isChangingLot = changingParkingLotPointID == point.id
         let nearbyLots = nearbyParkingLots(for: point, excluding: currentLot?.id)
@@ -5326,17 +5405,25 @@ struct ContentView: View {
                                 renamingPointName = currentLot?.name ?? ""
                                 showRenamePointAlert = true
                             }
-                            if parkingFloorStore.floorMode == .perVisit, hasFloor {
+                            if parkingFloorStore.floorMode == .perVisit, let floorIndex {
                                 Button(String(localized: "命名此樓層")) {
-                                    renamingPointFloor = currentFloor
+                                    renamingPointFloor = floorIndex
                                     renamingPointName = currentLot?.floorNames?[String(currentFloor)] ?? ""
                                     showRenamePointAlert = true
                                 }
                             }
                             if let currentLot {
                                 Divider()
-                                Button { editingParkingBoundary = currentLot } label: {
+                                Button { beginBoundaryDraw(currentLot) } label: {
                                     Label(String(localized: "調整停車場範圍"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
+                                }
+                                if currentLot.boundaryVertices != nil {
+                                    Button {
+                                        resettingBoundaryLot = currentLot
+                                        showResetBoundaryConfirm = true
+                                    } label: {
+                                        Label(String(localized: "恢復自動圓形範圍"), systemImage: "arrow.counterclockwise")
+                                    }
                                 }
                                 Button { mergingParkingLot = currentLot } label: {
                                     Label(String(localized: "合併停車場"), systemImage: "arrow.triangle.merge")
@@ -5354,8 +5441,7 @@ struct ContentView: View {
                     }
 
                     HStack(spacing: 6) {
-                        Text(String(localized: "樓層") + " " + (hasFloor
-                            ? ParkingFloorStore.formatFloor(currentFloor, coordinate: point.coordinate) : String(localized: "未知")))
+                        Text(String(localized: "樓層") + " " + (floorText ?? String(localized: "未知")))
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -5367,18 +5453,6 @@ struct ContentView: View {
                         Text(point.createdAt, format: .dateTime.month().day().hour().minute())
                             .monospacedDigit()
                         if hasFloor { Text(point.floorStatusLabel) }
-                        if hasFloor && !point.isFloorConfirmed && point.isAutomotive {
-                            Button {
-                                parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor)
-                            } label: {
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .frame(width: 44, height: 44)
-                                    .glassEffect(.regular, in: .circle)
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(String(localized: "確認樓層"))
-                        }
                     }
                     .font(.caption).foregroundStyle(.secondary)
 
@@ -5446,20 +5520,36 @@ struct ContentView: View {
                     }
                     .buttonStyle(.plain)
                     
-                    Button {
-                        startNavigationToParkingPoint(point)
-                        withAnimation(.easeIn(duration: 0.18)) {
-                            selectedParkingPointID = nil
+                    // 樓層未確認：「導航」暫時改做「確認」，撳一下就確認偵測到嘅樓層
+                    if let floorIndex, !point.isFloorConfirmed, point.isAutomotive {
+                        Button {
+                            parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: floorIndex)
+                        } label: {
+                            Text(String(localized: "確認"))
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 56, height: 44)
+                                .contentShape(Rectangle())
+                                .glassEffect(.regular, in: .capsule)
                         }
-                    } label: {
-                        Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 56, height: 44)
-                            .contentShape(Rectangle())
-                            .glassEffect(.regular, in: .capsule)
+                        .buttonStyle(.plain)
+                        .accessibilityLabel(String(localized: "確認樓層"))
+                    } else {
+                        Button {
+                            startNavigationToParkingPoint(point)
+                            withAnimation(.easeIn(duration: 0.18)) {
+                                selectedParkingPointID = nil
+                            }
+                        } label: {
+                            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 56, height: 44)
+                                .contentShape(Rectangle())
+                                .glassEffect(.regular, in: .capsule)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
 
                 if let group = parkingFloorStore.recordGroup(containing: point.id) {
@@ -5518,8 +5608,10 @@ struct ContentView: View {
             .padding(.vertical, 16)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
             .padding(.horizontal, 28)
-            .offset(y: isLandscape ? 38 : 56)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+            // 橫屏（手機＋平板）：現身位置靜靜雞右移 12pt（offset 係靜態視覺偏移，
+            // 一出世就喺最終位，唔會有右滑動畫）。直向維持水平正中。
+            .offset(x: isLandscape ? 38 : 0, y: isLandscape ? 66 : 56)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isLandscape ? .trailing : .center)
             .alert(renamingPointFloor == nil ? String(localized: "地點改名") : String(localized: "命名此樓層"),
                    isPresented: $showRenamePointAlert) {
                 TextField("名稱", text: $renamingPointName)

@@ -1373,13 +1373,15 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         // llmFloorText 可能係 VLM／手輸殘留（「地面1」）—— 顯示前正規化，
         // 唔係嘅話地圖標籤會變「地面1/F」（"/F" 後綴再疊埋落去）
         let cleanText = ParkingFloorStore.cleanFloorText(llmFloorText, coordinate: coordinate)
+        // 「未知」之類殘留唔算偵測結果：有樓層指數就要顯示指數，唔好俾殘留文字冚住
+        let detectedText = cleanText.flatMap { ParkingFloorStore.isUnknownFloorText($0) ? nil : $0 }
         if let manualFloorIndex {
-            return cleanText ?? ParkingFloorStore.formatFloor(manualFloorIndex, coordinate: coordinate)
+            return detectedText ?? ParkingFloorStore.formatFloor(manualFloorIndex, coordinate: coordinate)
         }
         if let predictedFloorIndex {
-            return cleanText ?? ParkingFloorStore.formatFloor(predictedFloorIndex, coordinate: coordinate)
+            return detectedText ?? ParkingFloorStore.formatFloor(predictedFloorIndex, coordinate: coordinate)
         }
-        return cleanText
+        return detectedText
     }
 }
 
@@ -1394,8 +1396,8 @@ extension ParkingPointRecord {
     }
 
     var floorStatusLabel: String {
-        guard effectiveFloorIndex != nil else { return String(localized: "樓層未確認") }
-        return isFloorConfirmed ? String(localized: "已確認") : String(localized: "估算")
+        guard displayFloor != nil else { return String(localized: "樓層未確認") }
+        return isFloorConfirmed ? String(localized: "已確認") : String(localized: "未確認")
     }
 }
 
@@ -3110,6 +3112,13 @@ final class ParkingFloorStore: ObservableObject {
             return formatFloor(idx, coordinate: coordinate)
         }
         return trimmed
+    }
+
+    /// 「未知」「unknown」之類牌面／VLM 殘留：當冇偵測到樓層用，唔好落標籤／彈窗。
+    static func isUnknownFloorText(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else { return true }
+        return ["未知", "unknown", "唔知", "不清楚", "不詳", "n/a", "na", "-", "—"].contains(trimmed)
     }
 
     static func formatFloor(_ idx: Int, coordinate: CLLocationCoordinate2D? = nil) -> String {

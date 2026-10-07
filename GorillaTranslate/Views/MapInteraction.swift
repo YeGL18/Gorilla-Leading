@@ -368,6 +368,13 @@ class NonAdjustingMapView: MKMapView {
         super.setRegion(newRegion, animated: animated)
     }
 
+    override func selectAnnotation(_ annotation: MKAnnotation, animated: Bool) {
+        // 藍點唔俾選中：MapKit 內建 tap-to-select 喺停車點同藍點疊埋／太近嗰陣會誤判做藍點，
+        // 跟手自動退選停車點，個標就又縮又漲又閃。任何人想選中藍點都擋走。
+        if annotation is MKUserLocation { return }
+        super.selectAnnotation(annotation, animated: animated)
+    }
+
     override func layoutSubviews() {
         if !allowCameraChange && !allowsUserCameraChanges {
             savedCameraBeforeLayout = camera.copy() as? MKMapCamera

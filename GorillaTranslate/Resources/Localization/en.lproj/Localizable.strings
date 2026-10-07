@@ -893,6 +893,7 @@
 
 // Parking history groups
 "已確認" = "Confirmed";
+"未確認" = "Unconfirmed";
 "估算" = "Estimated";
 "最新" = "Latest";
 "選取" = "Select";
@@ -913,6 +914,9 @@
 "移除頂點" = "Remove Vertex";
 "範圍頂點" = "Boundary Vertex";
 "%d 個頂點" = "%d Vertices";
+"繪製停車場範圍" = "Draw Parking Boundary";
+"加點" = "Add Point";
+"復原" = "Undo";
 "恢復自動圓形範圍" = "Restore Automatic Circle";
 "恢復" = "Restore";
 "合併" = "Merge";
