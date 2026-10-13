@@ -3,5 +3,5 @@
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "This app needs always-on location access to track your visits and parking location.";
 "NSLocationWhenInUseUsageDescription" = "This app uses your location to display your current speed.";
 "NSMicrophoneUsageDescription" = "This app needs microphone access for voice input.";
-"NSMotionUsageDescription" = "This app uses motion and altitude data to detect parking floor level.";
+"NSMotionUsageDescription" = "This app uses motion history to identify driving and walking journeys, and altitude data to detect parking floor level.";
 "NSSpeechRecognitionUsageDescription" = "This app uses speech recognition to convert your voice to text for translation.";

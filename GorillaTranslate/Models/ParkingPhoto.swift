@@ -1,6 +1,11 @@
 import Foundation
 import SwiftUI
 
+enum ParkingPhotoLayout {
+    static let previewSize = CGSize(width: 46, height: 32)
+    static var previewAspectRatio: CGFloat { previewSize.width / previewSize.height }
+}
+
 struct ParkingPhoto: Identifiable, Codable {
     let id: UUID
     let fileName: String

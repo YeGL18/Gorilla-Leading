@@ -33,23 +33,10 @@ func boundaryRoundedLoopPath(_ points: [CGPoint]) -> CGMutablePath {
 }
 
 final class RoundedParkingBoundaryRenderer: MKPolygonRenderer {
-    /// 彈出彈入進度用嘅縮放（0.72=收埋，1=完全彈出）。改咗即刻作廢舊路徑。
-    var popScale: CGFloat = 1 {
-        didSet { if popScale != oldValue { path = nil } }
-    }
-
     override func createPath() {
-        let raw = (0..<polygon.pointCount).map { point(for: polygon.points()[$0]) }
-        guard raw.count >= 3 else { return }
-        if popScale >= 0.999 {
-            path = boundaryRoundedLoopPath(raw)
-            return
-        }
-        // 彈出彈入：圍住形心縮放，條邊線跟住一齊彈
-        let cx = raw.reduce(0) { $0 + $1.x } / CGFloat(raw.count)
-        let cy = raw.reduce(0) { $0 + $1.y } / CGFloat(raw.count)
-        let scaled = raw.map { CGPoint(x: cx + ($0.x - cx) * popScale, y: cy + ($0.y - cy) * popScale) }
-        path = boundaryRoundedLoopPath(scaled)
+        let points = (0..<polygon.pointCount).map { point(for: polygon.points()[$0]) }
+        guard points.count >= 3 else { return }
+        path = boundaryRoundedLoopPath(points)
     }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
@@ -63,11 +50,25 @@ final class RoundedParkingBoundaryRenderer: MKPolygonRenderer {
 // MARK: - 主地圖繪製停車場範圍（中心指針 + 逐點新增，參照影片交互）
 
 /// 連接 SwiftUI 工具列與地圖：「加點」時讀取指針對準的座標；進入模式時設定一次性鏡頭目標。
-final class BoundaryDrawMapBridge {
+final class BoundaryDrawMapBridge: ObservableObject {
+    @Published var isReady = false
+    /// 每次進入／取消換一個識別碼，舊鏡頭動畫不能重新開放操作。
+    var sessionID = UUID()
+
+    func reset() {
+        sessionID = UUID()
+        isReady = false
+        centerCoordinateProvider = nil
+    }
     /// 指針（地圖相機中心）目前對準的 WGS84 座標，由 MapView Coordinator 提供。
     var centerCoordinateProvider: (() -> CLLocationCoordinate2D?)?
     /// 進入繪製模式時的一次性鏡頭目標（GCJ02 顯示座標 + 距離，米）。用完即清空。
     var initialFocus: (coordinate: CLLocationCoordinate2D, distance: CLLocationDistance)?
+}
+
+enum BoundaryDrawAppearance {
+    static let duration: TimeInterval = 0.38
+    static var animation: Animation { .easeInOut(duration: duration) }
 }
 
 /// 疊喺主地圖上嘅繪製圖層：已加頂點、即時橡皮筋、中心十字指針。
@@ -84,9 +85,18 @@ final class BoundaryDrawCanvas: UIView {
         isUserInteractionEnabled = false
         backgroundColor = .clear
         contentMode = .redraw
+        alpha = 0
     }
 
     required init?(coder: NSCoder) { fatalError("BoundaryDrawCanvas must be created in code") }
+
+    /// 鏡頭到位後以透明度顯示，不改變指針或範圍大小。
+    func reveal() {
+        UIView.animate(withDuration: BoundaryDrawAppearance.duration, delay: 0,
+                       options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+            self.alpha = 1
+        }
+    }
 
     override func draw(_ rect: CGRect) {
         guard let context = UIGraphicsGetCurrentContext(), let mapView else { return }
@@ -142,13 +152,18 @@ final class BoundaryDrawCanvas: UIView {
 struct BoundaryDrawToolbar: View {
     var vertexCount: Int
     var canConfirm: Bool
+    var editingEnabled = true
     var onCancel: () -> Void
     var onUndo: () -> Void
     var onAdd: () -> Void
     var onConfirm: () -> Void
 
+    private var undoEnabled: Bool { editingEnabled && vertexCount > 0 }
+    private var addEnabled: Bool { editingEnabled && vertexCount < 24 }
+    private var confirmEnabled: Bool { editingEnabled && canConfirm }
+
     var body: some View {
-        HStack(spacing: 18) {
+        HStack(spacing: 8) {
             Button(action: onCancel) {
                 Image(systemName: "xmark")
                     .font(.system(size: 17, weight: .semibold))
@@ -161,10 +176,10 @@ struct BoundaryDrawToolbar: View {
             Button(action: onUndo) {
                 Image(systemName: "arrow.uturn.backward")
                     .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(undoEnabled ? Color.primary : Color.secondary)
                     .frame(width: 32, height: 32)
             }
-            .disabled(vertexCount == 0)
+            .disabled(!undoEnabled)
             .accessibilityLabel(String(localized: "復原"))
             .accessibilityIdentifier("boundaryDrawUndo")
 
@@ -181,10 +196,10 @@ struct BoundaryDrawToolbar: View {
             Button(action: onAdd) {
                 Image(systemName: "plus")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(addEnabled ? Color.primary : Color.secondary)
                     .frame(width: 32, height: 32)
             }
-            .disabled(vertexCount >= 24)
+            .disabled(!addEnabled)
             .accessibilityLabel(String(localized: "加點"))
             .accessibilityIdentifier("boundaryDrawAdd")
 
@@ -193,17 +208,18 @@ struct BoundaryDrawToolbar: View {
                     .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.white)
                     .frame(width: 34, height: 34)
-                    .background(Circle().fill(canConfirm ? Color.accentColor : Color.secondary.opacity(0.35)))
+                    .background(Circle().fill(confirmEnabled ? Color.accentColor : Color.secondary.opacity(0.35)))
             }
-            .disabled(!canConfirm)
+            .disabled(!confirmEnabled)
             .accessibilityLabel(String(localized: "完成"))
             .accessibilityIdentifier("boundaryDrawConfirm")
         }
-        .padding(.horizontal, 18)
+        .padding(.horizontal, 14)
         .frame(height: 56)
-        .background(Capsule().fill(.regularMaterial))
-        .shadow(color: .black.opacity(0.12), radius: 10, y: 4)
-        .padding(.horizontal, 16)
+        .buttonStyle(.plain)
+        .animation(BoundaryDrawAppearance.animation, value: undoEnabled)
+        .animation(BoundaryDrawAppearance.animation, value: addEnabled)
+        .animation(BoundaryDrawAppearance.animation, value: confirmEnabled)
     }
 }
 
@@ -531,8 +547,13 @@ struct ParkingLotMergeView: View {
                                     Text("\(Int(lot.centerDistance(to: source.centerCoordinate))) m")
                                         .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                                 }
-                            }.padding(.vertical, 4)
-                        }.accessibilityIdentifier("mergeLot-\(lot.id)")
+                            }
+                            .padding(.vertical, 4)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("mergeLot-\(lot.id)")
                     }
                 } footer: {
                     Text(String(localized: "合併保留每次停車的位置、時間及樓層，並沿用所選停車場的名稱與自訂範圍。"))
@@ -544,6 +565,7 @@ struct ParkingLotMergeView: View {
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(String(localized: "取消")) { dismiss() }
+                        .tint(.primary)
                 }
             }
             .alert(String(localized: "合併停車場"), isPresented: $showConfirmation) {

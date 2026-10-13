@@ -36,6 +36,16 @@ struct MapCameraMotionChecks {
                        timestamp: time.addingTimeInterval(seconds))
         }
         var motion = MapCameraMotion()
+        var mainland = MapCameraMotion()
+        let raw = CLLocationCoordinate2D(latitude: 22.5431, longitude: 114.0579)
+        let displayed = CLLocationCoordinate2D(latitude: 22.5405, longitude: 114.0630)
+        mainland.update(fix(raw, speed: 0), displayCoordinate: displayed)
+        let mapTarget = mainland.coordinate(at: time)!
+        check(abs(mapTarget.latitude - displayed.latitude) < 1e-10 &&
+              abs(mapTarget.longitude - displayed.longitude) < 1e-10,
+              "Mainland camera uses the same display frame as annotations")
+        check(mainland.sample!.coordinate.longitude == raw.longitude,
+              "GPS distance calculations retain the raw coordinate")
         check(motion.coordinate(at: time) == nil, "No invented position before the first fix")
         motion.update(fix())
         var previous = origin
@@ -62,7 +72,9 @@ struct MapCameraMotionChecks {
         check(abs(MapCameraMotion.headingDelta(from: 1, to: 359) + 2) < 1e-8, "Reverse north crossing also takes the short route")
         let at60 = pow(1 - MapCameraMotion.response(frameDuration: 1 / 60.0, soft: true), 60)
         let at30 = pow(1 - MapCameraMotion.response(frameDuration: 1 / 30.0, soft: true), 30)
-        check(abs(at60 - at30) < 1e-8, "Tracking response is independent of frame rate")
+        let responseAt120 = pow(1 - MapCameraMotion.response(frameDuration: 1 / 120.0, soft: true), 120)
+        check(abs(at60 - at30) < 1e-8 && abs(at60 - responseAt120) < 1e-8,
+              "Tracking response is independent of 30/60/120 Hz refresh rates")
         for meter in [
             CLLocationCoordinate2D(latitude: origin.latitude, longitude: origin.longitude + 0.001),
             CLLocationCoordinate2D(latitude: origin.latitude + 0.02, longitude: origin.longitude),
@@ -86,7 +98,7 @@ struct MapCameraMotionChecks {
 
         // Exercise the exact camera-center function, not only the GPS prediction target.
         for soft in [false, true] {
-            for fps in [30, 60] {
+            for fps in [30, 60, 120] {
                 for interval in [1.0, 2.0] {
                     var tracker = MapCameraMotion()
                     tracker.update(fix(speed: drivingSpeed))
@@ -115,7 +127,7 @@ struct MapCameraMotionChecks {
         }
 
         for soft in [false, true] {
-            for fps in [30, 60] {
+            for fps in [30, 60, 120] {
                 for initialGap in [20.0, 60.0] {
                     var tracker = MapCameraMotion()
                     tracker.update(fix(speed: drivingSpeed))
@@ -187,6 +199,25 @@ struct MapCameraMotionChecks {
         check(distance(settled!, camera) < 0.05, "The camera itself settles after GPS loss")
         check(distance(camera, noisy.coordinate(at: lastFix.addingTimeInterval(120))!) < 0.1,
               "Stale camera stops at the bounded predicted endpoint")
+        // Releasing a dragged marker must continue forward without a snap,
+        // then approach the exact drop point with monotonically falling speed.
+        let drop = CLLocationCoordinate2D(latitude: origin.latitude + 0.001, longitude: origin.longitude)
+        var dragged = origin
+        var previousStep = Double.greatestFiniteMagnitude
+        for _ in 0..<60 {
+            let next = ParkingMarkerMotion.advance(from: dragged, to: drop)
+            let step = distance(dragged, next)
+            check(step > 0 && step < previousStep, "Released marker must decelerate instead of snapping or stopping")
+            check(next.latitude < drop.latitude, "Marker cannot overshoot the drop location")
+            previousStep = step
+            dragged = next
+        }
+        check(distance(dragged, drop) < 0.001, "Settling must reach the intended drop point")
+        let dragAt60 = ParkingMarkerMotion.advance(from: origin, to: drop)
+        let at120 = ParkingMarkerMotion.advance(from: ParkingMarkerMotion.advance(from: origin, to: drop,
+                                                                                 frameDuration: 1 / 120),
+                                               to: drop, frameDuration: 1 / 120)
+        check(distance(dragAt60, at120) < 0.00001, "Drag response is independent of frame duration")
         print("PASS: \(checks) constant-speed camera, GPS jitter, stale fixes, heading and meter framing checks")
     }
 }

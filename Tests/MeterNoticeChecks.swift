@@ -1,11 +1,20 @@
 import Foundation
 import CoreLocation
+import MapKit
 
 // Standalone macOS harness: the production Destination model imports iOS UI.
 struct Destination {
     let id: UUID
     let name: String
     let coordinate: CLLocationCoordinate2D
+}
+// Route transport is covered in the native energy tests, not this notice-only harness.
+@MainActor
+final class DestinationManager {
+    static let shared = DestinationManager()
+    struct RouteResult { let route: MKRoute; let calculatedAt: Date }
+    func requestRoute(from source: CLLocationCoordinate2D, to target: CLLocationCoordinate2D,
+                      completion: @escaping (RouteResult?) -> Void) { completion(nil) }
 }
 extension CLLocationCoordinate2D {
     var wgs84ToGCJ02: CLLocationCoordinate2D { self }
@@ -32,6 +41,14 @@ struct MeterNoticeChecks {
         let vacant = MeterStatus(isOperating: true, occupancy: "V", changedAt: "")
         let occupied = MeterStatus(isOperating: true, occupancy: "O", changedAt: "")
         let manager = ParkingMeterManager(defaults: defaults, initialMeters: [meter], initialStatuses: [meter.id: vacant], fetchedAt: now)
+        check(manager.statusRefreshInterval == 60, "Existing users retain the one-minute refresh")
+        defaults.set(120.0, forKey: "meterStatusRefreshInterval")
+        check(manager.statusRefreshInterval == 120, "Setting changes apply immediately")
+        defaults.set(0.0, forKey: "meterStatusRefreshInterval")
+        check(manager.statusRefreshInterval == 30, "Invalid short intervals are clamped")
+        defaults.set(1000.0, forKey: "meterStatusRefreshInterval")
+        check(manager.statusRefreshInterval == 300, "Long intervals are bounded")
+        defaults.removeObject(forKey: "meterStatusRefreshInterval")
         func evaluate(_ seconds: Double, nearby: [ParkingMeter] = [], target: [ParkingMeter] = [], speed: Double = 10) {
             manager.evaluateNotices(nearby: nearby, destinationMeters: target, destinationName: "學校",
                                     location: location, speed: speed, now: now.addingTimeInterval(seconds))
@@ -76,6 +93,17 @@ struct MeterNoticeChecks {
         check(expiring.notice == nil, "Notice automatically expires without interaction")
         expiring.evaluateNotices(nearby: [], destinationMeters: [meter], destinationName: "學校", location: location, speed: 10, now: now.addingTimeInterval(11))
         check(expiring.notice == nil, "Timed-out destination notice must not repeat")
+        let approaching = CLLocation(coordinate: .init(latitude: 22.31, longitude: 114.17), altitude: 0,
+                                     horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: now)
+        let destination = Destination(id: UUID(), name: "學校", coordinate: meter.coordinate)
+        let cached = ParkingMeterManager(defaults: defaults, initialMeters: [meter], initialStatuses: [meter.id: vacant], fetchedAt: now)
+        cached.tick(location: approaching, speed: 10, destination: destination, now: now)
+        cached.updateRouteDistance(1500, destinationID: destination.id, calculatedAt: now.addingTimeInterval(-180))
+        cached.tick(location: approaching, speed: 10, destination: destination, now: now)
+        check(cached.notice == nil, "Reading a stale route cannot turn it into fresh destination distance")
+        cached.updateRouteDistance(1500, destinationID: destination.id, calculatedAt: now)
+        cached.tick(location: approaching, speed: 10, destination: destination, now: now)
+        check(cached.notice?.kind == .destination, "A fresh shared route still triggers destination meter detection")
         print("PASS: \(checks) notice lifecycle, priority, vehicle and GPS checks")
     }
 }

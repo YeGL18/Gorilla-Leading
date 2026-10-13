@@ -3,5 +3,5 @@
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "此 App 需要持续获取位置，以记录到访和停车位置。";
 "NSLocationWhenInUseUsageDescription" = "此 App 使用位置信息显示当前车速。";
 "NSMicrophoneUsageDescription" = "此 App 需要使用麦克风接收语音输入。";
-"NSMotionUsageDescription" = "此 App 使用运动和高度数据检测停车楼层。";
+"NSMotionUsageDescription" = "此 App 使用运动历史识别开车与步行行程，并使用高度数据检测停车楼层。";
 "NSSpeechRecognitionUsageDescription" = "此 App 使用语音识别将语音转换为文字进行翻译。";

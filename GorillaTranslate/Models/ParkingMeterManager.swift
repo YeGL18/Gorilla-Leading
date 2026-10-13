@@ -72,7 +72,6 @@ final class ParkingMeterManager: ObservableObject {
     private var routeDistance: Double?
     private var routeDate: Date?
     private var routeRequestDate: Date?
-    private var routeRequest: MKDirections?
     private var routeRequestToken: UUID?
     private var lastSettings = ""
     private var isActive = true
@@ -90,6 +89,14 @@ final class ParkingMeterManager: ObservableObject {
     var radius: Double { setting("meterMapRadius", fallback: 500, range: 100...800) }
     var destinationRadius: Double { setting("meterDestinationRadius", fallback: 500, range: 50...800) }
     var nearbyRadius: Double { setting("meterNearbyRadius", fallback: 100, range: 10...200) }
+    var statusRefreshInterval: TimeInterval {
+        let value = defaults.object(forKey: "meterStatusRefreshInterval") as? Double ?? 60
+        guard value.isFinite else { return 60 }
+        return min(300, max(30, (value / 30).rounded() * 30))
+    }
+    func shouldRefreshStatus(at now: Date = Date()) -> Bool {
+        !fetchingStatus && isActive && now.timeIntervalSince(lastStatusAttempt ?? .distantPast) >= statusRefreshInterval
+    }
     private func setting(_ key: String, fallback: Double, range: ClosedRange<Double>) -> Double {
         let value = (defaults.object(forKey: key) as? Double) ?? fallback
         return min(range.upperBound, max(range.lowerBound, (value / 10).rounded() * 10))
@@ -144,7 +151,7 @@ final class ParkingMeterManager: ObservableObject {
     func refreshStatus(force: Bool = false) async {
         guard !fetchingStatus, isActive else { return }
         let now = Date()
-        guard force || now.timeIntervalSince(lastStatusAttempt ?? .distantPast) >= 60 else { return }
+        guard force || shouldRefreshStatus(at: now) else { return }
         fetchingStatus = true
         statusRefreshing = true
         lastStatusAttempt = now
@@ -236,16 +243,14 @@ final class ParkingMeterManager: ObservableObject {
             dismissNotice()
             stationarySince = nil
             stationaryAnchor = nil
-            routeRequest?.cancel()
-            routeRequest = nil
             routeRequestToken = nil
         }
     }
 
-    func updateRouteDistance(_ distance: Double, destinationID: UUID) {
+    func updateRouteDistance(_ distance: Double, destinationID: UUID, calculatedAt: Date = Date()) {
         guard self.destinationID == destinationID else { return }
         routeDistance = distance
-        routeDate = Date()
+        routeDate = calculatedAt
     }
 
     func tick(location: CLLocation?, speed: Double, destination: Destination?, canPresentNotices: Bool = true, now: Date = Date()) {
@@ -271,7 +276,7 @@ final class ParkingMeterManager: ObservableObject {
             if !destinationHandled { defaults.removeObject(forKey: "meterSuppressedDestination") }
             arrived = false
             routeDistance = nil; routeDate = nil; routeRequestDate = nil
-            routeRequest?.cancel(); routeRequest = nil; routeRequestToken = nil
+            routeRequestToken = nil
             dismissNotice()
         }
         guard isEnabled, let location, location.horizontalAccuracy >= 0,
@@ -280,7 +285,7 @@ final class ParkingMeterManager: ObservableObject {
             if !visibleMeters.isEmpty { visibleMeters = [] }
             stationarySince = nil; stationaryAnchor = nil
             dismissNotice()
-            if isTestPageActive { Task { await refreshStatus() } }
+            if isTestPageActive && shouldRefreshStatus(at: now) { Task { await refreshStatus() } }
             return
         }
         currentLocation = location
@@ -314,7 +319,7 @@ final class ParkingMeterManager: ObservableObject {
             }
         }
         if isTestPageActive || !visible.isEmpty || !destinationMeters.isEmpty {
-            Task { await refreshStatus() }
+            if shouldRefreshStatus(at: now) { Task { await refreshStatus() } }
         }
         let nearby = index.nearby(location, radius: max(nearbyRadius, 10))
         if !canPresentNotices || isTestPageActive || selectedMeter != nil || vehicle == .unset || !visibility.speedAllowsDisplay {
@@ -327,26 +332,19 @@ final class ParkingMeterManager: ObservableObject {
     }
 
     private func refreshDestinationDistance(location: CLLocation, destination: Destination, now: Date) {
-        guard routeRequest == nil, now.timeIntervalSince(routeRequestDate ?? .distantPast) >= 60,
+        guard routeRequestToken == nil, now.timeIntervalSince(routeRequestDate ?? .distantPast) >= 60,
               now.timeIntervalSince(routeDate ?? .distantPast) >= 60 else { return }
         routeRequestDate = now
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: location.coordinate.wgs84ToGCJ02))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate.wgs84ToGCJ02))
-        request.transportType = .automobile
-        let directions = MKDirections(request: request)
-        routeRequest = directions
         let token = UUID()
         let requestedDestinationID = destination.id
         routeRequestToken = token
-        directions.calculate { [weak self] response, _ in
-            let distance = response?.routes.first?.distance
+        DestinationManager.shared.requestRoute(from: location.coordinate, to: destination.coordinate) { [weak self] result in
+            let distance = result?.route.distance
             Task { @MainActor in
                 guard let self, self.routeRequestToken == token else { return }
-                self.routeRequest = nil
                 self.routeRequestToken = nil
-                if let distance {
-                    self.updateRouteDistance(distance, destinationID: requestedDestinationID)
+                if let distance, let result {
+                    self.updateRouteDistance(distance, destinationID: requestedDestinationID, calculatedAt: result.calculatedAt)
                 }
             }
         }

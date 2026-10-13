@@ -244,25 +244,30 @@ struct GorillaInfoRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
 
         case .stationary:
-            // destination label above distance · road · eta — left aligned
-            HStack(alignment: .bottom, spacing: 20) {
+            // Equal side columns keep the address on the horizontal centerline.
+            HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(GorillaActivityLocalization.string("目的地：", languageCode: state.languageCode)
                          + (state.destinationName ?? "-"))
                         .font(.system(size: 13))
                         .foregroundStyle(.white.opacity(0.75))
                         .lineLimit(1)
+                        .minimumScaleFactor(0.7)
                     Text(state.distanceText ?? "-")
                         .font(.system(size: 17, weight: .bold))
                         .foregroundStyle(.white)
                         .lineLimit(1)
                 }
+                .frame(width: 90, alignment: .leading)
                 Text(state.road ?? "-")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .minimumScaleFactor(0.8)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
                 valueUnit(state.etaMinutes.map(String.init), minuteUnit)
+                    .frame(width: 90, alignment: .trailing)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

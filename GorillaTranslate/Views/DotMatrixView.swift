@@ -8,13 +8,7 @@ struct DotMatrixView: View {
     var dynamicColorHex: String = "#ffd700"
 
     private var resolvedAccentColor: Color {
-        let gold = Color(hex: "FFC46D") ?? .yellow
-        let red = Color(hex: "FF4500") ?? .red
-        if dynamicColorHex != "#ffd700" && speed > 100 {
-            let t = min(1.0, (speed - 100) / 100)
-            return Color.blend(from: gold, to: red, amount: t)
-        }
-        return accentColor
+        accentColor
     }
 
     var body: some View {

@@ -4,6 +4,7 @@ import UserNotifications
 import Accelerate
 import MapKit
 import AVFoundation
+import CoreImage
 import WidgetKit
 import Vision
 
@@ -81,18 +82,163 @@ private struct DuoVerticalBarReader: View {
     }
 }
 
+private final class WindowBoundsView: UIView {
+    var onBoundsChange: ((CGRect) -> Void)?
+    private var lastReportedBounds: CGRect = .zero
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        reportWindowBounds()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        reportWindowBounds()
+    }
+
+    func reportWindowBounds() {
+        guard let bounds = window?.bounds, bounds != lastReportedBounds else { return }
+        lastReportedBounds = bounds
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.window?.bounds == bounds else { return }
+            self.onBoundsChange?(bounds)
+        }
+    }
+}
+
 private struct WindowBoundsReader: UIViewRepresentable {
     @Binding var bounds: CGRect
 
-    func makeUIView(context: Context) -> UIView {
-        UIView(frame: .zero)
+    func makeUIView(context: Context) -> WindowBoundsView {
+        WindowBoundsView(frame: .zero)
     }
 
-    func updateUIView(_ view: UIView, context: Context) {
-        DispatchQueue.main.async {
-            guard let windowBounds = view.window?.bounds, bounds != windowBounds else { return }
-            bounds = windowBounds
+    func updateUIView(_ view: WindowBoundsView, context: Context) {
+        view.onBoundsChange = { windowBounds in
+            if bounds != windowBounds { bounds = windowBounds }
         }
+        view.reportWindowBounds()
+    }
+}
+
+enum GorillaGlassStyle {
+    static let blackTintOpacity = 0.55
+
+    static func usesDarkGlass(preferredDark: Bool, darkKnightMode: Bool, colorGroupRaw: Int = -1) -> Bool {
+        preferredDark || GorillaColorGroup.resolve(raw: colorGroupRaw, legacyDarkKnight: darkKnightMode).forcesDarkGlass
+    }
+}
+
+private struct GorillaCapsuleGlass: ViewModifier {
+    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
+    @AppStorage("darkKnightMode") private var darkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    @Environment(\.colorScheme) private var colorScheme
+    let cornerRadius: CGFloat
+    private var usesDarkGlass: Bool {
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .glassEffect(.regular.tint(colorGroupRaw == GorillaColorGroup.m3Concept.rawValue
+                ? Color(hex: M3ConceptPalette.gray).opacity(0.25) : .clear), in: .rect(cornerRadius: cornerRadius))
+            .foregroundStyle(colorGroupRaw == GorillaColorGroup.m3Concept.rawValue ? Color(hex: M3ConceptPalette.paper)
+                : (usesDarkGlass ? Color.white : Color.primary))
+            .environment(\.colorScheme, usesDarkGlass ? .dark : colorScheme)
+    }
+}
+
+private struct GorillaMapControlAppearance: ViewModifier {
+    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
+    @AppStorage("darkKnightMode") private var darkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    @Environment(\.colorScheme) private var colorScheme
+    private var usesDarkGlass: Bool {
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .foregroundStyle(usesDarkGlass ? Color.white : Color.primary)
+            .environment(\.colorScheme, usesDarkGlass ? .dark : colorScheme)
+    }
+}
+
+private struct GorillaTabBarStyle: ViewModifier {
+    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
+    @AppStorage("darkKnightMode") private var darkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    @Environment(\.colorScheme) private var colorScheme
+    private var usesDarkGlass: Bool {
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+    }
+
+    func body(content: Content) -> some View {
+        content
+            // Style the bar only; its content keeps the app's appearance and accent.
+            .toolbarColorScheme(usesDarkGlass ? .dark : colorScheme, for: .tabBar)
+            .toolbarBackground(usesDarkGlass ? Color.black.opacity(GorillaGlassStyle.blackTintOpacity) : .clear, for: .tabBar)
+    }
+}
+
+private final class GorillaTabBarAppearanceView: UIView {
+    var appearance: UITabBarAppearance?
+    private var updateScheduled = false
+    private weak var lastTabBar: UITabBar?
+    private var lastAppliedAppearance: UITabBarAppearance?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        scheduleUpdate()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        scheduleUpdate()
+    }
+
+    func scheduleUpdate() {
+        guard !updateScheduled else { return }
+        updateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.updateScheduled = false
+            guard let appearance = self.appearance,
+                  let root = self.window?.rootViewController,
+                  let tabBar = self.tabController(in: root)?.tabBar else { return }
+            guard self.lastTabBar !== tabBar || self.lastAppliedAppearance?.isEqual(appearance) != true else { return }
+            // UIAppearance does not update a bar that is already on screen.
+            if !tabBar.standardAppearance.isEqual(appearance) {
+                tabBar.standardAppearance = appearance
+            }
+            if tabBar.scrollEdgeAppearance?.isEqual(appearance) != true {
+                tabBar.scrollEdgeAppearance = appearance
+            }
+            self.lastTabBar = tabBar
+            self.lastAppliedAppearance = appearance.copy() as? UITabBarAppearance
+        }
+    }
+
+    private func tabController(in controller: UIViewController) -> UITabBarController? {
+        if let tab = controller as? UITabBarController { return tab }
+        for child in controller.children {
+            if let tab = tabController(in: child) { return tab }
+        }
+        return nil
+    }
+}
+
+private struct GorillaTabBarAppearanceReader: UIViewRepresentable {
+    let appearance: UITabBarAppearance
+
+    func makeUIView(context: Context) -> GorillaTabBarAppearanceView {
+        GorillaTabBarAppearanceView(frame: .zero)
+    }
+
+    func updateUIView(_ view: GorillaTabBarAppearanceView, context: Context) {
+        view.appearance = appearance
+        view.scheduleUpdate()
     }
 }
 
@@ -218,6 +364,7 @@ private struct ParkingLotChangePanel: View {
             }
             .buttonStyle(.glass)
             .controlSize(.small)
+            .foregroundStyle(.tint)
             .offset(y: stage >= 3 ? 0 : 8)
             .opacity(stage >= 3 ? 1 : 0)
         }
@@ -249,6 +396,7 @@ private struct ParkingLotChangePanel: View {
                             .frame(minHeight: 40)
                         }
                         .buttonStyle(.bordered)
+                        .foregroundStyle(.tint)
                     }
                 }
             }
@@ -260,6 +408,8 @@ private struct ParkingLotChangePanel: View {
 private struct ParkingStopConfirmationView: View {
     let onContinue: () -> Void
     let onConfirm: () -> Void
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var submitted = false
 
     var body: some View {
         VStack(spacing: 12) {
@@ -268,7 +418,7 @@ private struct ParkingStopConfirmationView: View {
                 .multilineTextAlignment(.center)
                 .accessibilityIdentifier("parkingStopQuestion")
             HStack(spacing: 12) {
-                Button(action: onContinue) {
+                Button { submitted = true; onContinue() } label: {
                     Text(String(localized: "未泊好"))
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -277,7 +427,7 @@ private struct ParkingStopConfirmationView: View {
                 }
                 .buttonStyle(.glass)
                 .accessibilityIdentifier("continueAltitudeSampling")
-                Button(action: onConfirm) {
+                Button { submitted = true; onConfirm() } label: {
                     Label(String(localized: "已泊好"), systemImage: "checkmark")
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity, minHeight: 44)
@@ -290,6 +440,16 @@ private struct ParkingStopConfirmationView: View {
             }
         }
         .padding(.horizontal, 20)
+        .task(id: scenePhase) {
+            guard scenePhase == .active, !submitted else { return }
+            do {
+                try await Task.sleep(for: .seconds(10))
+                try Task.checkCancellation()
+                guard !submitted else { return }
+                submitted = true
+                onConfirm()
+            } catch { }
+        }
     }
 }
 
@@ -379,11 +539,9 @@ private struct FloorCaptureConfirmationView: View {
         .task(id: revision) {
             guard scenePhase == .active, !interacting, !submitted, !confirmed else { return }
             do {
-                try await Task.sleep(for: .seconds(10))
-                try Task.checkCancellation()
                 withAnimation(reduceMotion ? nil : .smooth(duration: 0.35)) { countingDown = true }
-                withAnimation(.linear(duration: 3)) { countdownProgress = 1 }
-                try await Task.sleep(for: .seconds(3))
+                withAnimation(.linear(duration: 2)) { countdownProgress = 1 }
+                try await Task.sleep(for: .seconds(2))
                 try Task.checkCancellation()
                 submit(manual: false)
             } catch { /* User interaction or leaving the foreground cancels the countdown. */ }
@@ -429,8 +587,9 @@ private struct FloorCaptureConfirmationView: View {
     }
 }
 
-private enum DestinationSearchCategory {
+private enum DestinationSearchCategory: String, Identifiable {
     case destinations, learned, lots
+    var id: String { rawValue }
 }
 
 struct DestinationSearchMenuItems: View {
@@ -443,18 +602,45 @@ struct DestinationSearchMenuItems: View {
 
     let items: [Item]
     let selectedID: String?
+    var title: String = ""
     let onSelect: (String) -> Void
+    @Environment(\.verticalSizeClass) private var verticalSizeClass
+
     var body: some View {
-        ForEach(items) { item in
-            Button {
-                onSelect(item.id)
-            } label: {
-                Label(item.name, systemImage: selectedID == item.id ? "checkmark" : item.symbol)
-                    .foregroundStyle(item.color)
+        VStack(spacing: 0) {
+            if !title.isEmpty {
+                Text(title).font(.headline).foregroundStyle(.primary)
+                    .padding(16)
+                Divider()
             }
-            .accessibilityIdentifier("destinationSearch-\(item.id)")
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    ForEach(items) { item in
+                        Button { onSelect(item.id) } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: item.symbol).foregroundStyle(item.color).frame(width: 24)
+                                Text(item.name).foregroundStyle(.primary).multilineTextAlignment(.leading)
+                                Spacer(minLength: 8)
+                                if selectedID == item.id { Image(systemName: "checkmark").foregroundStyle(.primary) }
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 12)
+                            .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("destinationSearch-\(item.id)")
+                        Divider().padding(.leading, 52)
+                    }
+                }
+            }
+            .frame(height: min(CGFloat(items.count) * 49, verticalSizeClass == .compact ? 200 : 420))
+            .scrollBounceBehavior(.basedOnSize)
+            .accessibilityIdentifier("destinationSearchList")
         }
+        .frame(width: 320)
+        .presentationCompactAdaptation(.popover)
     }
+
 }
 
 struct ContentView: View {
@@ -477,12 +663,11 @@ struct ContentView: View {
         }
     }
 
-    @StateObject private var animationClock = AnimationClock()
-    @StateObject private var timePhaseManager = TimePhaseManager()
+    @State private var animationClock = AnimationClock()
+    @State private var timePhaseManager = TimePhaseManager()
     @StateObject private var photoStorage = PhotoStorage()
     @StateObject private var sfxPlayer = SFXPlayer()
     @ObservedObject private var tripPredictor = TripPredictor.shared
-    @StateObject private var naviManager = AmapNaviManager.shared
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
@@ -498,6 +683,7 @@ struct ContentView: View {
     @State private var isInForeground = true
     
     @State private var selectedTab: Int = 1
+    @State private var showingGorillaPage = false
     @State private var settingsSheetVisible = false
     @State private var showVehiclePicker: Bool = false
     @State private var selectedVehicleBrand: String = "BMW"
@@ -515,7 +701,7 @@ struct ContentView: View {
     // 用預設 placement 會整出隱形 nav bar、脹大 safe area，令成個版面下移。
     @ToolbarContentBuilder
     private var mapCompassToolbarItem: some ToolbarContent {
-        if #available(iOS 27.1, *), showMap || showSatellite {
+        if #available(iOS 27.1, *), usesDuoToolbar, showMap || showSatellite {
             ToolbarItem(placement: .bottomBar) {
                 MapCompassToolbarView(bridge: mapCompassBridge)
                     .frame(width: 44, height: 44)
@@ -531,6 +717,7 @@ struct ContentView: View {
     @State private var mapRegion: MKCoordinateRegion?
     @State private var mapCamera: MKMapCamera?
     @StateObject private var mapCompassBridge = MapCompassBridge()
+    @StateObject private var homeMapSession = HomeMapSession()
     @State private var hasShownMapFirstTime = false
     @State private var firstMapFlyTrigger = 0
     @State private var routePriorityToken: UUID?
@@ -542,6 +729,10 @@ struct ContentView: View {
     @State private var offRouteStrikeCount: Int = 0
     @State private var isCapsuleExpanded = false
     @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 1  // 0 = default, 1 = lift-scale
+    @AppStorage("capsuleDarkGlassEnabled") private var capsuleDarkGlassEnabled = true
+    private var usesDarkGlass: Bool {
+        GorillaGlassStyle.usesDarkGlass(preferredDark: capsuleDarkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+    }
     @State private var capsuleDragOffsetY: CGFloat = 0  // for lift-scale animation
     @State private var capsuleDragScale: CGFloat = 1.0  // for lift-scale animation
     @State private var isParkingMemoryExpanded = false
@@ -561,9 +752,21 @@ struct ContentView: View {
         isDuoInnerDisplay && isLandscape
     }
 
+    private var showsGorillaTab: Bool {
+        GorillaPageLayout.showsTab(
+            isPhone: UIDevice.current.userInterfaceIdiom == .phone,
+            windowSize: appWindowBounds.size
+        )
+    }
+
     private static func sheetCornerRadius() -> CGFloat {
+#if DEBUG
         let r = (UIScreen.main.value(forKey: "displayCornerRadius") as? CGFloat) ?? 55
         return r > 12 ? r - 12 : 12
+#else
+        // Distribution builds must not query private UIScreen properties.
+        return 43
+#endif
     }
 
     private var isDuoSeatedMode: Bool {
@@ -575,7 +778,9 @@ struct ContentView: View {
     }
 
     private var usesDuoToolbar: Bool {
-        UIDevice.current.userInterfaceIdiom == .phone && (isDuoInnerLandscape || hasDuoVerticalBar)
+        guard UIDevice.current.userInterfaceIdiom == .phone else { return false }
+        if isDuoInnerDisplay { return isLandscape }
+        return hasDuoVerticalBar
     }
 
     /// 地址膠囊底部間距：普通手機用 Duo 適配前嘅 20（比 -9 高 29pt，直橫屏一致）；
@@ -652,7 +857,8 @@ struct ContentView: View {
     @State private var isCapturing = false
     @State private var isCameraActive = true
     @State private var cameraInactivityTimer: Timer?
-    @State private var cameraFadeOpacity: Double = 0  // 0 = camera visible, 1 = black
+    @State private var cameraFadeOpacity: Double = 0
+    @State private var pausedCameraFrame: UIImage?
     @State private var cameraButtonBlurIn: Bool = false  // 拍照按鈕模糊入場動畫
     @State private var viewfinderBreathe: Bool = false   // viewfinder 呼吸動畫
     @State private var showingExpandedPhotos = false
@@ -761,6 +967,8 @@ struct ContentView: View {
     @State private var parkingInfoSwitchTimer: Timer? = nil
     @State private var showRecognitionLogicAlert = false
     @State private var showSpotEditor = false
+    @State private var findCarCard: FindCarCardSnapshot?
+    @State private var preparingCarCard = false
     @State private var editSpotNumber: String = ""
     @State private var editAreaCode: String = ""
     @State private var editFloorText: String = ""
@@ -820,9 +1028,10 @@ struct ContentView: View {
     @State private var parkingRecordsGroup: ParkingRecordGroup?
     @State private var editingParkingBoundary: ParkingLotRecord?
     /// 主地圖繪製停車場範圍模式（nil = 未啟用）：中心指針對位，「加點」逐點新增。
+    @State private var destinationSearchCategory: DestinationSearchCategory?
     @State private var boundaryDrawLot: ParkingLotRecord?
     @State private var boundaryDrawVertices: [ParkingBoundaryVertex] = []
-    @State private var boundaryDrawBridge = BoundaryDrawMapBridge()
+    @StateObject private var boundaryDrawBridge = BoundaryDrawMapBridge()
     /// 「恢復自動圓形範圍」確認
     @State private var resettingBoundaryLot: ParkingLotRecord?
     @State private var showResetBoundaryConfirm = false
@@ -850,8 +1059,14 @@ struct ContentView: View {
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("orbColorPreset") private var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
     @AppStorage("orbOverlapGlowEnabled") private var orbOverlapGlowEnabled: Bool = true
-    @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
+    @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    private var colorGroup: GorillaColorGroup {
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+    }
+    private var darkKnightMode: Bool { colorGroup.usesSpecialMap }
     @State private var darkKnightActivatedByFocus = false  // 是否由極致專注模式自動開啟
+    @State private var colorGroupBeforeFocus: GorillaColorGroup?
     /// 黑武士模式地圖圓角（橫屏更大）
     private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 120 : 100 }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
@@ -863,15 +1078,16 @@ struct ContentView: View {
     @State private var showDemoAnimation = false
     @State private var showingTripConfirm = false
     @State private var tripConfirmPrediction: PendingTripPrediction? = nil
+    @State private var tripPredictionActionsReady = false
     @State private var tripToastPrediction: PendingTripPrediction? = nil
     @State private var tripToastAutoDismiss: DispatchWorkItem? = nil
 
     init() {
-        let appearance = UITabBarAppearance()
-        appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.white]
-        appearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.gray]
-        appearance.stackedLayoutAppearance.selected.iconColor = UIColor.white
-        appearance.stackedLayoutAppearance.normal.iconColor = UIColor.gray
+        let darkGlassEnabled = GorillaGlassStyle.usesDarkGlass(
+            preferredDark: UserDefaults.standard.object(forKey: "capsuleDarkGlassEnabled") as? Bool ?? true,
+            darkKnightMode: GorillaColorGroup.load().forcesDarkGlass
+        )
+        let appearance = Self.tabBarAppearance(darkGlassEnabled: darkGlassEnabled)
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
 
@@ -904,14 +1120,8 @@ struct ContentView: View {
                 _timerRunning = State(initialValue: false)
                 _lastKnownArrivalDate = State(initialValue: defaults.object(forKey: "lastKnownArrivalDate") as? Date)
                 let savedNonAuto = defaults.bool(forKey: "isNonAutomotiveArrival")
-                // 糾錯：正在泊車時不應該是逗留（之前誤判的記錄）
-                let isParking = !defaults.bool(forKey: "hasDeparted")
-                let correctedNonAuto = isParking ? false : savedNonAuto
-                _isNonAutomotiveArrival = State(initialValue: correctedNonAuto)
+                _isNonAutomotiveArrival = State(initialValue: savedNonAuto)
                 _visitStatus = State(initialValue: "已泊車")
-                if correctedNonAuto != savedNonAuto {
-                    defaults.set(false, forKey: "isNonAutomotiveArrival")
-                }
                 // Load persisted parking photo contributions
                 var loadedContributions: [UUID: [String: String]] = [:]
                 if let data = defaults.data(forKey: "parkingPhotoContributions"),
@@ -931,6 +1141,7 @@ struct ContentView: View {
                 _llmFloorText = State(initialValue: mFloor)
                 _llmFloorIndex = State(initialValue: mFloorIdx)
                 _llmRawResult = State(initialValue: loadedContributions.isEmpty ? nil : "multi-photo")
+                _hasParkingSpotData = State(initialValue: !savedNonAuto || mSpot != nil || mArea != nil || mFloor != nil)
             }
         }
     }
@@ -953,8 +1164,7 @@ struct ContentView: View {
         }
     }
 
-    var body: some View {
-        ZStack {
+    private var mainTabView: some View {
         TabView(selection: Binding(
             get: { selectedTab },
             set: { newTab in
@@ -986,6 +1196,7 @@ struct ContentView: View {
                 )
             }
                 .environment(\.colorScheme, effectiveColorScheme)
+                .tint(.accentColor)
                 .tabItem {
                     Label(String(localized: "Speed"), systemImage: "speedometer")
                 }
@@ -993,16 +1204,18 @@ struct ContentView: View {
                 .onAppear {
                     updateTabBarAppearance()
                 }
-                .onChange(of: darkKnightMode) { _, newValue in
+                .onChange(of: colorGroup) { _, newValue in
                     updateTabBarAppearance()
                     // 手動關閉黑武士模式時，清除自動開啟標記
-                    if !newValue {
+                    if newValue != .darkKnight {
                         darkKnightActivatedByFocus = false
+                        colorGroupBeforeFocus = nil
                     }
                 }
 
             NavigationStack {
                 homeContent
+                    .environment(\.homeMapContext, HomeMapContext(session: homeMapSession, isActive: selectedTab == 1))
                     .background {
                         if #available(iOS 27.1, *) {
                             DuoVerticalBarReader(isVertical: $hasDuoVerticalBar, verticalEdge: $duoVerticalBarEdge)
@@ -1016,6 +1229,7 @@ struct ContentView: View {
                                 Button(action: cycleMapPresentation) {
                                     Label("切換地圖模式", systemImage: globeToggleIcon)
                                 }
+                                .modifier(GorillaMapControlAppearance())
                             }
                             .visibilityPriority(.high)
                             .axisBehavior(.verticalPreferred)
@@ -1027,6 +1241,7 @@ struct ContentView: View {
                                     Label(mapHeadingMode.label, systemImage: mapHeadingMode.iconName)
                                 }
                                 .disabled(!showMap && !showSatellite)
+                                .modifier(GorillaMapControlAppearance())
                             }
                             .visibilityPriority(.automatic)
                             .axisBehavior(.verticalPreferred)
@@ -1043,6 +1258,7 @@ struct ContentView: View {
                                 Button(action: cycleMapPresentation) {
                                     Label("切換地圖模式", systemImage: globeToggleIcon)
                                 }
+                                .modifier(GorillaMapControlAppearance())
                             }
                             .visibilityPriority(.high)
                             ToolbarItem(placement: .bottomBar) {
@@ -1050,19 +1266,22 @@ struct ContentView: View {
                                     Label(mapHeadingMode.label, systemImage: mapHeadingMode.iconName)
                                 }
                                 .disabled(!showMap && !showSatellite)
+                                .modifier(GorillaMapControlAppearance())
                             }
                             .visibilityPriority(.automatic)
                             ToolbarItem(placement: .bottomBar) { duoSearchMenu }
                                 .visibilityPriority(.low)
                         }
                     }
+                    .toolbar(usesDuoToolbar ? .visible : .hidden, for: .bottomBar)
             }
+            .environment(\.colorScheme, effectiveColorScheme)
+            .tint(.accentColor)
             .tabItem {
                 Label(String(localized: "Home"), systemImage: "house.fill")
             }
             .tag(1)
             .onAppear {
-                animationClock.start()
                 guard !hasPlayedEntrance else { return }
                 hasPlayedEntrance = true
                 let launchAnimEnabled = UserDefaults.standard.object(forKey: "launchAnimationEnabled") as? Bool ?? true
@@ -1087,6 +1306,7 @@ struct ContentView: View {
                         let cornerR = Self.sheetCornerRadius()
                         ZStack(alignment: .trailing) {
                             homeContent
+                                .environment(\.homeMapContext, HomeMapContext(session: homeMapSession, isActive: selectedTab == 2))
                                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                             // Sheet overlay
                             ZStack(alignment: .trailing) {
@@ -1114,12 +1334,43 @@ struct ContentView: View {
                     SettingsView()
                 }
             }
-                .environment(\.colorScheme, effectiveColorScheme)
+                .environment(\.colorScheme, colorGroup == .m3Concept ? .dark : effectiveColorScheme)
+                .tint(colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.orange) : .accentColor)
                 .tabItem {
                     Label(String(localized: "Settings"), systemImage: "gearshape")
                 }
                 .tag(2)
+
+            if showsGorillaTab {
+                NavigationStack {
+                    GorillaPageView()
+                }
+                .environment(\.colorScheme, effectiveColorScheme)
+                .tint(.accentColor)
+                .tabItem {
+                    Label {
+                        Text("Gorilla")
+                    } icon: {
+                        Image(uiImage: GorillaBrand.goldTabIcon)
+                            .renderingMode(.original)
+                    }
+                }
+                .tag(3)
+            }
         }
+        .modifier(GorillaTabBarStyle())
+        .background {
+            GorillaTabBarAppearanceReader(appearance: Self.tabBarAppearance(darkGlassEnabled: usesDarkGlass))
+                .allowsHitTesting(false)
+        }
+        .onChange(of: usesDarkGlass) { _, _ in
+            updateTabBarAppearance()
+        }
+    }
+
+    var body: some View {
+        ZStack {
+        mainTabView
         .background {
             if #available(iOS 27.1, *) {
                 DuoVerticalBarReader(isVertical: $hasDuoVerticalBar, verticalEdge: $duoVerticalBarEdge)
@@ -1127,6 +1378,23 @@ struct ContentView: View {
             WindowBoundsReader(bounds: $appWindowBounds)
         }
         .preferredColorScheme(resolvedColorScheme)
+        .onChange(of: showsGorillaTab) { _, visible in
+            if !visible && selectedTab == 3 {
+                selectedTab = 1
+                showingGorillaPage = true
+            }
+        }
+        .sheet(isPresented: $showingGorillaPage) {
+            NavigationStack {
+                GorillaPageView()
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button(role: .close) { showingGorillaPage = false }
+                        }
+                    }
+            }
+            .environment(\.colorScheme, effectiveColorScheme)
+        }
         .onChange(of: selectedTab) { _, newTab in
             if newTab == 2 && isDuoInnerDisplay {
                 settingsSheetVisible = false
@@ -1152,6 +1420,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $meterManager.needsVehicleSelection) { MeterVehiclePicker() }
+        .sheet(item: $findCarCard) { FindCarShareView(snapshot: $0) }
         .modifier(MeterPaymentHelp(manager: meterManager))
         .alert("未能取得路線", isPresented: Binding<Bool>(get: { meterRouteError != nil }, set: { if !$0 { meterRouteError = nil } })) {
             Button("確定", role: .cancel) { meterRouteError = nil }
@@ -1163,8 +1432,7 @@ struct ContentView: View {
             meterManager.prepare()
             meterManager.setActive(true)
             if meterManager.isEnabled && meterManager.vehicle == .unset { meterManager.needsVehicleSelection = true }
-            animationClock.start()
-            if orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
+            if !showMap && !showSatellite && orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
                 // 立即啟動入場動畫（同 blur 淡入同步進行）
                 timePhaseManager.startWithEntranceAnimation()
             }
@@ -1182,9 +1450,20 @@ struct ContentView: View {
             }
         }
         .onDisappear {
+            timePhaseManager.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             stopFloorCurveDetection()
             stopCapsuleUpdateTimer()
+            if BackupController.shared.restoring {
+                [addressAlternatingTimer, parkingTimer, departureTimer, departureElapsedTimer,
+                 stationaryTimer, activitySyncTimer, parkingReminderTimer, cameraInactivityTimer,
+                 headingToastTimer, gpsTapResetTimer, compactSlotTimer, llmPollTimer,
+                 llmSoundStopTimer, parkingInfoSwitchTimer, floorCurveGateTimer,
+                 floorCurveDismissTimer, orbGradualStopTimer].forEach { $0?.invalidate() }
+                [capsuleSettleWorkItem, lightEffectDismissWorkItem, tripToastAutoDismiss,
+                 adjustHideWorkItem].forEach { $0?.cancel() }
+                meterManager.setActive(false)
+            }
         }
         .onChange(of: scenePhase) { _, phase in
             meterManager.setActive(phase == .active)
@@ -1196,15 +1475,9 @@ struct ContentView: View {
                     }
                     // 重置速度濾波器，避免殘留舊值
                     locationManager.resetSpeedFilter()
+                    locationManager.restoreNavigationAccuracy()
                     locationManager.startLocationServicesIfNeeded()
                     refreshVisitAndTimersForForeground()
-                    // 背景回來 CADisplayLink 可能已被系統停掉 —— orb 動畫會
-                    // 靜止到成個 app 重開。重新起過（順手重置 lastDate，
-                    // 唔係回前景第一幀 elapsed 會大跳）
-                    animationClock.start()
-                    if orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
-                        timePhaseManager.start()
-                    }
                     // Force the Live Activity to re-render with the latest
                     // widget build — the system keeps the archived render of
                     // the previous build until the next content update.
@@ -1217,7 +1490,7 @@ struct ContentView: View {
                     startActivitySyncTimer()
                 }
             } else if phase == .background {
-                parkingFloorStore.barometer.suspendCapture()
+                timePhaseManager.stop()
                 stopFloorCurveDetection()
             }
         }
@@ -1234,7 +1507,7 @@ struct ContentView: View {
             timePhaseManager.fetchSunTimes(for: location.coordinate)
             // 追蹤低速時的 GPS 位置（用於修正泊車位置）
             if parkingFloorStore.barometer.currentSpeedKmh >= 0,
-               parkingFloorStore.barometer.currentSpeedKmh < 20 {
+               parkingFloorStore.barometer.currentSpeedKmh < BarometerSessionManager.captureSpeedThreshold {
                 parkingFloorStore.lastStationaryCoordinate = location.coordinate
             }
             // 有目的地時自動刷新 ETA
@@ -1324,22 +1597,17 @@ struct ContentView: View {
             .zIndex(100)
         }
 
-        // MARK: - 懸浮車道導航框（常態化：有目的地時自動顯示）
-        VStack {
-            FloatingLaneGuidanceView(naviManager: naviManager)
-                .padding(.top, 60)
-            Spacer()
-        }
-        .allowsHitTesting(naviManager.showLaneGuidance)
+        Color.clear.frame(width: 0, height: 0)
         .onChange(of: destinationManager.selectedDestination?.id) { _, _ in
             meterRouteTarget = nil
             meterDirections?.cancel()
             meterDirections = nil
-            // 目的地變更時，自動開始/停止車道導航
-            syncLaneNavigation()
-        }
-        .onAppear {
-            syncLaneNavigation()
+            drivingDistanceUpdatedAt = nil
+            drivingDistanceMeters = nil
+            drivingDistanceText = nil
+            drivingETASeconds = nil
+            etaText = nil
+            refreshETA()
         }
 
         } // ZStack
@@ -1433,24 +1701,6 @@ struct ContentView: View {
         return locationManager.currentAddress
     }
 
-    // MARK: - 同步車道導航（有目的地時自動開始，無時停止）
-    private func syncLaneNavigation() {
-        if let dest = destinationManager.selectedDestination {
-            let currentLoc = locationManager.lastLocation?.coordinate
-            if let loc = currentLoc {
-                // 有目的地 + 有當前位置 → 自動開始靜默導航
-                if !naviManager.isNavigating {
-                    naviManager.startSilentNavigation(to: dest)
-                }
-            }
-        } else {
-            // 冇目的地 → 停止導航
-            if naviManager.isNavigating {
-                naviManager.stopNavigation()
-            }
-        }
-    }
-
     private func cycleMapHeading() {
         withAnimation(.easeInOut(duration: 0.2)) {
             switch mapHeadingMode {
@@ -1528,19 +1778,19 @@ struct ContentView: View {
             Label(String(localized: "新增目的地"), systemImage: "plus")
         }
         if !searchDestinations.isEmpty {
-            Menu { destinationSearchItems(for: .destinations) } label: {
+            Button { destinationSearchCategory = .destinations } label: {
                 Label(String(format: String(localized: "我的目的地（%d）"), searchDestinations.count),
                       systemImage: "mappin.and.ellipse")
             }
         }
         if !searchLearnedPlaces.isEmpty {
-            Menu { destinationSearchItems(for: .learned) } label: {
+            Button { destinationSearchCategory = .learned } label: {
                 Label(String(format: String(localized: "學習地點（%d）"), searchLearnedPlaces.count),
                       systemImage: "mappin.circle")
             }
         }
         if !searchParkingLots.isEmpty {
-            Menu { destinationSearchItems(for: .lots) } label: {
+            Button { destinationSearchCategory = .lots } label: {
                 Label(String(format: String(localized: "停車場（%d）"), searchParkingLots.count),
                       systemImage: "car.fill")
             }
@@ -1549,19 +1799,25 @@ struct ContentView: View {
 
     private func destinationSearchItems(for category: DestinationSearchCategory) -> some View {
         let items: [DestinationSearchMenuItems.Item]
+        let title: String
         switch category {
         case .destinations:
+            title = String(format: String(localized: "我的目的地（%d）"), searchDestinations.count)
             items = searchDestinations.map {
                 .init(id: $0.id.uuidString, name: $0.name, symbol: "mappin.and.ellipse", color: $0.color)
             }
         case .learned:
+            title = String(format: String(localized: "學習地點（%d）"), searchLearnedPlaces.count)
             items = searchLearnedPlaces.map { .init(id: $0.key, name: $0.displayName, symbol: "mappin.circle") }
         case .lots:
+            title = String(format: String(localized: "停車場（%d）"), searchParkingLots.count)
             items = searchParkingLots.map { .init(id: $0.id.uuidString, name: $0.name ?? "",
                                                  symbol: "car.fill", color: .orange) }
         }
         return DestinationSearchMenuItems(items: items,
-            selectedID: category == .destinations ? destinationManager.selectedDestination?.id.uuidString : nil) { id in
+            selectedID: category == .destinations ? destinationManager.selectedDestination?.id.uuidString : nil,
+            title: title) { id in
+            destinationSearchCategory = nil
             switch category {
             case .destinations:
                 if let destination = destinationManager.destinations.first(where: { $0.id.uuidString == id }) {
@@ -1590,12 +1846,18 @@ struct ContentView: View {
         Menu { destinationSearchMenuContent } label: {
             Label("搜尋目的地", systemImage: "magnifyingglass")
         }
+        .modifier(GorillaMapControlAppearance())
+        .popover(item: $destinationSearchCategory) { category in destinationSearchItems(for: category) }
     }
 
     private var gorillaTitleView: some View {
         let titleText = Text(String(localized: "🦍 Gorilla")).font(.largeTitle.bold())
-        let goldColor = Color(hex: "FFC46D")
+        let goldColor = Color(uiColor: GorillaBrand.darkKnightGold)
         return ZStack {
+            if colorGroup == .m3Concept {
+                titleText.foregroundStyle(Color(hex: M3ConceptPalette.yellow))
+                    .frame(width: 220, height: 50)
+            } else {
             (darkKnightMode ? goldColor.opacity(0.15) : Color.white.opacity(0.01))
                 .frame(width: 220, height: 50)
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
@@ -1620,8 +1882,8 @@ struct ContentView: View {
             // 先可以令光帶真正掃過 icon（唔係一開始全亮、收尾全暗）。
             // 黑武士模式反轉做「變暗帶」（黑色 multiply，似影掃過字面）。
             // 節奏：掃 5 秒 → 隨機停頓一陣再掃（7 個唔同停頓長度循環，感覺隨機）
-            TimelineView(.animation(minimumInterval: 1.0 / 120.0)) { context in
-                let state = Self.sheenState(at: context.date)
+            TimelineView(SheenTimelineSchedule()) { context in
+                let state = SheenTimelineSchedule().state(at: context.date)
                 // 前面框住嘅透明文字保持字體嘅版面 footprint：
                 // 唔係嘅話底層 Color 會霸晒容器闊度，成個標題會向右偏。
                 titleText
@@ -1634,6 +1896,7 @@ struct ContentView: View {
                     .blendMode(darkKnightMode ? .multiply : .screen)
                     .opacity(state.sweeping ? (darkKnightMode ? 0.8 : 0.45) : 0)
             }
+            }
         }
         .compositingGroup()
         .onTapGesture {
@@ -1641,30 +1904,6 @@ struct ContentView: View {
         }
         // 視覺微調：標題整體左移 16pt（用戶覺得文字視覺重心偏右）
         .offset(x: -16)
-    }
-
-    /// 標題光澤掃過節奏：每循環 = 掃 5 秒 + 停頓。
-    /// 停頓用 7 個唔同長度循環（1.4–5.2 秒），感覺隨機但可重現（同一時間永遠同一畫面）
-    private static let sheenSweepDuration: Double = 5.0
-    private static let sheenPausePattern: [Double] = [2.2, 4.6, 1.4, 3.4, 2.8, 5.2, 1.8]
-
-    /// 計算某時刻嘅掃過狀態：sweeping=true 時 phase 由 0→1（光帶掃過），false = 停頓中
-    private static func sheenState(at date: Date) -> (phase: Double, sweeping: Bool) {
-        let block = sheenSweepDuration * Double(sheenPausePattern.count)
-            + sheenPausePattern.reduce(0, +)
-        var elapsed = date.timeIntervalSinceReferenceDate
-            .truncatingRemainder(dividingBy: block)
-        for pause in sheenPausePattern {
-            if elapsed < sheenSweepDuration {
-                return (elapsed / sheenSweepDuration, true)
-            }
-            elapsed -= sheenSweepDuration
-            if elapsed < pause {
-                return (1, false)  // 停頓：光帶保持喺字外
-            }
-            elapsed -= pause
-        }
-        return (1, false)
     }
 
     /// 標題掃過光帶（用嚟做 mask）：柔邊光帶沿對角線（左下→右上）由字外掃入、穿過字形、再掃出。
@@ -1749,6 +1988,8 @@ struct ContentView: View {
                 ? geo.size.height / 2 : -2 * MapCameraMotion.trackingPointDownshift
             let hingeUpperOffsetY: CGFloat = isDuoSeatedMode ? -geo.size.height / 4 : 0
             let hingeLowerOffsetY: CGFloat = isDuoSeatedMode ? geo.size.height / 4 : 0
+            let meterPopupRegion: MeterPopupRegion = isDuoInnerDisplay && isDuoPartiallyOpen
+                ? (newLandscape ? .leftHalf : .upperHalf) : .full
             Color.clear.onAppear {
                 if duoBaseSafeTop < 1 { duoBaseSafeTop = geo.safeAreaInsets.top }
                 isLandscape = newLandscape
@@ -1807,20 +2048,14 @@ struct ContentView: View {
                         .transition(.opacity.animation(.easeInOut(duration: 0.8)))
 
                     ZStack {
-                        // 底層：模糊版地圖（邊緣模糊效果）
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { _ in }, onMoveParkingPoint: { _, _ in }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: 0, centerOffsetY: mapCenterOffsetY, hideCompass: true, radialVignetteOuterOpacity: 1, onMapBlankTap: {}, onSelectHKLocation: { _ in })
-                        .blur(radius: 25)
-                        .mask(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius).inset(by: 28).blur(radius: 22))
-                        .allowsHitTesting(false)
-
-                        // 頂層：清晰地圖（中心區域，邊緣透明）
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                        // One live map, with a cached edge mask and native backdrop blur.
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, parkingPointsRevision: parkingFloorStore.mapRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                             withAnimation(.easeOut(duration: 0.28)) {
                                 selectedParkingPointID = id
                             }
                         }, onMoveParkingPoint: { id, coordinate in
                             parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
-                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, radialVignetteOuterOpacity: 1, onMapBlankTap: {
+                        }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, softenedEdgeCornerRadius: darkKnightMapCornerRadius, radialVignetteOuterOpacity: 1, onMapBlankTap: {
                             guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                 isCapsuleExpanded = false
@@ -1834,12 +2069,6 @@ struct ContentView: View {
                                 selectedHKLocation = loc
                             }
                         }, boundaryDrawVertices: boundaryDrawLot != nil ? boundaryDrawVertices : nil, boundaryDrawBridge: boundaryDrawBridge)
-                        // 圓角漸變 mask：中心清晰，向圓角邊緣軟化淡出（露出模糊層，冇硬描邊）
-                        .mask(
-                            RoundedRectangle(cornerRadius: darkKnightMapCornerRadius)
-                                .inset(by: 51)
-                                .blur(radius: 45)
-                        )
 
                     }
                     .clipShape(RoundedRectangle(cornerRadius: darkKnightMapCornerRadius))
@@ -1850,7 +2079,7 @@ struct ContentView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
                 } else {
                     // 正常模式：全屏地圖
-                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, parkingPointsRevision: parkingFloorStore.mapRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                         withAnimation(.easeOut(duration: 0.28)) {
                             selectedParkingPointID = id
                         }
@@ -1876,6 +2105,12 @@ struct ContentView: View {
             } else if darkKnightMode {
                 Color.black.ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
+            } else if colorGroup == .m3Concept {
+                AnimatedBackground(clock: animationClock, orbEnabled: true,
+                    orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, overlapGlowEnabled: M3ConceptPalette.homeOrbMixing,
+                    customOrbColors: M3ConceptPalette.homeOrbs, backgroundColorHex: M3ConceptPalette.black)
+                    .ignoresSafeArea()
+                    .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
@@ -1910,6 +2145,14 @@ struct ContentView: View {
                             HStack {
                                 Spacer()
                                 gpsStatusBadge
+                                    .overlay(alignment: .bottomTrailing) {
+                                        if showMap || showSatellite {
+                                            MapCompassToolbarView(bridge: mapCompassBridge)
+                                                .frame(width: 44, height: 44)
+                                                .accessibilityLabel("指南針")
+                                                .offset(y: 56)
+                                        }
+                                    }
                             }
                             .offset(y: 20)
                         }
@@ -1935,8 +2178,9 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     Spacer(minLength: 0)
 
-                    let buttonOffset: CGFloat = !isLandscape ? (isParkingMemoryExpanded ? -453 : (isFloorCurveInCapsule ? -170 : (isCapsuleExpanded ? -140 : 0))) : 0
-                    let landscapeButtonOffset: CGFloat = (isLandscape && (showMap || showSatellite)) ? 20 : 0
+                    let buttonOffset = mapToolbarVerticalOffset
+                    let centersPhoneControls = isLandscape && UIDevice.current.userInterfaceIdiom == .phone && !isDuoDevice
+                    let landscapeButtonOffset: CGFloat = (!centersPhoneControls && isLandscape && (showMap || showSatellite)) ? 20 : 0
                     HStack {
                         if !hkDetailMode && !usesDuoToolbar {
                             VStack(spacing: 10) {
@@ -1961,13 +2205,14 @@ struct ContentView: View {
                                     } label: {
                                         Image(systemName: mapHeadingMode.iconName)
                                             .font(.system(size: 20, weight: .medium))
-                                            .foregroundStyle(mapHeadingMode.isActive ? adaptiveTextColor() : adaptiveTextColor(opacity: 0.5))
+                                            .foregroundStyle(capsuleTextColor(opacity: mapHeadingMode.isActive ? 1 : 0.5))
                                             .frame(width: 44, height: 44)
                                             .id(mapHeadingMode)
                                             .transition(AnyTransition.blurFade)
                                             .animation(.easeInOut(duration: 0.25), value: mapHeadingMode)
                                     }
                                     .buttonStyle(.glass)
+                                    .modifier(GorillaMapControlAppearance())
                                     .overlay(alignment: .trailing) {
                                         if let toast = headingToastText {
                                             Text(toast)
@@ -1987,10 +2232,12 @@ struct ContentView: View {
                                 } label: {
                                     Image(systemName: "magnifyingglass")
                                         .font(.system(size: 20, weight: .medium))
-                                        .foregroundStyle(adaptiveTextColor())
+                                        .foregroundStyle(capsuleTextColor())
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.glass)
+                                .modifier(GorillaMapControlAppearance())
+                                .popover(item: $destinationSearchCategory) { category in destinationSearchItems(for: category) }
 
                                 Button(action: {
                                     withAnimation(.easeInOut(duration: 0.3)) {
@@ -2009,19 +2256,23 @@ struct ContentView: View {
                                 }) {
                                     Image(systemName: globeToggleIcon)
                                         .font(.system(size: 20, weight: .medium))
-                                        .foregroundStyle(adaptiveTextColor())
+                                        .foregroundStyle(capsuleTextColor())
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.glass)
+                                .modifier(GorillaMapControlAppearance())
                             }
                             .padding(.leading, 16)
-                            .padding(.bottom, 72)
+                            .padding(.bottom, centersPhoneControls ? 0 : 72)
                             .offset(y: buttonOffset + landscapeButtonOffset)
                             .animation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.5), value: buttonOffset)
+                            .animation(.spring(response: 0.6, dampingFraction: 0.78), value: boundaryDrawLot?.id)
+                            .animation(.smooth(duration: 0.25), value: boundaryToolbarHeight)
                         }
 
                         Spacer()
                     }
+                    .frame(height: centersPhoneControls ? geo.size.height : nil)
                 }
             }
 
@@ -2051,12 +2302,12 @@ struct ContentView: View {
                                        dismissMeterDetail()
                                        MeterPayment.open(manager: meterManager)
                                    },
-                                   compactLayout: isDuoDevice && !isDuoInnerDisplay)
-                    .offset(y: hingeLowerOffsetY)
+                                   compactLayout: isDuoDevice && !isDuoInnerDisplay,
+                                   region: meterPopupRegion)
                     .transition(MeterDetailOverlay.popupTransition)
                     .zIndex(23)
             } else if let notice = presentedMeterNotice, selectedParkingPointID == nil, selectedHKLocation == nil {
-                MeterNoticeCapsule(notice: notice, onCancel: {
+                MeterNoticeOverlay(notice: notice, onCancel: {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.86)) {
                         presentedMeterNotice = nil
                     }
@@ -2075,8 +2326,7 @@ struct ContentView: View {
                     }
                     meterManager.dismissNotice()
                     MeterPayment.open(manager: meterManager)
-                })
-                .offset(y: hingeUpperOffsetY)
+                }, region: meterPopupRegion)
                 .transition(
                     .asymmetric(
                         insertion: .modifier(
@@ -2116,6 +2366,8 @@ struct ContentView: View {
                     .transition(.opacity)
                     .zIndex(24)
                     .onTapGesture {
+                        guard tripPredictionActionsReady else { return }
+                        tripPredictor.pendingConfirm = nil
                         withAnimation(.easeIn(duration: 0.18)) {
                             showingTripConfirm = false
                             tripConfirmPrediction = nil
@@ -2123,6 +2375,15 @@ struct ContentView: View {
                     }
 
                 tripConfirmCard(prediction: p)
+                    .allowsHitTesting(tripPredictionActionsReady)
+                    .task(id: p.id) {
+                        tripPredictionActionsReady = false
+                        do {
+                            try await Task.sleep(for: .seconds(1))
+                            try Task.checkCancellation()
+                            tripPredictionActionsReady = true
+                        } catch { }
+                    }
                     .frame(maxWidth: min(560, geo.size.width - 44))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
                     .transition(
@@ -2180,34 +2441,7 @@ struct ContentView: View {
                         }
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .opacity(boundaryDrawLot == nil ? 1 : 0)
-                .allowsHitTesting(boundaryDrawLot == nil)
 
-            // 繪製停車場範圍工具列（跟影片版面：✕ ↩ 標題 ⊕ ✓，↩ 喺標題左手邊）
-            if boundaryDrawLot != nil {
-                VStack(spacing: 10) {
-                    if boundaryDrawVertices.count >= 3,
-                       !ParkingBoundaryGeometry.isValid(boundaryDrawVertices) {
-                        Text(String(localized: "範圍不可交叉或過小"))
-                            .font(.caption)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Capsule().fill(.regularMaterial))
-                    }
-                    BoundaryDrawToolbar(
-                        vertexCount: boundaryDrawVertices.count,
-                        canConfirm: ParkingBoundaryGeometry.isValid(boundaryDrawVertices),
-                        onCancel: endBoundaryDraw,
-                        onUndo: { if !boundaryDrawVertices.isEmpty { boundaryDrawVertices.removeLast() } },
-                        onAdd: addBoundaryVertexAtCenter,
-                        onConfirm: confirmBoundaryDraw
-                    )
-                }
-                .padding(.bottom, capsuleBottomPadding)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-                .zIndex(30)
-            }
         }
         .frame(width: geo.size.width, height: geo.size.height)
         }
@@ -2281,11 +2515,13 @@ struct ContentView: View {
         // MARK: Trip Predictor bindings
         .onChange(of: tripPredictor.pendingConfirm) { (_: PendingTripPrediction?, newValue: PendingTripPrediction?) in
             if let p = newValue {
+                tripPredictionActionsReady = false
                 tripConfirmPrediction = p
                 tripToastPrediction = nil
                 showingTripConfirm = true
                 sfxPlayer.playDestinationPredict()
-            } else if showingTripConfirm && tripConfirmPrediction == nil {
+            } else {
+                tripConfirmPrediction = nil
                 showingTripConfirm = false
             }
         }
@@ -2432,6 +2668,18 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
             }
+            Button {
+                tripPredictor.postponeDeparturePrediction()
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    showingTripConfirm = false
+                    tripConfirmPrediction = nil
+                }
+            } label: {
+                Label(String(localized: "暫未出發"), systemImage: "pause.circle")
+                    .frame(maxWidth: .infinity, minHeight: 44)
+                    .foregroundStyle(.white.opacity(0.85))
+            }
+            .buttonStyle(.plain)
         }
         .padding(26)
         .background(
@@ -2804,7 +3052,6 @@ struct ContentView: View {
         floorCurveStopConfirmationID = nil
         parkingFloorStore.saveCapturedFloor(captureID: result.id, floor: floorCurveLockedFloor,
                                             userConfirmed: false)
-        sfxPlayer.playFloorCurveLocked()
         withAnimation(.easeInOut(duration: 0.5)) { floorCurveLockAnimating = true }
     }
 
@@ -2818,12 +3065,13 @@ struct ContentView: View {
         guard let id = floorCurveCaptureID, !floorCurveConfirmed else { return }
         parkingFloorStore.saveCapturedFloor(captureID: id, floor: floorCurveLockedFloor,
                                             userConfirmed: manual)
+        if manual { sfxPlayer.playFloorCurveLocked() }
         parkingFloorStore.requestFloorReview(captureID: id)
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { floorCurveConfirmed = true }
         floorCurveDismissTimer?.invalidate()
-        floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: 1.2, repeats: false) { _ in
+        floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
             guard floorCurveCaptureID == id else { return }
-            dismissFloorCurve()
+            dismissFloorCurve(openParkingMemory: true)
         }
     }
 
@@ -2889,7 +3137,7 @@ struct ContentView: View {
     }
 
     /// 關閉彈窗
-    private func dismissFloorCurve() {
+    private func dismissFloorCurve(openParkingMemory: Bool = false) {
         let dismissedID = floorCurveCaptureID
         floorCurveDismissTimer?.invalidate()
         floorCurveDismissTimer = nil
@@ -2910,6 +3158,14 @@ struct ContentView: View {
             floorCurveLocked = false
             floorCurveConfirmed = false
             floorCurveLockAnimating = false
+            if openParkingMemory, selectedTab == 1, scenePhase == .active,
+               parkingFloorStore.barometer.completedResult?.id == dismissedID,
+               locationManager.speed < 8 {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    isParkingMemoryExpanded = true
+                    orbOpacity = 0.5
+                }
+            }
         }
     }
 
@@ -2921,14 +3177,21 @@ struct ContentView: View {
         }
         guard let since = barometer.stationarySince, let last = barometer.samples.last else { return nil }
         let elapsed = last.timestamp.timeIntervalSince(since)
-        if elapsed < 8 {
-            return (String(localized: "短暫停頓"), max(1, Int(ceil(8 - elapsed))))
+        if elapsed < ParkingAltitudeCapture.briefStopSeconds {
+            return (String(localized: "短暫停頓"), max(1, Int(ceil(ParkingAltitudeCapture.briefStopSeconds - elapsed))))
         }
-        if elapsed < 10 {
-            return (String(localized: "確認停泊"), max(1, Int(ceil(10 - elapsed))))
+        if elapsed < ParkingAltitudeCapture.stableStopSeconds {
+            return (String(localized: "確認停泊"), max(1, Int(ceil(ParkingAltitudeCapture.stableStopSeconds - elapsed))))
         }
         if floorCurveStopConfirmationID != nil { return nil }
         return (String(localized: "繼續探測"), nil)
+    }
+
+    private var floorCurveAxisHeights: [(floor: Int, height: CGFloat)] {
+        guard let coordinate = locationManager.mapReferenceLocation?.coordinate else { return [] }
+        return parkingFloorStore.floorHeightProfiles(near: coordinate,
+            referenceFloor: parkingFloorStore.barometer.referenceFloorIndex)
+            .map { (floor: $0.floor, height: CGFloat($0.height)) }
     }
 
     private var floorCurveCapsuleContent: some View {
@@ -2945,7 +3208,7 @@ struct ContentView: View {
                 }) {
                     Image(systemName: "chevron.left.circle.fill")
                         .font(.system(size: 28))
-                        .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                        .foregroundStyle(capsuleTextColor(opacity: 0.8))
                 }
                 Button { showCaptureReferenceFloor = true } label: {
                     VStack(alignment: .leading, spacing: 1) {
@@ -2955,7 +3218,7 @@ struct ContentView: View {
                             ParkingFloorStore.formatFloor(barometer.referenceFloorIndex)))
                             .font(.system(size: 10))
                     }
-                    .foregroundStyle(adaptiveTextColor())
+                    .foregroundStyle(capsuleTextColor())
                 }
                 .buttonStyle(.plain)
                 .disabled(floorCurveLocked)
@@ -3032,7 +3295,9 @@ struct ContentView: View {
                             horizontalPositions: floorCurveHorizontalPositions,
                             w: w, h: h,
                             accentColor: accentColor,
-                            carIconName: "car.side.fill"
+                            carIconName: "car.side.fill",
+                            floorHeights: floorCurveAxisHeights,
+                            referenceFloor: barometer.referenceFloorIndex
                         )
                     }
                 }
@@ -3072,7 +3337,7 @@ struct ContentView: View {
             HStack(alignment: .lastTextBaseline) {
                 Text("\(Int(locationManager.smoothedSpeed)) km/h")
                     .font(.body.bold())
-                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                    .foregroundStyle(capsuleTextColor(opacity: 0.6))
                     .contentTransition(.numericText())
                     .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                     .monospacedDigit()
@@ -3080,14 +3345,14 @@ struct ContentView: View {
                 Spacer()
                 Text(displayAddress)
                     .font(.body.bold())
-                    .foregroundStyle(adaptiveTextColor())
+                    .foregroundStyle(capsuleTextColor())
                     .lineLimit(1)
                     .contentTransition(.opacity)
                     .animation(.easeInOut(duration: 0.4), value: displayAddress)
                 Spacer()
                 Text(etaText ?? "--")
                     .font(.body.bold())
-                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                    .foregroundStyle(capsuleTextColor(opacity: 0.6))
                     .contentTransition(.numericText())
                     .animation(.easeInOut(duration: 0.15), value: etaText ?? "--")
                     .monospacedDigit()
@@ -3336,8 +3601,9 @@ struct ContentView: View {
 
     // MARK: - Address Capsule
     private var addressCapsule: some View {
-        let baseHeight: CGFloat = isParkingMemoryExpanded ? 495 : (isFloorCurveInCapsule ? 210 : (isCapsuleExpanded ? 182 : 44))
+        let baseHeight: CGFloat = boundaryDrawLot != nil ? boundaryToolbarHeight : (isParkingMemoryExpanded ? 495 : (isFloorCurveInCapsule ? 210 : (isCapsuleExpanded ? 182 : 44)))
         let capsuleHeight: CGFloat = {
+            if boundaryDrawLot != nil { return boundaryToolbarHeight }
             if isParkingMemoryExpanded {
                 return parkingMemoryUsesLandscapeLayout ? 296 : 495
             }
@@ -3367,6 +3633,7 @@ struct ContentView: View {
         }()
         let dragProgress: CGFloat = isParkingMemoryExpanded ? 1.0 : max(0, min((capsuleHeight - 44) / 138, 1))
         let capsuleWidth: CGFloat = {
+            if boundaryDrawLot != nil { return min(370, UIScreen.main.bounds.width - 32) }
             if isParkingMemoryExpanded {
                 return parkingMemoryUsesLandscapeLayout ? 525 : 370
             }
@@ -3385,7 +3652,7 @@ struct ContentView: View {
         .background {
             orbBackground
         }
-        .glassEffect(.regular, in: .rect(cornerRadius: 34))
+        .modifier(GorillaCapsuleGlass(cornerRadius: 34))
         .overlay(
             // 黑武士模式：半透明黑色覆蓋層
             RoundedRectangle(cornerRadius: 34)
@@ -3400,10 +3667,12 @@ struct ContentView: View {
         .animation(capsuleDragState.active ? nil : .spring(response: 0.6, dampingFraction: 0.78), value: isParkingMemoryExpanded)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: isFloorCurveInCapsule)
         .animation(.easeInOut(duration: 0.4), value: orbOpacity)
+        .animation(.spring(response: 0.6, dampingFraction: 0.78), value: boundaryDrawLot?.id)
+        .animation(.smooth(duration: 0.25), value: boundaryToolbarHeight)
         .highPriorityGesture(
             DragGesture(minimumDistance: 10)
                 .updating($capsuleDragState) { value, state, _ in
-                    guard !isParkingMemoryExpanded else { return }
+                    guard !isParkingMemoryExpanded, boundaryDrawLot == nil else { return }
                     let dy = value.translation.height
                     if state.mode == 0 {
                         peakDragOffset = 0
@@ -3449,7 +3718,7 @@ struct ContentView: View {
                     }
                 }
                 .onChanged { value in
-                    guard !isParkingMemoryExpanded else { return }
+                    guard !isParkingMemoryExpanded, boundaryDrawLot == nil else { return }
                     capsuleSettleWorkItem?.cancel()
                     capsuleSettleWorkItem = nil
                     capsuleSettleHeight = nil
@@ -3498,7 +3767,7 @@ struct ContentView: View {
                     }
                 }
                 .onEnded { value in
-                    guard !isParkingMemoryExpanded else { return }
+                    guard !isParkingMemoryExpanded, boundaryDrawLot == nil else { return }
                     // 解凍計時顯示
                     frozenParkingElapsed = nil
                     frozenCompactStatus = nil
@@ -3648,7 +3917,7 @@ struct ContentView: View {
                 }
         )
         .onTapGesture {
-            guard !isCapsuleExpanded, !capsuleDragState.active, capsuleSettleHeight == nil else { return }
+            guard boundaryDrawLot == nil, !isCapsuleExpanded, !capsuleDragState.active, capsuleSettleHeight == nil else { return }
             // 微微放大提示「這是可拖曳的」
             withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
                 capsuleDragScale = 1.08
@@ -3660,13 +3929,12 @@ struct ContentView: View {
             }
         }
         .onReceive(locationManager.$visits) { _ in
-            if isCapsuleExpanded {
-                updateVisitStatus()
-            }
-            // visits 載入後：重啟計時器 + 同步實時活動（冷啟動時確保恢復）
-            refreshVisitAndTimersForForeground()
-            if locationManager.hasLoadedVisits && !hasCompletedInitialStatusHydration {
-                DispatchQueue.main.async {
+            // @Published emits before the stored value changes. Read the new
+            // classification after assignment, including background walk recovery.
+            DispatchQueue.main.async {
+                if isCapsuleExpanded { updateVisitStatus() }
+                refreshVisitAndTimersForForeground()
+                if locationManager.hasLoadedVisits && !hasCompletedInitialStatusHydration {
                     hasCompletedInitialStatusHydration = true
                 }
             }
@@ -3682,6 +3950,7 @@ struct ContentView: View {
                 sfxPlayer.playEnterStationary()
             } else if newStatus == "已開車", oldStatus != "已開車" {
                 playEnterDrivingSFX()
+                predictDestinationOnDriving()
             } else if newStatus == "已步行", oldStatus != "已步行" {
                 playEnterDrivingSFX()  // 步行也用開車音效（移動狀態切換）
             } else if newStatus == "已騎車", oldStatus != "已騎車" {
@@ -3704,6 +3973,7 @@ struct ContentView: View {
         .onChange(of: visitSecondaryStatus) { oldStatus, newStatus in
             if newStatus == "已開車（未離場）", oldStatus != "已開車（未離場）" {
                 playEnterDrivingSFX()
+                predictDestinationOnDriving()
             }
         }
         .onChange(of: locationManager.speed) { _, newSpeed in
@@ -3752,7 +4022,9 @@ struct ContentView: View {
 
     private var addressCapsuleContent: some View {
         ZStack {
-            if isParkingMemoryExpanded {
+            if boundaryDrawLot != nil {
+                AnyView(boundaryDrawCapsuleContent.transition(AnyTransition.blurFade))
+            } else if isParkingMemoryExpanded {
                 AnyView(addressCapsuleParkingMemory)
             } else if isFloorCurveInCapsule {
                 AnyView(addressCapsuleFloorCurve)
@@ -3827,10 +4099,10 @@ struct ContentView: View {
                     HStack(spacing: 8) {
                         Text(compactStatusTitle)
                             .font(.body.bold())
-                            .foregroundStyle(adaptiveTextColor(opacity: 0.85))
+                            .foregroundStyle(capsuleTextColor(opacity: 0.85))
                         Text(frozenCompactStatus ?? compactStatusDuration)
                             .font(.body.bold())
-                            .foregroundStyle(adaptiveTextColor())
+                            .foregroundStyle(capsuleTextColor())
                             .contentTransition(.numericText())
                             .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: compactStatusTickValue)
                             .monospacedDigit()
@@ -3842,14 +4114,14 @@ struct ContentView: View {
                     HStack(spacing: 16) {
                         Text("\(Int(locationManager.smoothedSpeed)) km/h")
                             .font(.body.bold())
-                            .foregroundStyle(adaptiveTextColor())
+                            .foregroundStyle(capsuleTextColor())
                             .contentTransition(.numericText())
                             .monospacedDigit()
                             .animation(.easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                         if let eta = drivingETASeconds {
                             Text(formatCompactETA(eta))
                                 .font(.body.bold())
-                                .foregroundStyle(adaptiveTextColor())
+                                .foregroundStyle(capsuleTextColor())
                                 .contentTransition(.numericText())
                         }
                     }
@@ -3857,7 +4129,7 @@ struct ContentView: View {
                 } else {
                     Text(displayAddress)
                         .font(.body.bold())
-                        .foregroundStyle(adaptiveTextColor())
+                        .foregroundStyle(capsuleTextColor())
                         .lineLimit(1)
                         .padding(.horizontal, 6)
                         .transition(.blurReplace())
@@ -3881,6 +4153,9 @@ struct ContentView: View {
 
     /// 根據 orbColorPreset 返回三顆圓球嘅 hex 顏色
     private func orbPresetColors() -> [(hex: String, opacity: Double)] {
+        if colorGroup == .m3Concept {
+            return [(M3ConceptPalette.orange, 0.35), (M3ConceptPalette.yellow, 0.2), (M3ConceptPalette.gray, 0.3)]
+        }
         switch orbColorPreset {
         case 1: // 動態橙：隨時速變化，越快越橙紅
             let kmh = max(0, locationManager.speed)  // locationManager.speed 已係 km/h
@@ -3931,12 +4206,18 @@ struct ContentView: View {
     }
 
     private func adaptiveTextColor(opacity: Double = 1.0) -> Color {
-        let color: Color = colorScheme == .dark ? .white : .black
+        let color: Color = colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.paper)
+            : (colorScheme == .dark ? .white : .black)
         return opacity < 1.0 ? color.opacity(opacity) : color
+    }
+
+    private func capsuleTextColor(opacity: Double = 1.0) -> Color {
+        (usesDarkGlass || effectiveColorScheme == .dark ? Color.white : Color.black).opacity(opacity)
     }
 
     /// 描邊/點綴顏色（黑武士模式用金色，否則用白色）
     private func accentStrokeColor(opacity: Double = 0.6) -> Color {
+        if colorGroup == .m3Concept { return Color(hex: M3ConceptPalette.gray).opacity(opacity) }
         if darkKnightMode {
             return Color(hex: "FFC46D").opacity(opacity)
         }
@@ -3960,15 +4241,31 @@ struct ContentView: View {
 
     /// 更新 TabBar 外觀
     private func updateTabBarAppearance() {
-        let appearance = UITabBarAppearance()
-        if darkKnightMode {
-            appearance.configureWithOpaqueBackground()
-            appearance.backgroundColor = UIColor(red: 1.0, green: 0.77, blue: 0.43, alpha: 0.15) // 金色半透明
-        } else {
-            appearance.configureWithDefaultBackground()
-        }
+        let appearance = Self.tabBarAppearance(darkGlassEnabled: usesDarkGlass)
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
+    }
+
+    private static func tabBarAppearance(darkGlassEnabled: Bool) -> UITabBarAppearance {
+        let appearance = UITabBarAppearance()
+        appearance.configureWithDefaultBackground()
+        if darkGlassEnabled {
+            appearance.backgroundColor = UIColor.black.withAlphaComponent(GorillaGlassStyle.blackTintOpacity)
+        } else {
+            appearance.backgroundColor = .clear
+        }
+        if #available(iOS 27.0, *) {
+            appearance.overrideUserInterfaceStyle = darkGlassEnabled ? .dark : .unspecified
+        }
+        let itemColor: UIColor = darkGlassEnabled ? .white : .label
+        for layout in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance,
+                       appearance.compactInlineLayoutAppearance] {
+            layout.selected.iconColor = itemColor
+            layout.selected.titleTextAttributes = [.foregroundColor: itemColor]
+            layout.normal.iconColor = itemColor.withAlphaComponent(0.7)
+            layout.normal.titleTextAttributes = [.foregroundColor: itemColor.withAlphaComponent(0.7)]
+        }
+        return appearance
     }
 
     @ViewBuilder
@@ -3976,10 +4273,11 @@ struct ContentView: View {
         if effectiveOrbOpacity > 0 {
             let colors = orbPresetColors()
             let duoOrbMul: CGFloat = isDuoDevice ? 2.0 : 1.0
+            ClockDrivenContent(clock: animationClock) { elapsed in
             GeometryReader { geo in
                 let w = geo.size.width
                 let h = geo.size.height
-                let t = animationClock.elapsed
+                let t = elapsed
                 let orbScale = sqrt(h / 44.0) * duoOrbMul
 
                 ZStack {
@@ -4012,6 +4310,7 @@ struct ContentView: View {
                 }
             }
             .clipShape(.rect(cornerRadius: 34))
+            }
         }
     }
 
@@ -4022,7 +4321,7 @@ struct ContentView: View {
                     HStack(spacing: 4) {
                         Text("\(distanceLabel):")
                             .font(.body.bold())
-                            .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                            .foregroundStyle(capsuleTextColor(opacity: 0.8))
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .contentTransition(.opacity)
@@ -4036,17 +4335,17 @@ struct ContentView: View {
                             rolling: kalmanSmoothingEnabled
                         )
                             .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(adaptiveTextColor())
+                            .foregroundStyle(capsuleTextColor())
                             .blur(radius: capsuleDragState.active ? 6 : 0)
                             .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     }
                     HStack(spacing: 4) {
                         Text("\(compactStatusTitle):")
                             .font(.body.bold())
-                            .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                            .foregroundStyle(capsuleTextColor(opacity: 0.8))
                         Text(frozenCompactStatus ?? (hasDeparted ? (visitStatus == "已停留" ? formatStationaryDuration() : formatDepartureDuration()) : formatParkingElapsed()))
                             .font(.system(size: 22, weight: .bold))
-                            .foregroundStyle(adaptiveTextColor())
+                            .foregroundStyle(capsuleTextColor())
                             .contentTransition(.numericText())
                             .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: hasDeparted ? (visitStatus == "已停留" ? stationaryElapsed : departureElapsed) : parkingElapsed)
                             .monospacedDigit()
@@ -4056,7 +4355,7 @@ struct ContentView: View {
                     if let secondary = visitSecondaryStatus {
                         Text(secondary)
                             .font(.callout.weight(.semibold))
-                            .foregroundStyle(adaptiveTextColor(opacity: 0.7))
+                            .foregroundStyle(capsuleTextColor(opacity: 0.7))
                             .transition(.opacity)
                             .id(secondary)
                     }
@@ -4207,7 +4506,7 @@ struct ContentView: View {
                 HStack(spacing: 4) {
                     Text("\(Int(locationManager.smoothedSpeed))")
                         .font(.body.bold())
-                        .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                        .foregroundStyle(capsuleTextColor(opacity: 0.6))
                         .contentTransition(.numericText())
                         .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.3), value: Int(locationManager.smoothedSpeed))
                         .monospacedDigit()
@@ -4215,12 +4514,12 @@ struct ContentView: View {
                         .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
                     Text("km/h")
                         .font(.body.bold())
-                        .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                        .foregroundStyle(capsuleTextColor(opacity: 0.6))
                 }
                 Spacer()
                 Text(displayAddress)
                     .font(.body.bold())
-                    .foregroundStyle(adaptiveTextColor())
+                    .foregroundStyle(capsuleTextColor())
                     .lineLimit(1)
                     .padding(.horizontal, 6)
                     .contentTransition(.opacity)
@@ -4228,7 +4527,7 @@ struct ContentView: View {
                 Spacer()
                 Text(etaText ?? "--")
                     .font(.body.bold())
-                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                    .foregroundStyle(capsuleTextColor(opacity: 0.6))
                     .contentTransition(.numericText())
                     .animation(capsuleDragState.active ? nil : .easeInOut(duration: 0.15), value: etaText ?? "--")
                     .monospacedDigit()
@@ -4299,21 +4598,22 @@ struct ContentView: View {
             parkingBackButton
             Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
                 .font(.system(size: 20, weight: .bold))
-                .foregroundStyle(adaptiveTextColor())
+                .foregroundStyle(capsuleTextColor())
             Spacer()
             if let text = timeAdjustText {
                 Text(text)
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                    .foregroundStyle(capsuleTextColor(opacity: 0.8))
                     .transition(.opacity)
             }
             HStack(spacing: 4) {
                 Text(String(localized: "入場時間"))
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                    .foregroundStyle(capsuleTextColor(opacity: 0.6))
                 parkingEntryTimeDisplay(fontSize: 12)
             }
             parkingTimeAdjustButtons(buttonSize: 28, iconSize: 14)
+            findCarShareButton
         }
         .padding(.top, 18)
     }
@@ -4340,11 +4640,12 @@ struct ContentView: View {
                 parkingBackButton
                 Text((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶") : String(localized: "泊車記憶"))
                     .font(.system(size: 24, weight: .bold))
-                    .foregroundStyle(adaptiveTextColor())
+                    .foregroundStyle(capsuleTextColor())
                 Spacer()
             }
             .padding(.horizontal, 20)
             .padding(.top, 16)
+            .overlay(alignment: .trailing) { findCarShareButton.padding(.trailing, 20).padding(.top, 16) }
 
             // Entry time + adjustment
             HStack {
@@ -4352,11 +4653,11 @@ struct ContentView: View {
                     HStack(spacing: 6) {
                         Text(String(localized: "入場時間"))
                             .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(adaptiveTextColor(opacity: 0.6))
+                            .foregroundStyle(capsuleTextColor(opacity: 0.6))
                         if let text = timeAdjustText {
                             Text(text)
                                 .font(.system(size: 13, weight: .bold))
-                                .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                                .foregroundStyle(capsuleTextColor(opacity: 0.8))
                                 .transition(.opacity)
                         }
                     }
@@ -4386,6 +4687,44 @@ struct ContentView: View {
     }
 
     // MARK: - Parking Memory Shared Components
+    private var findCarShareButton: some View {
+        Button { prepareFindCarCard() } label: {
+            Image(systemName: "square.and.arrow.up")
+                .font(.system(size: 16, weight: .semibold))
+                // Optically balance the symbol's heavier box below the arrow.
+                .offset(y: -1)
+                .frame(width: 32, height: 32)
+        }
+        .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(Text("Share Car Card"))
+        .disabled(preparingCarCard)
+    }
+
+    private func prepareFindCarCard() {
+        guard !preparingCarCard else { return }
+        preparingCarCard = true
+        let point = parkingFloorStore.allPoints.first {
+            $0.isAutomotive && abs($0.createdAt.timeIntervalSince(parkingStartTime)) < 1
+        }
+        let lot = point.flatMap { point in parkingFloorStore.lots.first { $0.points.contains(where: { $0.id == point.id }) } }
+        let savedPlace = Self.appGroupDefaults?.string(forKey: "parkingEntryLocation")
+        var snapshot = FindCarCardSnapshot(place: point.flatMap { lot?.displayName(for: $0, mode: parkingFloorStore.floorMode) }
+                ?? point?.address ?? savedPlace ?? String(localized: "Unknown"),
+            floor: llmFloorText ?? point?.displayFloor, spot: llmSpotNumber ?? point?.llmSpotNumber,
+            area: llmAreaCode ?? point?.llmAreaCode, entry: parkingEntryTime,
+            coordinate: point?.coordinate, photos: [], locationText: point?.address ?? savedPlace ?? "")
+        let urls = photoStorage.photos.filter { $0.createdAt >= parkingStartTime.addingTimeInterval(-120) }
+            .map { PhotoStorage.fileURL(for: $0.fileName) }
+        Task {
+            snapshot.photos = await Task.detached(priority: .userInitiated) { FindCarCardSnapshot.thumbnails(urls) }.value
+            findCarCard = snapshot
+            preparingCarCard = false
+        }
+    }
+
     private var parkingBackButton: some View {
         Button(action: {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
@@ -4412,7 +4751,7 @@ struct ContentView: View {
         }) {
             Image(systemName: "chevron.left.circle.fill")
                 .font(.system(size: parkingMemoryUsesLandscapeLayout ? 28 : 32))
-                .foregroundStyle(adaptiveTextColor(opacity: 0.8))
+                .foregroundStyle(capsuleTextColor(opacity: 0.8))
         }
     }
 
@@ -4426,7 +4765,7 @@ struct ContentView: View {
         let mi = cal.component(.minute, from: parkingEntryTime)
         Text(String(format: "%02d/%02d/%04d %02d:%02d", d, m, y, hr, mi))
             .font(.system(size: fontSize, weight: .bold))
-            .foregroundStyle(adaptiveTextColor())
+            .foregroundStyle(capsuleTextColor())
             .monospacedDigit()
             .contentTransition(.numericText())
             .animation(.easeInOut(duration: 0.15), value: parkingEntryTime)
@@ -4440,7 +4779,7 @@ struct ContentView: View {
             }) {
                 Image(systemName: "minus")
                     .font(.system(size: iconSize, weight: .bold))
-                    .foregroundStyle(adaptiveTextColor())
+                    .foregroundStyle(capsuleTextColor())
                     .frame(width: buttonSize, height: buttonSize)
                     .glassEffect(.regular, in: .rect(cornerRadius: 8))
             }
@@ -4449,7 +4788,7 @@ struct ContentView: View {
             }) {
                 Image(systemName: "plus")
                     .font(.system(size: iconSize, weight: .bold))
-                    .foregroundStyle(adaptiveTextColor())
+                    .foregroundStyle(capsuleTextColor())
                     .frame(width: buttonSize, height: buttonSize)
                     .glassEffect(.regular, in: .rect(cornerRadius: 8))
             }
@@ -4509,15 +4848,17 @@ struct ContentView: View {
     }
 
     private func parkingOrbCanvas(width: CGFloat, height: CGFloat, orbBaseSize: CGFloat) -> some View {
+        ClockDrivenContent(clock: animationClock) { elapsed in
         GeometryReader { geo in
             let w = geo.size.width
             let h = geo.size.height
-            parkingOrbCircles(w: w, h: h, orbBaseSize: orbBaseSize)
+            parkingOrbCircles(w: w, h: h, orbBaseSize: orbBaseSize, elapsed: elapsed)
+        }
         }
     }
 
-    private func parkingOrbCircles(w: CGFloat, h: CGFloat, orbBaseSize: CGFloat) -> some View {
-        let orbElapsed = orbBoostElapsedOffset > 0 ? (animationClock.elapsed - orbBoostElapsedOffset) : animationClock.elapsed
+    private func parkingOrbCircles(w: CGFloat, h: CGFloat, orbBaseSize: CGFloat, elapsed: TimeInterval) -> some View {
+        let orbElapsed = orbBoostElapsedOffset > 0 ? (elapsed - orbBoostElapsedOffset) : elapsed
         let t = orbElapsed * 0.3 * parkingOrbBoost
         let isBoosted = !isOrbRecognizingBoost && parkingOrbBoost > 1.01
         let boostFactor = min(max((parkingOrbBoost - 1.0) / 1.0, 0), 1)
@@ -4768,17 +5109,12 @@ struct ContentView: View {
         guard let destination = destinationManager.selectedDestination else { return }
         isRerouting = true
         lastRerouteRequestAt = Date()
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: coordinate.wgs84ToGCJ02))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate.wgs84ToGCJ02))
-        request.transportType = .automobile
-        request.requestsAlternateRoutes = false
-        let directions = MKDirections(request: request)
-        directions.calculate { response, error in
+        destinationManager.requestRoute(from: coordinate, to: destination.coordinate, force: true) { result in
             DispatchQueue.main.async {
                 defer { isRerouting = false }
-                guard meterRouteTarget == nil else { return }
-                guard let route = response?.routes.first, error == nil else { return }
+                guard meterRouteTarget == nil,
+                      destinationManager.selectedDestination?.id == destination.id,
+                      let route = result?.route else { return }
                 routeOverlayToken = UUID()
                 routeOverlayAnimationToken = nil
                 withAnimation(.easeInOut(duration: 0.2)) {
@@ -4836,7 +5172,9 @@ struct ContentView: View {
         }
         // 極致專注模式：自動開啟黑武士模式
         if level == .extreme && !darkKnightMode {
-            darkKnightMode = true
+            colorGroupBeforeFocus = colorGroup
+            colorGroupRaw = GorillaColorGroup.darkKnight.rawValue
+            legacyDarkKnightMode = true
             darkKnightActivatedByFocus = true
             updateTabBarAppearance()
         }
@@ -4845,7 +5183,10 @@ struct ContentView: View {
     private func exitFocusMode() {
         // 如果黑武士模式係由極致專注自動開啟嘅，一併退出
         if darkKnightActivatedByFocus {
-            darkKnightMode = false
+            let previous = colorGroupBeforeFocus ?? .normal
+            colorGroupRaw = previous.rawValue
+            legacyDarkKnightMode = previous == .darkKnight
+            colorGroupBeforeFocus = nil
             darkKnightActivatedByFocus = false
             updateTabBarAppearance()
         }
@@ -5337,21 +5678,68 @@ struct ContentView: View {
 
     /// 由停車點彈窗鉛筆選單進入：直接喺主地圖逐點繪製範圍，唔再彈 sheet。
     private func beginBoundaryDraw(_ lot: ParkingLotRecord) {
-        boundaryDrawBridge.initialFocus = (lot.centerCoordinate.wgs84ToGCJ02, max(450, lot.radiusMeters * 6))
-        boundaryDrawVertices = lot.boundaryVertices ?? []
-        boundaryDrawLot = lot
-        withAnimation(.easeIn(duration: 0.18)) { selectedParkingPointID = nil }
+        boundaryDrawBridge.reset()
+        boundaryDrawBridge.initialFocus = (lot.centerCoordinate.wgs84ToGCJ02, max(1200, lot.radiusMeters * 6))
+        capsuleSettleWorkItem?.cancel()
+        capsuleSettleHeight = nil
+        capsuleDragScale = 1
+        capsuleScale = 1
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.78)) {
+            boundaryDrawVertices = lot.boundaryVertices ?? []
+            isCapsuleExpanded = false
+            isParkingMemoryExpanded = false
+            boundaryDrawLot = lot
+            selectedParkingPointID = nil
+        }
     }
 
     private func endBoundaryDraw() {
-        boundaryDrawLot = nil
-        boundaryDrawVertices = []
+        boundaryDrawBridge.reset()
+        withAnimation(.spring(response: 0.6, dampingFraction: 0.78)) {
+            boundaryDrawLot = nil
+            boundaryDrawVertices = []
+        }
         boundaryDrawBridge.initialFocus = nil
+    }
+
+    private var mapToolbarVerticalOffset: CGFloat {
+        guard !isLandscape else { return 0 }
+        if boundaryDrawLot != nil {
+            return -max(0, boundaryToolbarHeight - 44 + 2)
+        }
+        if isParkingMemoryExpanded { return -453 }
+        if isFloorCurveInCapsule { return -170 }
+        return isCapsuleExpanded ? -140 : 0
+    }
+
+    private var boundaryToolbarHeight: CGFloat { boundaryHasInvalidShape ? 82 : 56 }
+
+    private var boundaryHasInvalidShape: Bool {
+        boundaryDrawBridge.isReady && boundaryDrawVertices.count >= 3 && !ParkingBoundaryGeometry.isValid(boundaryDrawVertices)
+    }
+
+    private var boundaryDrawCapsuleContent: some View {
+        VStack(spacing: 0) {
+            BoundaryDrawToolbar(
+                vertexCount: boundaryDrawVertices.count,
+                canConfirm: ParkingBoundaryGeometry.isValid(boundaryDrawVertices),
+                editingEnabled: boundaryDrawBridge.isReady,
+                onCancel: endBoundaryDraw,
+                onUndo: { if boundaryDrawBridge.isReady && !boundaryDrawVertices.isEmpty { boundaryDrawVertices.removeLast() } },
+                onAdd: addBoundaryVertexAtCenter,
+                onConfirm: confirmBoundaryDraw
+            )
+            if boundaryHasInvalidShape {
+                Text(String(localized: "範圍不可交叉或過小"))
+                    .font(.caption).foregroundStyle(.red)
+                    .padding(.bottom, 8)
+            }
+        }
     }
 
     /// 「加點」：喺中心指針對準嘅位置加一個頂點（存 WGS84，顯示時先轉 GCJ02）。
     private func addBoundaryVertexAtCenter() {
-        guard boundaryDrawLot != nil, boundaryDrawVertices.count < 24,
+        guard boundaryDrawBridge.isReady, boundaryDrawLot != nil, boundaryDrawVertices.count < 24,
               let coordinate = boundaryDrawBridge.centerCoordinateProvider?() else { return }
         boundaryDrawVertices.append(ParkingBoundaryVertex(latitude: coordinate.latitude,
                                                           longitude: coordinate.longitude))
@@ -5359,7 +5747,7 @@ struct ContentView: View {
 
     /// 「完成」：驗證後寫入範圍（3–24 點、唔可自交、面積夠大）。
     private func confirmBoundaryDraw() {
-        guard let lot = boundaryDrawLot, ParkingBoundaryGeometry.isValid(boundaryDrawVertices) else { return }
+        guard boundaryDrawBridge.isReady, let lot = boundaryDrawLot, ParkingBoundaryGeometry.isValid(boundaryDrawVertices) else { return }
         if parkingFloorStore.setBoundary(lotID: lot.id, vertices: boundaryDrawVertices) {
             endBoundaryDraw()
         }
@@ -5440,14 +5828,16 @@ struct ContentView: View {
                         .disabled(currentLot == nil)
                     }
 
-                    HStack(spacing: 6) {
-                        Text(String(localized: "樓層") + " " + (floorText ?? String(localized: "未知")))
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                            .contentTransition(.numericText())
-                            .animation(.easeInOut(duration: 0.18), value: currentFloor)
-                        FloorConventionBadge(coordinate: point.coordinate, compact: true)
+                    if point.isAutomotive {
+                        HStack(spacing: 6) {
+                            Text(String(localized: "樓層") + " " + (floorText ?? String(localized: "未知")))
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.secondary)
+                                .monospacedDigit()
+                                .contentTransition(.numericText())
+                                .animation(.easeInOut(duration: 0.18), value: currentFloor)
+                            FloorConventionBadge(coordinate: point.coordinate, compact: true)
+                        }
                     }
                     HStack(spacing: 6) {
                         Text(point.createdAt, format: .dateTime.month().day().hour().minute())
@@ -5482,7 +5872,7 @@ struct ContentView: View {
                         }
                     }
 
-                    if !hasFloor {
+                    if point.isAutomotive && !hasFloor {
                         HStack(spacing: 4) {
                             if parkingFloorStore.barometer.isUpdating {
                                 ProgressView().scaleEffect(0.6)
@@ -5496,30 +5886,32 @@ struct ContentView: View {
                 }
                 
                 HStack(spacing: 14) {
-                    Button {
-                        parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor - 1)
-                    } label: {
-                        Image(systemName: "minus")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 56, height: 44)
-                            .contentShape(Rectangle())
-                            .glassEffect(.regular, in: .capsule)
-                    }
-                    .buttonStyle(.plain)
+                    if point.isAutomotive {
+                        Button {
+                            parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor - 1)
+                        } label: {
+                            Image(systemName: "minus")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 56, height: 44)
+                                .contentShape(Rectangle())
+                                .glassEffect(.regular, in: .capsule)
+                        }
+                        .buttonStyle(.plain)
 
-                    Button {
-                        parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor + 1)
-                    } label: {
-                        Image(systemName: "plus")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.primary)
-                            .frame(width: 56, height: 44)
-                            .contentShape(Rectangle())
-                            .glassEffect(.regular, in: .capsule)
-                    }
-                    .buttonStyle(.plain)
+                        Button {
+                            parkingFloorStore.setManualFloor(pointID: point.id, floorIndex: currentFloor + 1)
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.primary)
+                                .frame(width: 56, height: 44)
+                                .contentShape(Rectangle())
+                                .glassEffect(.regular, in: .capsule)
+                        }
+                        .buttonStyle(.plain)
                     
+                    }
                     // 樓層未確認：「導航」暫時改做「確認」，撳一下就確認偵測到嘅樓層
                     if let floorIndex, !point.isFloorConfirmed, point.isAutomotive {
                         Button {
@@ -5560,6 +5952,7 @@ struct ContentView: View {
                     }
                     .buttonStyle(.glass)
                     .controlSize(.small)
+                    .foregroundStyle(.tint)
                 }
 
                 Button {
@@ -5582,6 +5975,7 @@ struct ContentView: View {
                 }
                 .buttonStyle(.glass)
                 .controlSize(.small)
+                .foregroundStyle(.tint)
 
                 if isChangingLot {
                     ParkingLotChangePanel(
@@ -5607,6 +6001,7 @@ struct ContentView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+            .tint(usesDarkGlass || effectiveColorScheme == .dark ? Color.white : Color.accentColor)
             .padding(.horizontal, 28)
             // 橫屏（手機＋平板）：現身位置靜靜雞右移 12pt（offset 係靜態視覺偏移，
             // 一出世就喺最終位，唔會有右滑動畫）。直向維持水平正中。
@@ -5942,6 +6337,11 @@ struct ContentView: View {
     private func activateCamera() {
         isCameraActive = true
         viewfinderBreathe = false  // 停止呼吸
+        resetCameraInactivityTimer()
+    }
+
+    private func cameraPreviewReady() {
+        guard isCameraActive else { return }
         // 拍照按鈕模糊入場動畫
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
             cameraButtonBlurIn = true
@@ -5959,13 +6359,7 @@ struct ContentView: View {
         withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) {
             cameraButtonBlurIn = false
         }
-        withAnimation(.easeInOut(duration: 0.8)) {
-            cameraFadeOpacity = 1
-        }
-        // Delay setting isCameraActive until fade completes
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
-            self.isCameraActive = false
-        }
+        isCameraActive = false
         cameraInactivityTimer?.invalidate()
         cameraInactivityTimer = nil
     }
@@ -6489,21 +6883,25 @@ struct ContentView: View {
             }
         }
 
-        destinationManager.calculateRoute(
+        destinationManager.requestRoute(
             from: loc.coordinate,
             to: dest.coordinate
-        ) { distance, time in
+        ) { result in
             DispatchQueue.main.async {
+                guard destinationManager.selectedDestination?.id == dest.id,
+                      let result, drivingDistanceUpdatedAt != result.calculatedAt else { return }
+                let distance: Double? = result.route.distance
+                let time: Double? = result.route.expectedTravelTime
                 if let distance = distance {
-                    meterManager.updateRouteDistance(distance, destinationID: dest.id)
+                    meterManager.updateRouteDistance(distance, destinationID: dest.id, calculatedAt: result.calculatedAt)
                     if distance < 1000 {
                         drivingDistanceText = "\(Int(distance)) m"
                     } else {
                         drivingDistanceText = String(format: "%.1f km", distance / 1000)
                     }
                     drivingDistanceMeters = distance
-                    drivingDistanceUpdatedAt = Date()
-                    lastETASuccessLocation = loc
+                    drivingDistanceUpdatedAt = result.calculatedAt
+                    lastETASuccessLocation = CLLocation(latitude: result.source.latitude, longitude: result.source.longitude)
                 }
                 if let time = time {
                     drivingETASeconds = time
@@ -6515,7 +6913,7 @@ struct ContentView: View {
                         let m = mins % 60
                         etaText = "\(h)h \(m)m"
                     }
-                    lastETASuccessLocation = loc
+                    lastETASuccessLocation = CLLocation(latitude: result.source.latitude, longitude: result.source.longitude)
                 }
             }
         }
@@ -6530,16 +6928,10 @@ struct ContentView: View {
         guard !focusCutsInfoAndETA else { return }
         guard let destination = destinationManager.selectedDestination,
               let currentLocation = locationManager.lastLocation else { return }
-        let request = MKDirections.Request()
-        request.source = MKMapItem(placemark: MKPlacemark(coordinate: currentLocation.coordinate.wgs84ToGCJ02))
-        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.coordinate.wgs84ToGCJ02))
-        request.transportType = .automobile
-        request.requestsAlternateRoutes = false
-        let directions = MKDirections(request: request)
-        directions.calculate { response, error in
-            guard let route = response?.routes.first, error == nil else { return }
+        destinationManager.requestRoute(from: currentLocation.coordinate, to: destination.coordinate, force: true) { result in
+            guard let route = result?.route else { return }
             DispatchQueue.main.async {
-                guard meterRouteTarget == nil else { return }
+                guard meterRouteTarget == nil, destinationManager.selectedDestination?.id == destination.id else { return }
                 routeOverlayToken = UUID()
                 routeOverlayAnimationToken = nil
                 withAnimation {
@@ -6562,9 +6954,15 @@ struct ContentView: View {
         return String(format: String(localized: "離%@距離"), dest.name)
     }
 
+    private func predictDestinationOnDriving() {
+        guard let source = locationManager.visits.first else { return }
+        tripPredictor.predictDrivingDeparture(from: source,
+            currentCoordinate: locationManager.mapReferenceLocation?.coordinate)
+    }
+
     private func updateVisitStatus() {
         // 專注模式（極致）：暫停狀態偵測，退出時會重新同步
-        guard !focusCutsDetection else { return }
+        guard !focusCutsDetection, locationManager.hasLoadedVisits else { return }
         guard let lastVisit = locationManager.visits.first else {
             visitStatus = "已停留"
             isNonAutomotiveArrival = false
@@ -6589,21 +6987,32 @@ struct ContentView: View {
             let speed = locationManager.speed
             let gpsLocationChanged = isGPSLocationChanged()
             let motion = locationManager.currentMotionActivity
+            let reliableMotion = motion?.confidence != .low && motion != nil
+            let walkingMotion = reliableMotion && (motion?.walking == true || motion?.running == true)
+                && motion?.stationary != true
+            let cyclingMotion = reliableMotion && motion?.cycling == true && motion?.stationary != true
+            let fix = locationManager.lastLocation
+            let freshFix = fix.map { Date().timeIntervalSince($0.timestamp) < 10 && $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= 50 } ?? false
+            let confirmedStopped = (reliableMotion && motion?.stationary == true && motion?.automotive != true
+                && motion?.walking != true && motion?.running != true && motion?.cycling != true)
+                || (freshFix && (fix?.speed ?? -1) >= 0 && (fix?.speed ?? -1) < 0.6)
 
             // Motion can lag behind departure; walking must not override driving speed.
-            if motion?.automotive == true && speed > 1 {
+            if reliableMotion && motion?.automotive == true && motion?.walking != true
+                && motion?.running != true && motion?.cycling != true && speed > 1 {
                 walkingStartTime = nil
                 cyclingStartTime = nil
                 visitStatus = "已開車"
                 lastMovementTime = Date()
-            } else if motion?.walking == true && speed > 1 && speed <= 12 {
+            } else if (walkingMotion && (!freshFix || speed <= 20))
+                || (motion?.walking == true && freshFix && speed > 1 && speed <= 12) {
                 // 步行中：CMMotionActivity 說步行 + GPS 有移動 → 已步行
                 if visitStatus != "已步行" {
                     walkingStartTime = Date()
                 }
                 visitStatus = "已步行"
                 lastMovementTime = Date()
-            } else if motion?.cycling == true && speed > 3 {
+            } else if cyclingMotion || (motion?.cycling == true && freshFix && speed > 3) {
                 // 騎車中：CMMotionActivity 說騎車 + GPS 有移動 → 已騎車
                 if visitStatus != "已騎車" {
                     cyclingStartTime = Date()
@@ -6621,15 +7030,8 @@ struct ContentView: View {
             } else if let lastMove = lastMovementTime {
                 // 不在移动，检查是否已持续2分钟以上
                 let stationaryDuration = Date().timeIntervalSince(lastMove)
-                if stationaryDuration >= 120 {
+                if stationaryDuration >= 120 && confirmedStopped {
                     visitStatus = "已停留"
-                } else {
-                    // 保持之前的移动状态
-                    if motion?.walking == true || motion?.cycling == true {
-                        // CMMotionActivity 仍偵測到移動，保持原狀態
-                    } else {
-                        visitStatus = "已開車"
-                    }
                 }
             } else {
                 if let dep = departureTime {
@@ -6638,7 +7040,7 @@ struct ContentView: View {
                         // Manual departure: start stationary, wait for actual movement
                         // System-detected departure: assume driving (motion was the trigger)
                         visitStatus = manualDeparted ? "已停留" : "已開車"
-                    } else {
+                    } else if confirmedStopped {
                         visitStatus = "已停留"
                     }
                 } else {
@@ -6647,14 +7049,9 @@ struct ContentView: View {
             }
         } else if lastVisit.departureDate == nil {
             visitStatus = "已泊車"
-            // 二次驗證：CMMotionActivity 可能誤判，用 GPS 速度輔助
-            var automotive = lastVisit.isAutomotive
-            if !automotive && locationManager.speed > 10 {
-                // GPS 顯示仍在開車，修正為開車到達
-                automotive = true
-            }
+            let automotive = lastVisit.isAutomotive
             isNonAutomotiveArrival = !automotive
-            if isNonAutomotiveArrival { hasParkingSpotData = false }
+            hasParkingSpotData = automotive || llmSpotNumber != nil || llmAreaCode != nil || llmFloorText != nil
             (Self.appGroupDefaults ?? .standard).set(isNonAutomotiveArrival, forKey: "isNonAutomotiveArrival")
             
             let now = Date()
@@ -6813,7 +7210,12 @@ struct ContentView: View {
         let camH: CGFloat = parkingMemoryUsesLandscapeLayout ? 211 : 235
         let camCR: CGFloat = parkingMemoryUsesLandscapeLayout ? 33 : 37
         return ZStack(alignment: .topLeading) {
-            CameraPreviewView(isLandscape: parkingMemoryUsesLandscapeLayout, sessionRunning: isCameraActive)
+            CameraPreviewView(isLandscape: parkingMemoryUsesLandscapeLayout, sessionRunning: isCameraActive,
+                onPausedFrame: { image in
+                    guard !isCameraActive else { return }
+                    if let image { pausedCameraFrame = image }
+                    withAnimation(.easeInOut(duration: 0.8)) { cameraFadeOpacity = 1 }
+                }, onPreviewReady: cameraPreviewReady)
                 .frame(width: camW, height: camH)
                 .clipShape(RoundedRectangle(cornerRadius: camCR))
                 .overlay(
@@ -6821,10 +7223,19 @@ struct ContentView: View {
                         .stroke(Color.white.opacity(0.6), lineWidth: 4)
                 )
 
-            // Black fade overlay — 相機未啟動時顯示，攔截觸控開啟相機
-            RoundedRectangle(cornerRadius: camCR)
-                .fill(Color.black)
+            // Keep only the last preview frame in memory while the sensor is stopped.
+            ZStack {
+                if let image = pausedCameraFrame {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: camW, height: camH)
+                        .blur(radius: 16 * cameraFadeOpacity)
+                }
+                Color.black.opacity(0.12 * cameraFadeOpacity)
+            }
                 .frame(width: camW, height: camH)
+                .clipShape(RoundedRectangle(cornerRadius: camCR))
                 .overlay(
                     RoundedRectangle(cornerRadius: camCR)
                         .stroke(Color.white.opacity(0.6), lineWidth: 4)
@@ -6854,14 +7265,14 @@ struct ContentView: View {
                     }
                     .opacity(cameraFadeOpacity > 0.5 ? 1 : 0)
                 )
-                .opacity(cameraFadeOpacity)
+                .opacity(isCameraActive ? cameraFadeOpacity : (pausedCameraFrame == nil ? cameraFadeOpacity : 1))
                 .allowsHitTesting(cameraFadeOpacity > 0.5)
                 .onTapGesture {
                     activateCamera()
                 }
 
             cameraDimOverlay
-            // 相機未啟動時禁用 hit testing，讓觸控穿透到黑色遮罩
+            // When paused, taps on the preview reopen the camera.
             cameraPhotoStack
             // captureAnimationOverlay — 改用縮略圖自身動畫，避免閃退
             EmptyView()
@@ -7164,43 +7575,46 @@ struct ContentView: View {
         let cameraVisible = cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos
         return Button(action: { capturePhoto() }) {
             ZStack {
-                RoundedRectangle(cornerRadius: 24)
+                Color.clear
                     .frame(width: 66, height: 166)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 24))
-                    .tint(.clear)
-                GeometryReader { geo in
-                    let w = geo.size.width
-                    let h = geo.size.height
-                    let t = animationClock.elapsed * 0.3
-                    ZStack {
-                        Circle()
-                            .fill(Color(hex: "3497FF").opacity(0.85))
-                            .blur(radius: 18)
-                            .frame(width: 112, height: 112)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
-                        Circle()
-                            .fill(Color(hex: "FFC46D").opacity(0.85))
-                            .frame(width: 124, height: 124)
-                            .blur(radius: 18)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
-                        Circle()
-                            .fill(Color(hex: "FF825C").opacity(0.85))
-                            .frame(width: 102, height: 102)
-                            .blur(radius: 18)
-                            .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
-                                    y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
+                    .glassEffect(.clear.interactive(), in: .rect(cornerRadius: 24))
+                ClockDrivenContent(clock: animationClock, running: cameraVisible) { elapsed in
+                    GeometryReader { geo in
+                        let w = geo.size.width
+                        let h = geo.size.height
+                        let t = elapsed * 0.3
+                        ZStack {
+                            Circle()
+                                .fill(Color(hex: "3497FF").opacity(0.85))
+                                .blur(radius: 18)
+                                .frame(width: 112, height: 112)
+                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.5)) * w * 0.4 - 56,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.4)) * h * 0.35 - 56)
+                            Circle()
+                                .fill(Color(hex: "FFC46D").opacity(0.85))
+                                .frame(width: 124, height: 124)
+                                .blur(radius: 18)
+                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.4 + 2)) * w * 0.35 - 62,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.35 + 2)) * h * 0.3 - 62)
+                            Circle()
+                                .fill(Color(hex: "FF825C").opacity(0.85))
+                                .frame(width: 102, height: 102)
+                                .blur(radius: 18)
+                                .offset(x: w * 0.5 + CGFloat(sin(t * 0.6 + 4)) * w * 0.38 - 51,
+                                        y: h * 0.5 + CGFloat(cos(t * 0.45 + 4)) * h * 0.35 - 51)
+                        }
                     }
+                    .frame(width: 57, height: 158)
                 }
-                .frame(width: 57, height: 158)
                 .clipShape(.rect(cornerRadius: 20))
                 .overlay(RoundedRectangle(cornerRadius: 20).strokeBorder(Color.white.opacity(0.2), lineWidth: 1.6))
                 Image(systemName: "camera.fill")
                     .font(.system(size: 27))
                     .foregroundStyle(.white)
             }
+            .frame(width: 66, height: 166)
         }
+        .buttonStyle(.plain)
         .scaleEffect(isCapturePressed ? 0.88 : 1.0)
         .animation(.spring(response: 0.25, dampingFraction: 0.6), value: isCapturePressed)
         .onLongPressGesture(minimumDuration: .infinity, pressing: { pressing in
@@ -7260,7 +7674,7 @@ struct ContentView: View {
             }
         }
         .clipShape(.rect(cornerRadius: 22))
-        .glassEffect(.regular, in: .rect(cornerRadius: 22))
+        .modifier(GorillaCapsuleGlass(cornerRadius: 22))
         .onChange(of: locationManager.gpsQuality) { _, _ in
             // GPS 狀態變化觸發光暈脈動：出現 → 擴散 → 淡出
             withAnimation(.easeOut(duration: 1.8)) {
@@ -7441,9 +7855,11 @@ extension Notification.Name {
 struct CameraPreviewView: UIViewRepresentable {
     var isLandscape: Bool = false
     var sessionRunning: Bool = true
+    var onPausedFrame: ((UIImage?) -> Void)? = nil
+    var onPreviewReady: (() -> Void)? = nil
     
     func makeUIView(context: Context) -> UIView {
-        let view = UIView(frame: .zero)
+        let view = CameraPreviewSurface(frame: .zero)
         view.backgroundColor = .black
 
         #if targetEnvironment(simulator)
@@ -7473,6 +7889,17 @@ struct CameraPreviewView: UIViewRepresentable {
             session.addOutput(output)
         }
 
+        if onPausedFrame != nil {
+            let frames = AVCaptureVideoDataOutput()
+            frames.alwaysDiscardsLateVideoFrames = true
+            frames.videoSettings = [kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA]
+            if session.canAddOutput(frames) {
+                session.addOutput(frames)
+                frames.connection(with: .video)?.isEnabled = false
+                context.coordinator.frames = frames
+            }
+        }
+
         let previewLayer = AVCaptureVideoPreviewLayer(session: session)
         previewLayer.videoGravity = .resizeAspectFill
         let camW: CGFloat = isLandscape ? 304 : 338
@@ -7489,6 +7916,7 @@ struct CameraPreviewView: UIViewRepresentable {
         }
 
         view.layer.addSublayer(previewLayer)
+        view.previewLayer = previewLayer
         view.clipsToBounds = true
 
         context.coordinator.session = session
@@ -7496,9 +7924,8 @@ struct CameraPreviewView: UIViewRepresentable {
         context.coordinator.output = output
         context.coordinator.isLandscape = isLandscape
 
-        DispatchQueue.global(qos: .userInitiated).async {
-            session.startRunning()
-        }
+        context.coordinator.setRunning(sessionRunning, onPausedFrame: onPausedFrame,
+                                       onReady: onPreviewReady)
 
         return view
         #endif
@@ -7506,31 +7933,142 @@ struct CameraPreviewView: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.isLandscape = isLandscape
-        // Stop/start session based on active state
-        if sessionRunning {
-            if let session = context.coordinator.session, !session.isRunning {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    session.startRunning()
-                }
-            }
-        } else {
-            if let session = context.coordinator.session, session.isRunning {
-                DispatchQueue.global(qos: .userInitiated).async {
-                    session.stopRunning()
-                }
-            }
+        #if targetEnvironment(simulator)
+        guard context.coordinator.simulatorRunning != sessionRunning else { return }
+        context.coordinator.simulatorRunning = sessionRunning
+        let image = !sessionRunning && !uiView.bounds.isEmpty
+            ? UIGraphicsImageRenderer(bounds: uiView.bounds).image { _ in
+                uiView.drawHierarchy(in: uiView.bounds, afterScreenUpdates: false)
+            } : nil
+        DispatchQueue.main.async {
+            if sessionRunning { onPreviewReady?() } else { onPausedFrame?(image) }
         }
+        #else
+        context.coordinator.previewLayer?.cornerRadius = isLandscape ? 33 : 37
+        if let connection = context.coordinator.previewLayer?.connection,
+           connection.isVideoOrientationSupported {
+            connection.videoOrientation = isLandscape ? .landscapeRight : .portrait
+        }
+        context.coordinator.setRunning(sessionRunning, onPausedFrame: onPausedFrame,
+                                       onReady: onPreviewReady)
+        #endif
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    class Coordinator: NSObject {
+    static func dismantleUIView(_ uiView: UIView, coordinator: Coordinator) {
+        coordinator.shutdown()
+    }
+
+    class Coordinator: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate {
         var session: AVCaptureSession?
         var previewLayer: AVCaptureVideoPreviewLayer?
         var output: AVCapturePhotoOutput?
         var isLandscape: Bool = false
+        var frames: AVCaptureVideoDataOutput?
+        var simulatorRunning: Bool?
+        private let sessionQueue = DispatchQueue(label: "Gorilla.camera.preview", qos: .userInitiated)
+        private let imageContext = CIContext(options: [.cacheIntermediates: false])
+        private var desiredRunning: Bool?
+        private var generation = 0
+        private var pendingFreeze: ((UIImage?) -> Void)?
+        private var pendingReady: (() -> Void)?
+
+        func setRunning(_ running: Bool, onPausedFrame: ((UIImage?) -> Void)?, onReady: (() -> Void)?) {
+            let landscape = isLandscape
+            sessionQueue.async { [self] in
+                guard let session, desiredRunning != running else { return }
+                desiredRunning = running
+                generation += 1
+                let token = generation
+                pendingFreeze = nil
+                pendingReady = nil
+                frames?.setSampleBufferDelegate(nil, queue: nil)
+                frames?.connection(with: .video)?.isEnabled = false
+                if running {
+                    if let frames, let onReady {
+                        pendingReady = onReady
+                        prepareFrameRequest(frames, landscape: landscape)
+                    }
+                    if !session.isRunning { session.startRunning() }
+                    if pendingReady == nil { DispatchQueue.main.async { onReady?() } }
+                } else if let frames, let onPausedFrame, session.isRunning {
+                    pendingFreeze = onPausedFrame
+                    prepareFrameRequest(frames, landscape: landscape)
+                } else {
+                    if session.isRunning { session.stopRunning() }
+                    DispatchQueue.main.async { onPausedFrame?(nil) }
+                }
+                // Interrupted or unavailable cameras must not leave a pending frame request running.
+                sessionQueue.asyncAfter(deadline: .now() + 1) { [self] in
+                    guard generation == token else { return }
+                    finishFrameRequest(image: nil, token: token)
+                }
+            }
+        }
+
+        private func prepareFrameRequest(_ frames: AVCaptureVideoDataOutput, landscape: Bool) {
+            if let connection = frames.connection(with: .video) {
+                if connection.isVideoOrientationSupported {
+                    connection.videoOrientation = landscape ? .landscapeRight : .portrait
+                }
+                connection.isEnabled = true
+            }
+            frames.setSampleBufferDelegate(self, queue: sessionQueue)
+        }
+
+        func captureOutput(_ output: AVCaptureOutput, didOutput sampleBuffer: CMSampleBuffer,
+                           from connection: AVCaptureConnection) {
+            guard pendingFreeze != nil || pendingReady != nil else { return }
+            var image: UIImage?
+            if pendingFreeze != nil, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) {
+                let source = CIImage(cvPixelBuffer: buffer)
+                let scale = min(1, 640 / max(source.extent.width, source.extent.height))
+                let thumbnail = source.transformed(by: CGAffineTransform(scaleX: scale, y: scale))
+                if let cgImage = imageContext.createCGImage(thumbnail, from: thumbnail.extent) {
+                    image = UIImage(cgImage: cgImage)
+                }
+            }
+            finishFrameRequest(image: image, token: generation)
+        }
+
+        private func finishFrameRequest(image: UIImage?, token: Int) {
+            guard pendingFreeze != nil || pendingReady != nil else { return }
+            frames?.setSampleBufferDelegate(nil, queue: nil)
+            frames?.connection(with: .video)?.isEnabled = false
+            let freeze = pendingFreeze
+            let ready = pendingReady
+            pendingFreeze = nil
+            pendingReady = nil
+            DispatchQueue.main.async { [self] in
+                freeze?(image)
+                ready?()
+                if freeze != nil {
+                    // Give SwiftUI a frame to present the frozen image before stopping the sensor.
+                    sessionQueue.asyncAfter(deadline: .now() + 0.05) { [self] in
+                        guard generation == token, desiredRunning == false else { return }
+                        session?.stopRunning()
+                    }
+                }
+            }
+        }
+
+        func shutdown() {
+            NotificationCenter.default.removeObserver(self)
+            sessionQueue.async { [self] in
+                generation += 1
+                desiredRunning = false
+                pendingFreeze = nil
+                pendingReady = nil
+                frames?.setSampleBufferDelegate(nil, queue: nil)
+                frames?.connection(with: .video)?.isEnabled = false
+                if session?.isRunning == true { session?.stopRunning() }
+            }
+        }
+
+        deinit { NotificationCenter.default.removeObserver(self) }
 
         override init() {
             super.init()
@@ -7547,16 +8085,24 @@ struct CameraPreviewView: UIViewRepresentable {
         }
 
         func capturePhoto() {
-            guard let output = output else { return }
-            // 横屏时设置拍照输出方向
-            if let connection = output.connection(with: .video) {
-                if connection.isVideoOrientationSupported {
-                    connection.videoOrientation = isLandscape ? .landscapeRight : .portrait
+            let landscape = isLandscape
+            sessionQueue.async { [self] in
+                guard desiredRunning == true, session?.isRunning == true, let output else { return }
+                if let connection = output.connection(with: .video), connection.isVideoOrientationSupported {
+                    connection.videoOrientation = landscape ? .landscapeRight : .portrait
                 }
+                let settings = AVCapturePhotoSettings()
+                output.capturePhoto(with: settings, delegate: CameraPhotoDelegate.shared)
             }
-            let settings = AVCapturePhotoSettings()
-            output.capturePhoto(with: settings, delegate: CameraPhotoDelegate.shared)
         }
+    }
+}
+
+private final class CameraPreviewSurface: UIView {
+    var previewLayer: AVCaptureVideoPreviewLayer?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        previewLayer?.frame = bounds
     }
 }
 
@@ -7598,10 +8144,10 @@ struct CameraPhotoItem: View {
     var isSwipingPhoto: Bool = false  // Whether photo is actively being swiped out
     var entranceScale: CGFloat = 1   // 入場動畫縮放（新照片用）
 
-    private let baseW: CGFloat = 46
-    private let baseH: CGFloat = 32
-    private let expandedW: CGFloat = 46 * 3.8
-    private let expandedH: CGFloat = 32 * 3.8
+    private let baseW: CGFloat = ParkingPhotoLayout.previewSize.width
+    private let baseH: CGFloat = ParkingPhotoLayout.previewSize.height
+    private let expandedW: CGFloat = ParkingPhotoLayout.previewSize.width * 3.8
+    private let expandedH: CGFloat = ParkingPhotoLayout.previewSize.height * 3.8
     private var thumbOffsetX: CGFloat {
         -(cameraWidth / 2 - 20 - 46 / 2)
     }

@@ -9,7 +9,8 @@ struct ParkingLevelChecks {
         ParkingPointRecord(id: UUID(), address: "Test", latitude: coordinate.latitude,
             longitude: coordinate.longitude, createdAt: TestClock.now.addingTimeInterval(date),
             predictedFloorIndex: floor, manualFloorIndex: floor,
-            barometerAltitudeDeltaMeters: delta, barometerSampleCount: 40)
+            barometerAltitudeDeltaMeters: delta, barometerSampleCount: 40,
+            barometerCalibrationEligible: delta != nil)
     }
 
     static func lot(_ points: [ParkingPointRecord]) -> ParkingLotRecord {
@@ -35,7 +36,9 @@ struct ParkingLevelChecks {
             if i == 5 { whileCapturing(TestClock.now) }
         }
         let id = manager.captureID!
-        precondition(manager.confirmParking(captureID: id, promptID: manager.stopConfirmationID!))
+        if manager.completedResult == nil {
+            precondition(manager.confirmParking(captureID: id, promptID: manager.stopConfirmationID!))
+        }
         manager.setFloor(floor, userConfirmed: true, captureID: id)
         return id
     }
@@ -44,6 +47,17 @@ struct ParkingLevelChecks {
         let suite = CommandLine.arguments[1]
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }
+        var stay = point(5, date: -1200, delta: 15)
+        stay.isAutomotive = false
+        stay.llmFloorText = "5/F"
+        stay.floorConfirmedByUser = true
+        precondition(stay.displayFloor == nil && stay.effectiveFloorIndex == nil && !stay.isFloorConfirmed)
+        precondition(stay.floorStatusLabel.isEmpty)
+        let stayLot = lot([stay])
+        precondition(stayLot.displayName(for: stay, mode: .perVisit) == "Residence")
+        stay.isAutomotive = true
+        precondition(stay.displayFloor != nil && stay.effectiveFloorIndex == 5)
+
         let first = point(-3, date: -600, delta: -9)
         let second = point(-4, date: -300, delta: -12)
         var ground = point(0, date: -900, delta: 0)
@@ -52,6 +66,11 @@ struct ParkingLevelChecks {
         original.fixedFloorIndex = -3
         original.learnedMetersPerFloor = 3
         original.learnedOffsetMeters = 0
+        original.floorLearningHistory = [first, second].map {
+            ParkingLotFloorLearning(createdAt: $0.createdAt, manualFloorIndex: $0.manualFloorIndex!,
+                altitudeDeltaMeters: $0.barometerAltitudeDeltaMeters!, metersPerFloor: 3,
+                lotID: original.id, pointID: $0.id, calibrationEligible: true)
+        }
         defaults.set(try JSONEncoder().encode([original]), forKey: "parking_floor_store_v1")
         let store = ParkingFloorStore()
         store.prepare()
@@ -114,13 +133,24 @@ struct ParkingLevelChecks {
                      "Unknown floor must not choose arbitrarily between overlapping facilities")
 
         var wrong = ParkingLotFloorLearning(createdAt: TestClock.now, manualFloorIndex: -3,
-            altitudeDeltaMeters: 9, metersPerFloor: -3, lotID: original.id, pointID: UUID())
+            altitudeDeltaMeters: 9, metersPerFloor: -3, lotID: original.id, pointID: UUID(), calibrationEligible: true)
         precondition(ParkingFloorCalibration.learn([wrong]) == nil)
         wrong.altitudeDeltaMeters = -30
         precondition(ParkingFloorCalibration.learn([wrong]) == nil)
         let relative = ParkingLotFloorLearning(createdAt: TestClock.now, manualFloorIndex: -4,
-            altitudeDeltaMeters: -3, metersPerFloor: 3, lotID: original.id, pointID: UUID(), referenceFloorIndex: -3)
+            altitudeDeltaMeters: -3, metersPerFloor: 3, lotID: original.id, pointID: UUID(), referenceFloorIndex: -3,
+            calibrationEligible: true)
         precondition(ParkingFloorCalibration.learn([relative])?.metersPerFloor == 3)
+        let podium = [9.6, 9.7].map { height in
+            ParkingLotFloorLearning(createdAt: TestClock.now, manualFloorIndex: 1,
+                altitudeDeltaMeters: height, metersPerFloor: height, lotID: original.id,
+                pointID: UUID(), calibrationEligible: true)
+        }
+        let excluded = ParkingLotFloorLearning(createdAt: TestClock.now, manualFloorIndex: 1,
+            altitudeDeltaMeters: 2, metersPerFloor: 2, lotID: original.id, pointID: UUID())
+        let profiles = ParkingFloorCalibration.profiles(podium + [excluded])
+        precondition(profiles.count == 1 && profiles[0].count == 2)
+        precondition(abs(profiles[0].height - 9.65) < 0.001, "Incomplete and legacy measurements must not dilute podium height")
         defaults.set(try JSONEncoder().encode([original]), forKey: "parking_floor_store_v1")
         let reviewStore = ParkingFloorStore()
         reviewStore.prepare()
@@ -165,9 +195,152 @@ struct ParkingLevelChecks {
         precondition(rematchStore.lot(containing: newPointID)?.id == scopedGround.id,
                      "An automatic floor result undid a manual facility assignment")
         try checkDelayedFloor(defaults: defaults)
+        try checkUnattendedCapture(defaults: defaults)
+        try checkEarlyVisitFloor(defaults: defaults)
+        try checkStableGroupAnchor(defaults: defaults)
         try checkRecordGroups(defaults: defaults)
         try checkBoundariesAndMerge(defaults: defaults)
+        try checkPodiumCalibration(defaults: defaults)
         print("PASS: reversible modes, per-visit floors, shared calibration, named levels, scoped facilities, legacy storage and display-only offsets")
+    }
+
+    static func checkPodiumCalibration(defaults: UserDefaults) throws {
+        var complete = point(1, date: -600, delta: 9.7)
+        complete.floorConfirmedByUser = true
+        var incomplete = point(1, date: -300, delta: 2)
+        incomplete.barometerCalibrationEligible = false
+        var legacy = point(1, date: -200, delta: 3)
+        legacy.barometerCalibrationEligible = nil
+        let residence = lot([complete, incomplete, legacy])
+        defaults.set(try JSONEncoder().encode([residence]), forKey: "parking_floor_store_v1")
+        let store = ParkingFloorStore()
+        store.prepare()
+        store.setFloorMode(.perVisit)
+        store.setManualFloor(pointID: complete.id, floorIndex: 1)
+        store.setManualFloor(pointID: incomplete.id, floorIndex: 1)
+        store.setManualFloor(pointID: legacy.id, floorIndex: 1)
+        let profiles = store.floorHeightProfiles(near: coordinate)
+        precondition(profiles.count == 1 && profiles[0].count == 1)
+        precondition(abs(profiles[0].height - 9.7) < 0.001)
+        precondition(store.estimatedFloor(near: coordinate, delta: 9.6) == 1,
+                     "Podium height must map to the confirmed floor, not three uniform floors")
+        precondition(store.allPoints.count == 3, "Excluded measurements must not delete parking records")
+        let reload = ParkingFloorStore()
+        reload.prepare()
+        precondition(reload.floorHeightProfiles(near: coordinate).first?.count == 1)
+        print("PASS: podium floor prediction, same-floor confirmation, incomplete/legacy exclusion and preserved records")
+    }
+
+    static func checkEarlyVisitFloor(defaults: UserDefaults) throws {
+        TestClock.now += 600
+        defaults.removeObject(forKey: "parking_floor_store_v1")
+        let store = ParkingFloorStore()
+        store.prepare()
+        store.setFloorMode(.perVisit)
+        let manager = store.barometer
+        let sensor = CMAltimeter.latest!
+        manager.updateDriving(speed: 40, timestamp: TestClock.now, coordinate: coordinate)
+        manager.updateDriving(speed: 10, timestamp: TestClock.now, coordinate: coordinate)
+        for i in 0..<20 {
+            TestClock.now += 1
+            TestClock.uptime += 1
+            manager.updateDriving(speed: i < 3 ? 10 : 0, timestamp: TestClock.now, coordinate: coordinate)
+            sensor.emit(i < 3 ? 0 : 3)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+            if i == 5 {
+                store.recordParkingPoint(coordinate: coordinate, address: "Home", createdAt: TestClock.now,
+                    predictedFloorIndex: nil, manualFloorIndex: nil, confidence: nil)
+            }
+        }
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+        precondition(store.currentPoint?.predictedFloorIndex == 1)
+        precondition(store.currentPoint?.isFloorConfirmed == false)
+        precondition(!manager.isUpdating, "A stable stop bound to a parking visit must freeze automatically")
+        let reload = ParkingFloorStore()
+        reload.prepare()
+        precondition(reload.currentPoint?.predictedFloorIndex == 1)
+        print("PASS: early parking visit receives an unattended stable floor estimate")
+    }
+
+    static func checkStableGroupAnchor(defaults: UserDefaults) throws {
+        var old = point(1, date: -600)
+        old.longitude -= 0.0005
+        let history = (0..<14).map { index -> ParkingPointRecord in
+            var record = old
+            record.id = UUID()
+            record.createdAt = old.createdAt.addingTimeInterval(Double(-index * 600))
+            record.latitude += Double(index) * 0.000001
+            return record
+        }
+        let existing = lot(history)
+        defaults.set(try JSONEncoder().encode([existing]), forKey: "parking_floor_store_v1")
+        let store = ParkingFloorStore()
+        store.prepare()
+        store.setFloorMode(.perVisit)
+        store.recordParkingPoint(coordinate: coordinate, address: "Home", createdAt: TestClock.now,
+            predictedFloorIndex: nil, manualFloorIndex: nil, confidence: nil)
+        let newestID = store.currentPoint!.id
+        store.setManualFloor(pointID: newestID, floorIndex: 1)
+        let group = store.recordGroups.first { $0.id.floor == 1 }!
+        precondition(group.records.count == 15 && group.latest.id == newestID)
+        precondition(group.mapCoordinate.longitude == old.longitude, "New record must not move the established group")
+        precondition(store.currentPoint?.longitude == coordinate.longitude, "Real visit coordinates must be preserved")
+        let reload = ParkingFloorStore()
+        reload.prepare()
+        precondition(reload.recordGroups.first { $0.id.floor == 1 }!.mapCoordinate.longitude == old.longitude)
+        store.setPointCoordinate(pointID: newestID, coordinate: coordinate)
+        precondition(store.recordGroups.first { $0.id.floor == 1 }!.mapCoordinate.longitude == coordinate.longitude)
+        for record in history {
+            let saved = store.allPoints.first { $0.id == record.id }!
+            precondition(saved.latitude == record.latitude && saved.longitude == record.longitude)
+        }
+        print("PASS: stable group anchor, latest metadata, reload and explicit drag without moving history")
+    }
+
+    static func checkUnattendedCapture(defaults: UserDefaults) throws {
+        UIApplication.shared.applicationState = .background
+        TestClock.now += 600
+        TestClock.uptime += 600
+        defaults.removeObject(forKey: "parking_floor_store_v1")
+        let store = ParkingFloorStore()
+        store.prepare()
+        store.setFloorMode(.perVisit)
+        let manager = store.barometer
+        let sensor = CMAltimeter.latest!
+        manager.updateDriving(speed: 40, timestamp: TestClock.now, coordinate: coordinate)
+        precondition(manager.captureID == nil, "High speed must not capture")
+        manager.updateDriving(speed: 30, timestamp: TestClock.now, coordinate: coordinate)
+        precondition(manager.captureID == nil, "Exactly 30 is outside the detection threshold")
+        manager.updateDriving(speed: 29, timestamp: TestClock.now, coordinate: coordinate)
+        let id = manager.captureID!
+        for i in 1...15 {
+            TestClock.now += 1
+            TestClock.uptime += 1
+            manager.updateDriving(speed: i < 4 ? 25 : 0, timestamp: TestClock.now, coordinate: coordinate)
+            sensor.emit(i < 4 ? 0 : -6)
+            RunLoop.main.run(until: Date().addingTimeInterval(0.005))
+            precondition(manager.captureID == id, "25 km/h must keep the same continuous capture")
+        }
+        let arrival = TestClock.now.addingTimeInterval(-10)
+        precondition(manager.completedResult == nil, "Ignoring the prompt should keep background sampling")
+        manager.suspendCapture()
+        precondition(manager.isUpdating && manager.completedResult == nil,
+                     "Backgrounding must keep the same capture running")
+        UIApplication.shared.applicationState = .background
+        let visit = LocationManager.VisitRecord(id: UUID(), address: "Unattended garage",
+            latitude: coordinate.latitude, longitude: coordinate.longitude, arrivalDate: arrival,
+            transportType: "Driving", isAutomotive: true)
+        store.recordParkingPoint(from: visit)
+        UIApplication.shared.applicationState = .active
+        precondition(store.currentPoint?.predictedFloorIndex == -2 && store.currentPoint?.displayFloor != nil,
+                     "A later visit must use the saved barometer estimate without a manual tick")
+        precondition(store.currentPoint?.isFloorConfirmed == false,
+                     "Saving an estimate is not human confirmation")
+        let reload = ParkingFloorStore()
+        reload.prepare()
+        precondition(reload.currentPoint?.predictedFloorIndex == -2,
+                     "Unattended estimate must survive storage reload")
+        print("PASS: 30 km/h boundary, continuous 25 km/h capture and unattended background floor persistence")
     }
 
     static func checkDelayedFloor(defaults: UserDefaults) throws {
@@ -195,14 +368,16 @@ struct ParkingLevelChecks {
                     longitude: coordinate.longitude, arrivalDate: arrival, transportType: "Driving", isAutomotive: true)
                 store.recordParkingPoint(from: visit)
                 pointID = store.currentPoint!.id
-                precondition(store.currentPoint?.displayFloor == nil)
+                precondition(store.currentPoint?.isFloorConfirmed == false,
+                             "Historical fallback must remain an unconfirmed estimate")
                 store.updateLLMData(spotNumber: nil, areaCode: nil, floorText: "Unknown", floorIndex: nil)
                 // Duplicate visit delivery must retain the same point/capture link.
                 store.recordParkingPoint(from: visit)
             }
         }
         let captureID = manager.captureID!
-        precondition(manager.confirmParking(captureID: captureID, promptID: manager.stopConfirmationID!))
+        precondition(manager.completedResult != nil,
+                     "A bound visit must finish automatically when its height stabilizes")
         precondition(manager.completedResult?.pointID == pointID,
                      "An early visit was not bound to the continuous capture")
         RunLoop.main.run(until: Date().addingTimeInterval(0.05))
@@ -265,14 +440,14 @@ struct ParkingLevelChecks {
                      "Batch editing confirmed an unselected visit")
         store.setManualFloor(pointID: b2.id, floorIndex: -2)
         precondition(ParkingRecordGroup.make(lots: store.lots, mode: store.floorMode).count == 2)
-        precondition(store.lots[0].floorLearningHistory?.count == 1,
+        precondition(store.lots[0].floorLearningHistory?.count == 2,
                      "Correcting the same visit duplicated training evidence")
         precondition(abs((store.lots[0].learnedMetersPerFloor ?? 0) - 3) < 0.001)
         precondition(store.estimatedFloor(near: coordinate, delta: -9) == -3,
                      "A multi-floor area was locked to its last manually confirmed floor")
         store.updateLLMData(spotNumber: "12", areaCode: nil, floorText: "B3", floorIndex: -3)
         precondition(store.currentPoint?.isFloorConfirmed == false)
-        precondition(store.lots[0].floorLearningHistory?.count == 1, "A photo estimate trained the floor model")
+        precondition(store.lots[0].floorLearningHistory?.count == 2, "A photo estimate trained the floor model")
         store.updateLLMData(spotNumber: "12", areaCode: nil, floorText: "B1", floorIndex: -1, userConfirmedFloor: true)
         precondition(store.currentPoint?.isFloorConfirmed == true)
         store.updateLLMData(spotNumber: "13", areaCode: nil, floorText: "B4", floorIndex: -4)
@@ -310,12 +485,12 @@ struct ParkingLevelChecks {
         let latest = point(-1, date: 0, delta: -3)
         var destination = lot([first])
         destination.floorLearningHistory = [ParkingLotFloorLearning(createdAt: first.createdAt, manualFloorIndex: -1,
-            altitudeDeltaMeters: -3, metersPerFloor: 3, lotID: destination.id, pointID: first.id)]
+            altitudeDeltaMeters: -3, metersPerFloor: 3, lotID: destination.id, pointID: first.id, calibrationEligible: true)]
         destination.floorNames = ["-1": "Residents"]
         destination.floorScopeIndex = -1
         var source = lot([latest])
         source.floorLearningHistory = [ParkingLotFloorLearning(createdAt: latest.createdAt, manualFloorIndex: -1,
-            altitudeDeltaMeters: -3, metersPerFloor: 3, lotID: source.id, pointID: latest.id)]
+            altitudeDeltaMeters: -3, metersPerFloor: 3, lotID: source.id, pointID: latest.id, calibrationEligible: true)]
         source.name = "Residence · Annex"
         source.floorNames = ["-1": "Other", "-2": "Basement 2"]
         source.floorScopeIndex = -2

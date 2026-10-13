@@ -155,9 +155,15 @@ struct MeterSettingsSection: View {
     @AppStorage("meterMapRadius") private var radius = 500.0
     @AppStorage("meterDestinationRadius") private var destinationRadius = 500.0
     @AppStorage("meterNearbyRadius") private var nearbyRadius = 100.0
+    @AppStorage("meterStatusRefreshInterval") private var statusRefreshInterval = 60.0
     var body: some View {
         Section {
             Toggle("咪錶探測", isOn: $enabled)
+            Stepper(value: $statusRefreshInterval, in: 30...300, step: 30) {
+                LabeledContent(String(localized: "咪錶狀態刷新時間"),
+                               value: String(format: String(localized: "%d 秒"), Int(statusRefreshInterval)))
+            }
+            .accessibilityIdentifier("meterStatusRefreshInterval")
             Picker("我駕駛的車型", selection: $vehicle) {
                 ForEach(MeterVehicle.allCases) { Text($0.title).tag($0.rawValue) }
             }
@@ -201,6 +207,65 @@ struct MeterVehiclePicker: View {
     }
 }
 
+private enum MeterPopupStyle {
+    static let paymentTint = Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255)
+}
+
+private struct MeterPopupAppearance: ViewModifier {
+    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
+    @AppStorage("darkKnightMode") private var darkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    @Environment(\.colorScheme) private var colorScheme
+
+    func body(content: Content) -> some View {
+        let dark = GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled,
+            darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw) || colorScheme == .dark
+        content
+            .foregroundStyle(dark ? Color.white : Color.primary)
+            .tint(dark ? .white : MeterPopupStyle.paymentTint)
+            .environment(\.colorScheme, dark ? .dark : .light)
+    }
+}
+
+enum MeterPopupRegion {
+    case full, upperHalf, leftHalf
+
+    func bounds(in size: CGSize) -> CGRect {
+        switch self {
+        case .full: return CGRect(origin: .zero, size: size)
+        case .upperHalf: return CGRect(x: 0, y: 0, width: size.width, height: size.height / 2)
+        case .leftHalf: return CGRect(x: 0, y: 0, width: size.width / 2, height: size.height)
+        }
+    }
+}
+
+private struct MeterPopupContainer<Popup: View>: View {
+    var region: MeterPopupRegion
+    var onBackgroundTap: (() -> Void)? = nil
+    @ViewBuilder var popup: (Bool) -> Popup
+
+    var body: some View {
+        GeometryReader { geo in
+            let bounds = region.bounds(in: geo.size)
+            let horizontal = bounds.width > bounds.height && bounds.width >= 520
+            ZStack {
+                if let onBackgroundTap {
+                    Color.black.opacity(0.001)
+                        .ignoresSafeArea()
+                        .onTapGesture(perform: onBackgroundTap)
+                }
+                ViewThatFits(in: .vertical) {
+                    popup(horizontal).fixedSize(horizontal: false, vertical: true)
+                    ScrollView { popup(horizontal) }
+                        .scrollBounceBehavior(.basedOnSize)
+                }
+                .frame(width: max(0, bounds.width - 32), height: max(0, bounds.height - 24))
+                .position(x: bounds.midX, y: bounds.midY)
+            }
+        }
+    }
+}
+
 struct MeterDetailCapsule: View {
     let meter: ParkingMeter
     @ObservedObject var manager: ParkingMeterManager
@@ -212,44 +277,39 @@ struct MeterDetailCapsule: View {
 
     var body: some View {
         let state = manager.state(meter)
-        Group {
+        VStack(spacing: compactLayout || horizontalLayout ? 12 : 16) {
+            capsuleHeader
             if horizontalLayout {
-                HStack(alignment: .top, spacing: 18) {
-                    VStack(alignment: .leading, spacing: 9) {
-                        capsuleHeader
-                        statusBlock(state)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
+                HStack(alignment: .center, spacing: 24) {
+                    statusBlock(state)
+                        .frame(width: 170)
                     detailsBlock(state)
                         .frame(maxWidth: .infinity, alignment: .leading)
-
-                    VStack(spacing: 10) {
-                        actionButtons(vertical: true)
-                    }
-                    .frame(width: 160)
                 }
             } else {
-                VStack(alignment: .leading, spacing: compactLayout ? 8 : 12) {
-                    capsuleHeader
-                    statusBlock(state)
-                    Divider()
-                    detailsBlock(state)
-                    actionButtons(vertical: false)
-                }
+                statusBlock(state)
+                Divider()
+                detailsBlock(state)
             }
+            actionButtons
         }
-        .padding(compactLayout || horizontalLayout ? 14 : 20)
+        .padding(compactLayout || horizontalLayout ? 16 : 20)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-        .frame(maxWidth: horizontalLayout ? 760 : 420)
-        .padding(.horizontal, horizontalLayout ? 20 : 28)
+        .modifier(MeterPopupAppearance())
+        .frame(maxWidth: horizontalLayout ? 600 : 420)
+        .accessibilityIdentifier("meterDetailPopup")
     }
 
     private var capsuleHeader: some View {
         HStack(alignment: .center, spacing: 8) {
-            Text("\(meter.displayStreet) · \(meter.id)")
-                .font(.headline)
-                .lineLimit(horizontalLayout ? 2 : 1)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(meter.displayStreet)
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                Text(meter.id)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
             Spacer(minLength: 8)
             Button {
                 Task { await manager.refreshStatus(force: true) }
@@ -263,16 +323,20 @@ struct MeterDetailCapsule: View {
             .disabled(manager.statusRefreshing)
             .accessibilityLabel("刷新佔用狀態")
             .help("刷新佔用狀態")
-            .frame(width: 32, height: 32)
+            .frame(width: 44, height: 44)
+            .buttonStyle(.glass)
+            .foregroundStyle(.tint)
             Button(action: onClose) { Image(systemName: "xmark") }
                 .accessibilityLabel("關閉")
-                .frame(width: 32, height: 32)
+                .frame(width: 44, height: 44)
+                .buttonStyle(.glass)
+                .foregroundStyle(.tint)
         }
     }
 
     @ViewBuilder
     private func statusBlock(_ state: MeterDisplayState) -> some View {
-        VStack(alignment: .leading, spacing: 3) {
+        VStack(spacing: 5) {
             Text(state.title)
                 .font(.system(size: horizontalLayout || compactLayout ? 22 : 25, weight: .bold))
                 .foregroundStyle(state.color)
@@ -294,7 +358,8 @@ struct MeterDetailCapsule: View {
                 Text(error).font(.caption).foregroundStyle(.red)
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .multilineTextAlignment(.center)
+        .frame(maxWidth: .infinity)
     }
 
     @ViewBuilder
@@ -318,7 +383,7 @@ struct MeterDetailCapsule: View {
     }
 
     private func detailRow(_ text: String, symbol: String, prominent: Bool = false) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        HStack(alignment: .center, spacing: 10) {
             Image(systemName: symbol)
                 .frame(width: 20)
                 .foregroundStyle(.secondary)
@@ -329,42 +394,39 @@ struct MeterDetailCapsule: View {
         }
     }
 
-    @ViewBuilder
-    private func actionButtons(vertical: Bool) -> some View {
-        if vertical {
-            Button(action: onNavigate) {
-                navigationButtonLabel
-            }
-            .buttonStyle(.glass)
+    private var actionButtons: some View {
+        HStack(spacing: 12) {
+            Button(action: onNavigate) { navigationButtonLabel }
+                .buttonStyle(.glass)
+                .foregroundStyle(.tint)
             Button(action: onPay) {
-                Label("前往繳費", systemImage: "creditcard.fill")
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                MeterPopupActionLabel(title: String(localized: "前往繳費"), symbol: "creditcard.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
-        } else {
-            HStack(spacing: 12) {
-                Button(action: onNavigate) {
-                    navigationButtonLabel
-                }.buttonStyle(.glass)
-                Button(action: onPay) {
-                    Label("前往繳費", systemImage: "creditcard.fill")
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                }
-                .buttonStyle(.borderedProminent).tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
-            }
+            .buttonStyle(.glassProminent)
+            .tint(MeterPopupStyle.paymentTint)
+            .foregroundStyle(.white)
         }
+        .font(.subheadline.weight(.semibold))
     }
 
     private var navigationButtonLabel: some View {
+        MeterPopupActionLabel(title: String(localized: "導航"), symbol: "arrow.triangle.turn.up.right.diamond.fill")
+    }
+}
+
+private struct MeterPopupActionLabel: View {
+    let title: String
+    let symbol: String
+
+    var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
-                .frame(width: 18)
-            Text("導航")
+            Image(systemName: symbol).frame(width: 18)
+            Text(title)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, minHeight: 44)
+        .padding(.vertical, 2)
     }
 }
 
@@ -385,6 +447,7 @@ struct MeterDetailOverlay: View {
     let onNavigate: () -> Void
     let onPay: () -> Void
     var compactLayout = false
+    var region: MeterPopupRegion = .full
 
     static var popupTransition: AnyTransition {
         .asymmetric(
@@ -400,19 +463,11 @@ struct MeterDetailOverlay: View {
     }
 
     var body: some View {
-        GeometryReader { geo in
-            let horizontal = geo.size.width > geo.size.height
-            ZStack {
-                Color.black.opacity(0.001)
-                    .ignoresSafeArea()
-                    .onTapGesture(perform: onClose)
-                MeterDetailCapsule(meter: meter, manager: manager,
+        MeterPopupContainer(region: region, onBackgroundTap: onClose) { horizontal in
+            MeterDetailCapsule(meter: meter, manager: manager,
                                    onClose: onClose, onNavigate: onNavigate, onPay: onPay,
                                    horizontalLayout: horizontal,
                                    compactLayout: compactLayout)
-                    .padding(.vertical, horizontal ? 8 : 16)
-                    .offset(y: horizontal ? 10 : (compactLayout ? 18 : 56))
-            }
         }
     }
 }
@@ -427,6 +482,8 @@ struct MeterNoticeCapsule: View {
         VStack(spacing: 14) {
             Text(notice.title).font(.headline).multilineTextAlignment(.center)
             Text("\(notice.meter.displayStreet) · \(notice.meter.id)").font(.subheadline).foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
 
             if notice.kind == .nearby {
                 nearbyActions
@@ -435,18 +492,22 @@ struct MeterNoticeCapsule: View {
                     Button("取消", action: onCancel)
                         .frame(maxWidth: .infinity, minHeight: 44)
                         .buttonStyle(.glass)
+                        .foregroundStyle(.tint)
                     Button(action: onAction) {
-                        Label(notice.actionTitle, systemImage: notice.actionSymbol)
-                            .frame(maxWidth: .infinity, minHeight: 44)
+                        MeterPopupActionLabel(title: notice.actionTitle, symbol: notice.actionSymbol)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
+                    .buttonStyle(.glassProminent)
+                    .tint(MeterPopupStyle.paymentTint)
+                    .foregroundStyle(.white)
                 }
             }
         }
         .padding(20)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-        .frame(maxWidth: 420).padding(.horizontal, 24)
+        .modifier(MeterPopupAppearance())
+        .font(.subheadline.weight(.semibold))
+        .frame(maxWidth: 420)
+        .accessibilityIdentifier("meterNoticePopup")
     }
 
     private var nearbyActions: some View {
@@ -457,14 +518,15 @@ struct MeterNoticeCapsule: View {
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.glass)
+            .foregroundStyle(.tint)
             .accessibilityLabel("關閉")
 
             Button(action: onPay) {
-                Label("開入錶易", systemImage: "creditcard.fill")
-                    .frame(maxWidth: .infinity, minHeight: 44)
+                MeterPopupActionLabel(title: String(localized: "開入錶易"), symbol: "creditcard.fill")
             }
-            .buttonStyle(.borderedProminent)
-            .tint(Color(red: 33 / 255, green: 92 / 255, blue: 112 / 255))
+            .buttonStyle(.glassProminent)
+            .tint(MeterPopupStyle.paymentTint)
+            .foregroundStyle(.white)
 
             Button(action: onAction) {
                 Image(systemName: "arrow.triangle.turn.up.right.diamond.fill")
@@ -472,8 +534,23 @@ struct MeterNoticeCapsule: View {
                     .frame(width: 44, height: 44)
             }
             .buttonStyle(.glass)
+            .foregroundStyle(.tint)
             .accessibilityLabel("導航")
             .accessibilityHint("開始行車路線去這個咪錶位")
+        }
+    }
+}
+
+struct MeterNoticeOverlay: View {
+    let notice: MeterNotice
+    let onCancel: () -> Void
+    let onAction: () -> Void
+    let onPay: () -> Void
+    var region: MeterPopupRegion = .full
+
+    var body: some View {
+        MeterPopupContainer(region: region) { _ in
+            MeterNoticeCapsule(notice: notice, onCancel: onCancel, onAction: onAction, onPay: onPay)
         }
     }
 }

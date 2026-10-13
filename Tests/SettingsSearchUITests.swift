@@ -24,9 +24,9 @@ final class SettingsSearchUITests: XCTestCase {
         let category = app.descendants(matching: .any)["My Destinations (50)"].firstMatch
         XCTAssertTrue(category.waitForExistence(timeout: 5), app.debugDescription)
         category.tap()
-        let last = app.buttons["Destination 50"]
-        XCTAssertTrue(app.buttons["Destination 01"].waitForExistence(timeout: 8))
-        let list = app.scrollViews.firstMatch
+        let last = app.buttons["destinationSearch-50"]
+        XCTAssertTrue(app.buttons["destinationSearch-1"].waitForExistence(timeout: 8))
+        let list = app.scrollViews["destinationSearchList"]
         for _ in 0..<25 {
             if last.isHittable { break }
             if list.exists {
@@ -58,9 +58,9 @@ final class SettingsSearchUITests: XCTestCase {
         let category = app.descendants(matching: .any)["My Destinations (50)"].firstMatch
         XCTAssertTrue(category.waitForExistence(timeout: 5), app.debugDescription)
         category.tap()
-        XCTAssertTrue(app.buttons["Destination 01"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["destinationSearch-1"].waitForExistence(timeout: 5))
         XCTAssertFalse(app.navigationBars["Destinations"].exists)
-        app.buttons["Destination 01"].tap()
+        app.buttons["destinationSearch-1"].tap()
         XCTAssertEqual(app.staticTexts["selectionResult"].label, "1")
     }
 

@@ -111,11 +111,15 @@ struct PredictionTestView: View {
                                 Text(patternKeyDescription(record.key))
                                     .font(.subheadline.bold())
                                 Spacer()
-                                let stats = patternStats(record)
+                            }
+                            let stats = patternStats(record)
+                            HStack(spacing: 8) {
+                                Text(String(localized: "信心度"))
+                                    .font(.caption)
                                 confidenceBadge(stats.confidence)
                                 Text("樣本\(stats.samples)")
                                     .font(.caption2)
-                                    .foregroundColor(.secondary)
+                                    .foregroundStyle(.secondary)
                             }
 
                             // Candidates
@@ -259,11 +263,8 @@ struct PredictionTestView: View {
     /// 成個 pattern 嘅信心度：頭名候選有效分 ÷ 全部有效分總和；樣本 = 命中總數
     /// （信心度係 pattern 級別，唔係單一候選嘅欄位，所以要喺呢度計出嚟顯示）
     private func patternStats(_ record: TripPatternRecord) -> (confidence: Double, samples: Int) {
-        let candidates = Array(record.candidates.values)
-        let samples = candidates.reduce(0) { $0 + $1.hitCount }
-        let sum = candidates.reduce(0.0) { $0 + max(0, $1.effectiveScore) }
-        let top = candidates.map(\.effectiveScore).max() ?? 0
-        return (sum > 0 ? top / sum : 0, samples)
+        let top = record.candidates.values.map { record.confidence(for: $0) }.max() ?? 0
+        return (top, record.totalSamples)
     }
 
     // MARK: - Helpers

@@ -19,7 +19,7 @@ private struct SpeedToolbarEdgeReader: View {
 struct SpeedView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
-    @StateObject private var timePhaseManager = TimePhaseManager()
+    @State private var timePhaseManager = TimePhaseManager()
     @StateObject private var sfxPlayer = SFXPlayer()
     @StateObject private var tiltMotion = TiltParallaxMotion()
     @StateObject private var gForceMotion = GForceParallaxMotion()
@@ -60,24 +60,7 @@ struct SpeedView: View {
     /// 「圓點顏色」設定 → 圓點動畫 hex。
     /// 0=金黃（維持現有 #ffd700 照舊）、1=動態橙（30→120 km/h 橙→橙紅）、2-4=指定綠系。
     private var dotMatrixColorHex: String {
-        switch orbColorPreset {
-        case 1:
-            let kmh = max(0, locationManager.speed)  // locationManager.speed 已係 km/h
-            let t = min(max((kmh - 30) / 90, 0), 1)
-            if t < 0.5 {
-                // FF8C00 → FF6B00
-                let u = t * 2
-                return String(format: "#%02X%02X%02X", 255, Int(140 - 33 * u), 0)
-            } else {
-                // FF6B00 → FF4500
-                let u = (t - 0.5) * 2
-                return String(format: "#%02X%02X%02X", 255, Int(107 - 38 * u), 0)
-            }
-        case 2: return "#9BF783"
-        case 3: return "#99E695"
-        case 4: return "#97D5AB"
-        default: return "#ffd700"
-        }
+        colorGroup.dotColorHex(speed: locationManager.speed, preset: orbColorPreset)
     }
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
@@ -85,7 +68,11 @@ struct SpeedView: View {
     @AppStorage("orbOverlapGlowEnabled") private var orbOverlapGlowEnabled: Bool = true
     @AppStorage("orbBackgroundSpeed") private var orbBackgroundSpeed: Bool = true
     @AppStorage("useTimeBasedOrb") private var useTimeBasedOrb: Bool = false
-    @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
+    @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    private var colorGroup: GorillaColorGroup {
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+    }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @Environment(\.colorScheme) private var colorScheme
     
@@ -168,8 +155,8 @@ struct SpeedView: View {
                     }
                     .allowsHitTesting(false)
                 }
-            } else if darkKnightMode {
-                Color.black.ignoresSafeArea()
+            } else if !colorGroup.showsOrbControls {
+                (colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.black) : Color.black).ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
@@ -204,7 +191,8 @@ struct SpeedView: View {
                 let physicalCenterShift: CGFloat = isDuoDevice
                     ? (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2
                     : 0
-                let textColor: Color = colorScheme == .dark ? .white : .black
+                let textColor: Color = colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.paper)
+                    : (colorScheme == .dark || colorGroup == .darkKnight ? .white : .black)
                 let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
                 ZStack {
                     // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
@@ -369,9 +357,6 @@ struct SpeedView: View {
             }
         }
         .onAppear {
-            if orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb {
-                timePhaseManager.start()
-            }
             if speedParallaxEnabled {
                 startActiveParallax()
                 syncParallaxFrameRate()
@@ -439,12 +424,16 @@ struct SpeedView: View {
         // 仲有 CADisplayLink／CoreMotion 懸停之後有機會唔再 fire
         // （orb 動畫靜止、滾動數字停），全部重新起過
         .onChange(of: scenePhase) { _, phase in
+            if phase != .active {
+                timePhaseManager.stop()
+                tiltMotion.stop()
+                gForceMotion.stop()
+                speedRoller.stop()
+                return
+            }
             guard phase == .active else { return }
             gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
             syncGpsLostState()
-            if orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb {
-                timePhaseManager.start()
-            }
             if kalmanSmoothingEnabled {
                 speedRoller.restart()
             }

@@ -16,6 +16,7 @@ fixture = <<~SWIFT
   #{settings[sound_first...sound_last]}
   struct SettingsSearchFixture: View {
     @State private var selected = "None"
+    @State private var showingDestinations = false
     let items = (1...50).map {
       DestinationSearchMenuItems.Item(id: String($0), name: String(format: "Destination %02d", $0), symbol: "mappin.circle")
     }
@@ -23,10 +24,15 @@ fixture = <<~SWIFT
       NavigationStack {
         VStack {
             Menu("Search Places") {
-              Menu("My Destinations (50)") {
-                DestinationSearchMenuItems(items: items, selectedID: selected) { selected = $0 }
+              Button("My Destinations (50)") { showingDestinations = true }
+            }
+            .buttonStyle(.borderless)
+            .popover(isPresented: $showingDestinations) {
+              DestinationSearchMenuItems(items: items, selectedID: selected, title: "My Destinations (50)") {
+                selected = $0
+                showingDestinations = false
               }
-            }.buttonStyle(.borderless)
+            }
             Text(selected).accessibilityIdentifier("selectionResult")
           List { SoundSettingsSection() }
         }
@@ -40,8 +46,8 @@ fixture = <<~SWIFT
 SWIFT
 File.write("#{root}/Fixture.swift", fixture)
 project = Xcodeproj::Project.new("#{root}/SettingsSearchChecks.xcodeproj")
-app = project.new_target(:application, 'SettingsSearchChecks', :ios, '18.0')
-tests = project.new_target(:ui_test_bundle, 'SettingsSearchUITests', :ios, '18.0')
+app = project.new_target(:application, 'SettingsSearchChecks', :ios, '26.0')
+tests = project.new_target(:ui_test_bundle, 'SettingsSearchUITests', :ios, '26.0')
 app.source_build_phase.add_file_reference(project.main_group.new_file("#{root}/Fixture.swift"))
 app.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/GorillaTranslate/Models/SFXPlayer.swift"))
 tests.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Tests/SettingsSearchUITests.swift"))

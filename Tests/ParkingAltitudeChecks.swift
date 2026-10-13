@@ -11,10 +11,9 @@ struct ParkingAltitudeChecks {
 
     static func main() throws {
         var capture = ParkingAltitudeCapture()
-        for t in 0...8 { precondition(!capture.append(sample(Double(t), 0)), "Eight seconds must keep sampling") }
-        precondition(!capture.append(sample(9, 0)))
-        precondition(capture.append(sample(10, 0)), "Ten stable seconds may ask, not stop the sensor")
-        precondition(!capture.append(sample(10, 0)), "Repeated sensor event must not advance time")
+        for t in 0...5 { precondition(!capture.append(sample(Double(t), 0)), "Five seconds must keep sampling") }
+        precondition(capture.append(sample(6, 0)), "Five plus one stable seconds may ask, not stop the sensor")
+        precondition(!capture.append(sample(6, 0)), "Repeated sensor event must not advance time")
 
         var prompt = ParkingStopConfirmation()
         prompt.update(stableStop: true, at: start.addingTimeInterval(10))
@@ -23,7 +22,7 @@ struct ParkingAltitudeChecks {
         prompt.update(stableStop: true, at: start.addingTimeInterval(19))
         precondition(prompt.promptID == firstPrompt, "Never ask more often than every ten seconds")
         prompt.update(stableStop: true, at: start.addingTimeInterval(20))
-        precondition(prompt.promptID != firstPrompt, "Ask again after ten seconds without input")
+        precondition(prompt.promptID == firstPrompt, "Keep the prompt stable so its automatic confirmation can complete")
         prompt.deferPrompt(at: start.addingTimeInterval(21))
         precondition(prompt.promptID == nil, "Not parked dismisses only the question")
         prompt.update(stableStop: false, at: start.addingTimeInterval(22))
@@ -45,12 +44,12 @@ struct ParkingAltitudeChecks {
                      "Passing the gate must preserve the continuous curve")
 
         var gate = ParkingAltitudeCapture()
-        for t in 0...8 { precondition(!gate.append(sample(Double(t), 0))) }
+        for t in 0...5 { precondition(!gate.append(sample(Double(t), 0))) }
         precondition(gate.resumedAfterBriefStop(speed: 3, at: start.addingTimeInterval(9)))
         precondition(!gate.resumedAfterBriefStop(speed: 0, at: start.addingTimeInterval(9)))
         precondition(!gate.append(sample(9, 0, speed: 3)))
-        for t in 10...19 { precondition(!gate.append(sample(Double(t), 0))) }
-        precondition(gate.append(sample(20, 0)), "Resuming at a gate must restart the stopped clock")
+        for t in 10...15 { precondition(!gate.append(sample(Double(t), 0))) }
+        precondition(gate.append(sample(16, 0)), "Resuming at a gate must restart the stopped clock")
 
         var unstable = ParkingAltitudeCapture()
         for t in 0...20 {
@@ -60,18 +59,19 @@ struct ParkingAltitudeChecks {
         var staleGPS = ParkingAltitudeCapture()
         for t in 0...20 { precondition(!staleGPS.append(sample(Double(t), 0, speed: -1))) }
         var motionCorroborated = ParkingAltitudeCapture()
-        for t in 0...9 { precondition(!motionCorroborated.append(sample(Double(t), 0, speed: -1), stationaryEvidence: true)) }
-        precondition(motionCorroborated.append(sample(10, 0, speed: -1), stationaryEvidence: true))
+        for t in 0...5 { precondition(!motionCorroborated.append(sample(Double(t), 0, speed: -1), stationaryEvidence: true)) }
+        precondition(motionCorroborated.append(sample(6, 0, speed: -1), stationaryEvidence: true))
 
         var gap = ParkingAltitudeCapture()
         precondition(!gap.append(sample(0, 0)))
         precondition(!gap.append(sample(20, 0)), "A data gap is not twenty seconds of stopped evidence")
+        precondition(gap.hasSamplingGap, "A later stable stop cannot erase missing ramp samples")
 
         var descent = ParkingAltitudeCapture()
         for t in 0...2 { _ = descent.append(sample(Double(t), 0, speed: 12)) }
         for t in 3...11 { _ = descent.append(sample(Double(t), -Double(t - 2), speed: 5)) }
-        for t in 12...21 { precondition(!descent.append(sample(Double(t), -9))) }
-        precondition(descent.append(sample(22, -9)))
+        for t in 12...17 { precondition(!descent.append(sample(Double(t), -9))) }
+        precondition(descent.append(sample(18, -9)))
         precondition(descent.referenceAltitude == 0)
         precondition(descent.finalAltitude == -9, "Do not subtract the parking height from itself")
 

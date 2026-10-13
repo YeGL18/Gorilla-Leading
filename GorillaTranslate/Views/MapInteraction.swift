@@ -118,8 +118,15 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
                 guard let self, change.oldValue != change.newValue,
                       let hidden = change.newValue else { return }
                 if hidden {
-                    self.fadeOutSnapshot()
-                    self.resetAppearance()
+                    let generation = self.appearanceGeneration
+                    // MapKit can briefly hide/reveal the same marker while moving
+                    // it. Only a persistent hide is a genuine disappearance.
+                    DispatchQueue.main.async { [weak self] in
+                        guard let self, self.appearanceGeneration == generation,
+                              self.layer.isHidden else { return }
+                        self.fadeOutSnapshot()
+                        self.resetAppearance()
+                    }
                 } else {
                     self.animateAppearance()
                 }
@@ -128,22 +135,47 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
     }
 
     override var alpha: CGFloat {
-        get { super.alpha }
+        // MapKit owns this value. Do not feed our transient fade back into its
+        // read/modify/write visibility and marker-size calculations.
+        get { mapAlpha }
         set {
-            if newValue == super.alpha { return }
+            if newValue == mapAlpha { return }
             if newValue == 0, mapAlpha > 0 { fadeOutSnapshot() }
             let wasInvisible = mapAlpha == 0
             mapAlpha = newValue
-            super.alpha = mapAlpha * appearanceOpacity
+            applyAppearanceOpacity()
             if wasInvisible && newValue > 0 { animateAppearance() }
         }
+    }
+
+    private var renderedOpacity: CGFloat { mapAlpha * appearanceOpacity }
+
+    private func applyAppearanceOpacity() {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.opacity = Float(renderedOpacity)
+        CATransaction.commit()
     }
 
     fileprivate func setAppearanceOpacity(_ opacity: CGFloat) {
         let becameOpaque = appearanceOpacity != 1 && opacity == 1
         appearanceOpacity = opacity
-        super.alpha = mapAlpha * opacity
+        applyAppearanceOpacity()
         if becameOpaque { refreshAppearanceSnapshot() }
+    }
+
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        let changed = isSelected != selected
+        guard changed else { return }
+        super.setSelected(selected, animated: animated)
+        let generation = appearanceGeneration
+        // Cache the final selected/unselected shape, not an intermediate native
+        // animation. Reused views must ignore an old selection's scheduled work.
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.fadeDuration) { [weak self] in
+            guard let self, self.appearanceGeneration == generation,
+                  self.isSelected == selected else { return }
+            self.refreshAppearanceSnapshot()
+        }
     }
 
     func refreshAppearanceSnapshot() {
@@ -162,7 +194,8 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
     }
 
     func animateAppearance() {
-        guard superview != nil else { return }
+        // A position update/reparent/didAdd callback is not a new appearance.
+        guard superview != nil, !layer.isHidden, !hasVisibleAppearance else { return }
         hasVisibleAppearance = true
         guard !appearanceScheduled, appearanceOpacity == 1 else { return }
         appearanceCycle &+= 1
@@ -215,7 +248,7 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
     private func fadeOutSnapshot() {
         guard hasVisibleAppearance else { return }
         hasVisibleAppearance = false
-        guard window != nil, alpha > 0, let coordinate = annotation?.coordinate else { return }
+        guard window != nil, renderedOpacity > 0, let coordinate = annotation?.coordinate else { return }
         var ancestor = superview
         while let current = ancestor, !(current is MKMapView) { ancestor = current.superview }
         guard let map = ancestor as? MKMapView else { return }
@@ -224,7 +257,7 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
         guard !visibleFrame.isEmpty, map.bounds.intersects(visibleFrame),
               let image = appearanceImage ?? renderAppearance(in: contentBounds) else { return }
         let snapshot = UIImageView(image: image)
-        snapshot.alpha = appearanceImage == nil ? 1 : alpha
+        snapshot.alpha = appearanceImage == nil ? 1 : renderedOpacity
         // MapKit may immediately recycle the live view for a cluster/member.
         // Fade a noninteractive snapshot instead of delaying model removal.
         snapshot.frame = visibleFrame
@@ -270,6 +303,51 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
     }
 }
 
+/// Keep the latest marker's content scale separate from MapKit's view transform.
+/// Native selection/pan/zoom must never compound our 30% enlargement.
+final class ScaledMarkerAnnotationView: FadingMarkerAnnotationView {
+    /// MapKit lays out titles/subtitles outside the marker's own bounds.
+    func containsVisibleContent(_ point: CGPoint) -> Bool {
+        guard !isHidden, !layer.isHidden, alpha > 0 else { return false }
+        if bounds.contains(point) { return true }
+        func contains(_ view: UIView) -> Bool {
+            guard !view.isHidden, !view.layer.isHidden, view.alpha > 0 else { return false }
+            let local = convert(point, to: view)
+            return view.bounds.contains(local) || view.subviews.contains(where: contains)
+        }
+        return subviews.contains(where: contains)
+    }
+
+    var snapshotSignature: String?
+    var locksDragAppearance = false {
+        didSet {
+            if locksDragAppearance { super.setSelected(false, animated: false) }
+        }
+    }
+
+    override func setSelected(_ selected: Bool, animated: Bool) {
+        super.setSelected(locksDragAppearance ? false : selected,
+                          animated: locksDragAppearance ? false : animated)
+    }
+
+    var sizeScale: CGFloat = 1 {
+        didSet {
+            guard sizeScale != oldValue else { return }
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.sublayerTransform = CATransform3DMakeScale(sizeScale, sizeScale, 1)
+            CATransaction.commit()
+        }
+    }
+
+    override func prepareForReuse() {
+        sizeScale = 1
+        snapshotSignature = nil
+        locksDragAppearance = false
+        super.prepareForReuse()
+    }
+}
+
 class NonAdjustingMapView: MKMapView {
     func annotationsDidAppear(_ views: [MKAnnotationView]) {
         for case let view as FadingMarkerAnnotationView in views {
@@ -282,6 +360,34 @@ class NonAdjustingMapView: MKMapView {
                width: size.width + abs(centerOffset.x), height: size.height + abs(centerOffset.y))
     }
 
+    private var isAnnotationDragActive = false
+    private var suppressSelectionUntilNextTouch = false
+    var isAnnotationSelectionSuppressed: Bool {
+        isAnnotationDragActive || suppressSelectionUntilNextTouch
+    }
+
+    func beginAnnotationDrag() {
+        isAnnotationDragActive = true
+        suppressSelectionUntilNextTouch = true
+    }
+
+    func endAnnotationDrag() {
+        isAnnotationDragActive = false
+        // Keep ownership of the release event, including delayed MapKit selection.
+        // A new touch after the marker settles can select annotations normally.
+    }
+
+    func beginAnnotationTouch() {
+        if !isAnnotationDragActive { suppressSelectionUntilNextTouch = false }
+    }
+
+    /// MapKit can deliver native selection directly to its delegate, bypassing
+    /// selectAnnotation. Reject that path before a meter popup changes app state.
+    func rejectSelectionDuringAnnotationDrag(_ view: MKAnnotationView) -> Bool {
+        guard isAnnotationSelectionSuppressed else { return false }
+        if let annotation = view.annotation { deselectAnnotation(annotation, animated: false) }
+        return true
+    }
     var allowCameraChange = false
     var allowsUserCameraChanges = false
     var onTouchBegan: (() -> Void)?
@@ -315,6 +421,7 @@ class NonAdjustingMapView: MKMapView {
               onTouchBegan != nil || onTouchEnded != nil,
               bounds.contains(point) else { return hit }
         if touchPollTimer == nil {
+            beginAnnotationTouch()
             allowsUserCameraChanges = true
             // UIKit updates the original touch objects through end/cancellation.
             // Poll only while held; no added recognizer or per-frame idle work.
@@ -371,7 +478,7 @@ class NonAdjustingMapView: MKMapView {
     override func selectAnnotation(_ annotation: MKAnnotation, animated: Bool) {
         // 藍點唔俾選中：MapKit 內建 tap-to-select 喺停車點同藍點疊埋／太近嗰陣會誤判做藍點，
         // 跟手自動退選停車點，個標就又縮又漲又閃。任何人想選中藍點都擋走。
-        if annotation is MKUserLocation { return }
+        if annotation is MKUserLocation || isAnnotationSelectionSuppressed { return }
         super.selectAnnotation(annotation, animated: animated)
     }
 

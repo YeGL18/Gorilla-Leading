@@ -59,12 +59,22 @@ class WeatherService: ObservableObject {
     
     private var lastFetchDate: Date?
     private var lastLocation: CLLocationCoordinate2D?
-    
-    private init() {}
+    private var lastAttemptDate: Date?
+    private var pendingCompletions: [(SunTimes?) -> Void] = []
+    private let now: () -> Date
+    private let fetch: (URL, @escaping (Data?) -> Void) -> Void
+
+    init(now: @escaping () -> Date = Date.init,
+         fetch: @escaping (URL, @escaping (Data?) -> Void) -> Void = { url, completion in
+             URLSession.shared.dataTask(with: url) { data, _, _ in completion(data) }.resume()
+         }) {
+        self.now = now
+        self.fetch = fetch
+    }
     
     func fetchSunTimes(for location: CLLocationCoordinate2D, completion: @escaping (SunTimes?) -> Void) {
         // 如果是同一天同一个位置（±0.1度），不重复请求
-        let today = Calendar.current.startOfDay(for: Date())
+        let today = Calendar.current.startOfDay(for: now())
         if let lastDate = lastFetchDate,
            let lastLoc = lastLocation,
            Calendar.current.isDate(lastDate, inSameDayAs: today),
@@ -74,38 +84,56 @@ class WeatherService: ObservableObject {
             completion(cached)
             return
         }
-        
+        if isLoading {
+            pendingCompletions.append(completion)
+            return
+        }
+        // A failed request must not be retried for every GPS fix.
+        if let attempt = lastAttemptDate, now().timeIntervalSince(attempt) < 60 {
+            completion(sunTimes)
+            return
+        }
+        lastAttemptDate = now()
+        pendingCompletions.append(completion)
         isLoading = true
         
         let lat = location.latitude
         let lng = location.longitude
-        let urlString = "https://api.sunrise-sunset.org/json?lat=\(lat)&lng=\(lng)&formatted=0"
+        let dateFormatter = DateFormatter()
+        dateFormatter.locale = Locale(identifier: "en_US_POSIX")
+        dateFormatter.calendar = Calendar(identifier: .gregorian)
+        dateFormatter.timeZone = .current
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let date = dateFormatter.string(from: today)
+        let urlString = "https://api.sunrise-sunset.org/json?lat=\(lat)&lng=\(lng)&date=\(date)&formatted=0"
         
         guard let url = URL(string: urlString) else {
-            isLoading = false
-            completion(nil)
+            finishFetch(nil, location: location)
             return
         }
-        
-        let task = URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+
+        fetch(url) { [weak self] data in
             DispatchQueue.main.async {
-                self?.isLoading = false
-                
+                guard let self else { return }
                 guard let data = data,
                       let response = try? JSONDecoder().decode(SunriseSunsetResponse.self, from: data),
                       response.status == "OK" else {
-                    completion(nil)
+                    self.finishFetch(nil, location: location)
                     return
                 }
-                
+
                 let formatter = ISO8601DateFormatter()
                 formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-                
-                guard let sunrise = formatter.date(from: response.results.sunrise),
-                      let sunset = formatter.date(from: response.results.sunset),
-                      let civilDawn = formatter.date(from: response.results.civil_twilight_begin),
-                      let civilDusk = formatter.date(from: response.results.civil_twilight_end) else {
-                    completion(nil)
+                let plainFormatter = ISO8601DateFormatter()
+                plainFormatter.formatOptions = [.withInternetDateTime]
+                func parse(_ value: String) -> Date? {
+                    formatter.date(from: value) ?? plainFormatter.date(from: value)
+                }
+                guard let sunrise = parse(response.results.sunrise),
+                      let sunset = parse(response.results.sunset),
+                      let civilDawn = parse(response.results.civil_twilight_begin),
+                      let civilDusk = parse(response.results.civil_twilight_end) else {
+                    self.finishFetch(nil, location: location)
                     return
                 }
                 
@@ -116,13 +144,21 @@ class WeatherService: ObservableObject {
                     civilDusk: civilDusk
                 )
                 
-                self?.sunTimes = sunTimes
-                self?.lastFetchDate = Date()
-                self?.lastLocation = location
-                completion(sunTimes)
+                self.finishFetch(sunTimes, location: location)
             }
         }
-        task.resume()
+    }
+
+    private func finishFetch(_ result: SunTimes?, location: CLLocationCoordinate2D) {
+        isLoading = false
+        if let result {
+            sunTimes = result
+            lastFetchDate = now()
+            lastLocation = location
+        }
+        let callbacks = pendingCompletions
+        pendingCompletions.removeAll()
+        callbacks.forEach { $0(result ?? sunTimes) }
     }
     
     // 获取当前缓存的日出日落时间，或返回默认值
@@ -133,7 +169,7 @@ class WeatherService: ObservableObject {
         
         // 返回默认值（大约是春秋分的时间）
         let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
+        let today = calendar.startOfDay(for: now())
         
         let defaultSunrise = calendar.date(bySettingHour: 6, minute: 0, second: 0, of: today)!
         let defaultSunset = calendar.date(bySettingHour: 18, minute: 0, second: 0, of: today)!

@@ -69,7 +69,7 @@ struct ParkingMeter: Identifiable, Hashable {
         usesEnglishPlaceNames ? (englishDistrict ?? district) : district
     }
     private var usesEnglishPlaceNames: Bool {
-        let language = Bundle.main.preferredLocalizations.first ?? "zh-Hant"
+        let language = LanguageManager.languageCode
         return language == "en" || language == "ja"
     }
     var isTest: Bool { (Int(poleId) ?? 0) > 90000 }

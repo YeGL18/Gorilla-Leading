@@ -85,17 +85,43 @@ class DestinationManager: ObservableObject {
     nonisolated(unsafe) static let shared = DestinationManager()
 
     @Published var destinations: [Destination] = []
-    @Published var selectedDestination: Destination?
+    @Published var selectedDestination: Destination? {
+        didSet { if oldValue?.id != selectedDestination?.id { invalidateRoute() } }
+    }
 
     private let destinationsKey = "saved_destinations"
     private var hasLoaded = false
 
-    init() {}
+    struct RouteResult {
+        let route: MKRoute
+        let source: CLLocationCoordinate2D
+        let calculatedAt: Date
+    }
+    private var routeRequest: MKDirections?
+    private var routeToken: UUID?
+    private var routeTarget: CLLocationCoordinate2D?
+    private var routeAttemptAt: Date?
+    private var routeResult: RouteResult?
+    private var routeCompletions: [(RouteResult?) -> Void] = []
+    private let calculateDirections: (MKDirections, @escaping (MKDirections.Response?, Error?) -> Void) -> Void
+
+    init(calculateDirections: @escaping (MKDirections, @escaping (MKDirections.Response?, Error?) -> Void) -> Void = {
+        $0.calculate(completionHandler: $1)
+    }) {
+        self.calculateDirections = calculateDirections
+    }
 
     func prepare() {
         guard !hasLoaded, UIApplication.shared.isProtectedDataAvailable else { return }
         loadDestinations()
         hasLoaded = true
+    }
+
+    func reloadAfterRestore() {
+        invalidateRoute()
+        destinations = []
+        selectedDestination = nil
+        loadDestinations()
     }
 
     // MARK: - Trip Predictor integration helpers
@@ -159,7 +185,59 @@ class DestinationManager: ObservableObject {
     }
     
     // 计算从当前位置到目的地的路线
-    func calculateRoute(from currentLocation: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D, completion: @escaping (Double?, Double?) -> Void) {
+    func invalidateRoute() {
+        routeRequest?.cancel()
+        routeRequest = nil
+        routeToken = nil
+        routeTarget = nil
+        routeAttemptAt = nil
+        routeResult = nil
+        let callbacks = routeCompletions
+        routeCompletions = []
+        callbacks.forEach { $0(nil) }
+    }
+
+    func calculateRoute(from source: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D,
+                        completion: @escaping (Double?, Double?) -> Void) {
+        // Adding a saved place is an independent, explicit lookup. It must not
+        // cancel or replace the route for the currently selected destination.
+        let request = MKDirections.Request()
+        request.source = MKMapItem(placemark: MKPlacemark(coordinate: source.wgs84ToGCJ02))
+        request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.wgs84ToGCJ02))
+        request.transportType = .automobile
+        request.requestsAlternateRoutes = false
+        calculateDirections(MKDirections(request: request)) { response, error in
+            DispatchQueue.main.async {
+                let route = error == nil ? response?.routes.first : nil
+                completion(route?.distance, route?.expectedTravelTime)
+            }
+        }
+    }
+
+    // One request serves both the ETA and the visible route. Cached timestamps
+    // remain unchanged, so distance interpolation is not restarted on every fix.
+    func requestRoute(from currentLocation: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D,
+                      force: Bool = false, completion: @escaping (RouteResult?) -> Void) {
+        let sameTarget = routeTarget?.latitude == destination.latitude && routeTarget?.longitude == destination.longitude
+        if !sameTarget { invalidateRoute(); routeTarget = destination }
+        if routeRequest != nil {
+            // Do not queue another callback for every GPS fix. Explicit route
+            // actions join the one request; automatic callers reuse its last result.
+            if force { routeCompletions.append(completion) }
+            else { completion(routeResult) }
+            return
+        }
+        let now = Date()
+        let moved = routeResult.map {
+            CLLocation(latitude: $0.source.latitude, longitude: $0.source.longitude)
+                .distance(from: CLLocation(latitude: currentLocation.latitude, longitude: currentLocation.longitude))
+        } ?? 0
+        if !force, let attempt = routeAttemptAt,
+           !RouteRefreshPolicy.shouldRequest(age: now.timeIntervalSince(attempt), moved: moved, hasResult: routeResult != nil) {
+            completion(routeResult)
+            return
+        }
+        routeAttemptAt = now
         let request = MKDirections.Request()
         // 与其他路线请求保持一致：存储的是 WGS-84，中国大陆需转 GCJ-02
         // (Consistent with the other MKDirections call sites: stored coords are
@@ -168,16 +246,23 @@ class DestinationManager: ObservableObject {
         request.destination = MKMapItem(placemark: MKPlacemark(coordinate: destination.wgs84ToGCJ02))
         request.transportType = .automobile
         
+        request.requestsAlternateRoutes = false
         let directions = MKDirections(request: request)
-        directions.calculate { response, error in
-            guard let route = response?.routes.first, error == nil else {
-                completion(nil, nil)
-                return
+        let token = UUID()
+        routeToken = token
+        routeRequest = directions
+        routeCompletions = [completion]
+        calculateDirections(directions) { [weak self] response, error in
+            DispatchQueue.main.async {
+                guard let self, self.routeToken == token else { return }
+                self.routeRequest = nil
+                if let route = response?.routes.first, error == nil {
+                    self.routeResult = RouteResult(route: route, source: currentLocation, calculatedAt: Date())
+                }
+                let callbacks = self.routeCompletions
+                self.routeCompletions = []
+                callbacks.forEach { $0(self.routeResult) }
             }
-            
-            let distance = route.distance
-            let expectedTravelTime = route.expectedTravelTime
-            completion(distance, expectedTravelTime)
         }
     }
     
@@ -203,5 +288,11 @@ class DestinationManager: ObservableObject {
            let selected = destinations.first(where: { $0.id == selectedId }) {
             selectedDestination = selected
         }
+    }
+}
+
+enum RouteRefreshPolicy {
+    static func shouldRequest(age: TimeInterval, moved: CLLocationDistance, hasResult: Bool) -> Bool {
+        age >= (hasResult ? 30 : 10) || (hasResult && age >= 10 && moved >= 250)
     }
 }

@@ -22,6 +22,11 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = UIViewController()
         window.makeKeyAndVisible()
         self.window = window
+        if ProcessInfo.processInfo.arguments.contains("--marker-motion") ||
+            ProcessInfo.processInfo.arguments.contains("--marker-native-pan") {
+            window.rootViewController = MapMarkerMotionCheckController()
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--fades") {
             window.rootViewController = MapAnnotationFadeCheckController()
             return
@@ -39,6 +44,56 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
             precondition(value(), message)
             checks += 1
         }
+        let marker = ScaledMarkerAnnotationView(annotation: MKPointAnnotation(), reuseIdentifier: "scale-check")
+        marker.sizeScale = 1.3
+        for _ in 0..<100 {
+            // Simulate MapKit's read/modify/write of the native transform.
+            marker.transform = marker.transform.rotated(by: 0.01)
+            check(abs(marker.layer.sublayerTransform.m11 - 1.3) < 0.00001,
+                  "Native transforms cannot compound the latest-marker enlargement")
+            check(abs(hypot(marker.transform.a, marker.transform.b) - 1) < 0.00001,
+                  "MapKit's transform getter must report the actual unscaled view transform")
+        }
+        marker.locksDragAppearance = true
+        marker.setSelected(true, animated: true)
+        check(!marker.isSelected, "Dragging must suppress native selected-marker inflation")
+        marker.locksDragAppearance = false
+        marker.setSelected(true, animated: false)
+        check(marker.isSelected, "Ordinary selection must still work after dragging")
+        marker.prepareForReuse()
+        check(marker.sizeScale == 1 && marker.layer.sublayerTransform.m11 == 1,
+              "Reusing an older marker must reset the content scale")
+        marker.bounds = CGRect(x: 0, y: 0, width: 40, height: 40)
+        let title = UILabel(frame: CGRect(x: -60, y: 48, width: 160, height: 22))
+        title.text = "Parking point 1/F"
+        marker.addSubview(title)
+        check(marker.containsVisibleContent(CGPoint(x: 20, y: 59)),
+              "Tapping a visible title below the marker must count as a marker tap")
+        check(!marker.containsVisibleContent(CGPoint(x: 20, y: 80)),
+              "Blank map below the label must not open the parking popup")
+        title.isHidden = true
+        check(!marker.containsVisibleContent(CGPoint(x: 20, y: 59)),
+              "Hidden labels must not consume blank-map taps")
+        title.removeFromSuperview()
+        let holder = UIView()
+        holder.addSubview(marker)
+        let firstCycle = marker.appearanceCycle
+        check(marker.alpha == 1 && marker.layer.opacity == 0,
+              "The extra fade must not become MapKit's logical opacity")
+        for _ in 0..<100 { marker.alpha = marker.alpha - 0.001 }
+        check(abs(marker.alpha - 0.9) < 0.00001,
+              "Native opacity read/modify/write cannot compound the appearance fade")
+        marker.animateAppearance()
+        check(marker.appearanceCycle == firstCycle,
+              "Repeated attachment callbacks cannot restart an already visible marker")
+        for _ in 0..<100 {
+            marker.layer.isHidden = true
+            marker.layer.isHidden = false
+        }
+        check(marker.appearanceCycle == firstCycle,
+              "Transient native visibility flips cannot keep restarting the fade")
+        marker.prepareForReuse()
+        marker.removeFromSuperview()
         let map = NonAdjustingMapView(frame: window.bounds)
         window.rootViewController!.view.addSubview(map)
         let origin = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
@@ -59,10 +114,166 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
         check(abs(map.region.center.latitude - origin.latitude) < 0.00001, "Native region changes are allowed")
         map.layoutIfNeeded()
         check(abs(map.region.center.latitude - origin.latitude) < 0.00001, "Layout does not undo manual browsing")
-        print("PASS: \(checks) manual camera checks; real gestures covered by MapGestureUITests")
+        print("PASS: \(checks) marker scale and manual camera checks")
         fflush(stdout)
-        DispatchQueue.main.async { exit(0) }
+        if ProcessInfo.processInfo.arguments.contains("--scale") {
+            let status = UILabel(frame: window.bounds.insetBy(dx: 20, dy: 160))
+            status.text = "PASS: stable marker scale, reuse and drag selection"
+            status.numberOfLines = 0
+            status.accessibilityIdentifier = "markerCheckStatus"
+            window.rootViewController!.view.addSubview(status)
+        } else {
+            DispatchQueue.main.async { exit(0) }
+        }
     }
+}
+
+final class MapMarkerMotionCheckController: UIViewController, MKMapViewDelegate {
+    private let map = NonAdjustingMapView()
+    private let point = MKPointAnnotation()
+    private let meter = MKPointAnnotation()
+    private let nativePan = ProcessInfo.processInfo.arguments.contains("--marker-native-pan")
+    private let status = UILabel()
+    private var timer: Timer?
+    private var samples = 0
+    private var baselinePixels = 0
+    private var minimumRatio = 1.0
+    private var baselineMeterPixels = 0
+    private var minimumMeterRatio = 1.0
+    private var minimumDetails = ""
+    private var start: CFTimeInterval = 0
+    private let origin = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        map.frame = view.bounds
+        map.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        map.delegate = self
+        map.allowCameraChange = true
+        map.pointOfInterestFilter = .excludingAll
+        map.setCamera(MKMapCamera(lookingAtCenter: origin, fromDistance: 1400, pitch: 0, heading: 0), animated: false)
+        view.addSubview(map)
+        point.coordinate = origin
+        point.title = "Parking record"
+        point.subtitle = "15 records"
+        map.addAnnotation(point)
+        if nativePan {
+            meter.coordinate = .init(latitude: origin.latitude + 0.0005, longitude: origin.longitude)
+            meter.title = "Meter"
+            map.addAnnotation(meter)
+        }
+        status.frame = CGRect(x: 20, y: 90, width: 650, height: 100)
+        status.numberOfLines = 0
+        status.accessibilityIdentifier = "markerMotionStatus"
+        view.addSubview(status)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.begin() }
+    }
+
+    func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+        if annotation === meter {
+            let marker = FadingMarkerAnnotationView(annotation: annotation, reuseIdentifier: "meter-motion")
+            marker.markerTintColor = .systemGreen
+            marker.glyphText = "P"
+            marker.displayPriority = .required
+            return marker
+        }
+        let marker = ScaledMarkerAnnotationView(annotation: annotation, reuseIdentifier: "motion")
+        marker.markerTintColor = .systemOrange
+        marker.glyphText = "15"
+        marker.sizeScale = 1.3
+        marker.displayPriority = .required
+        return marker
+    }
+
+    func mapView(_ mapView: MKMapView, didAdd views: [MKAnnotationView]) {
+        map.annotationsDidAppear(views)
+    }
+
+    private func begin() {
+        guard let marker = map.view(for: point) else { return }
+        baselinePixels = orangePixels(in: marker)
+        if nativePan, let meterView = map.view(for: meter) {
+            baselineMeterPixels = orangePixels(in: meterView, green: true)
+        }
+        (marker as? ScaledMarkerAnnotationView)?.locksDragAppearance = true
+        map.beginAnnotationDrag()
+        map.deselectAnnotation(point, animated: false)
+        start = CACurrentMediaTime()
+        timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak self] _ in self?.advance() }
+        RunLoop.main.add(timer!, forMode: .common)
+    }
+
+    private func advance() {
+        let elapsed = CACurrentMediaTime() - start
+        guard let marker = map.view(for: point) else { return }
+        if nativePan {
+            // Leave the camera under MapKit's real gesture control.
+        } else if elapsed < 5 {
+            point.coordinate = .init(latitude: origin.latitude + sin(elapsed * 2) * 0.0002,
+                                     longitude: origin.longitude + cos(elapsed * 2) * 0.0003)
+        } else if elapsed < 10 {
+            let camera = map.camera.copy() as! MKMapCamera
+            camera.centerCoordinate = .init(latitude: origin.latitude + sin(elapsed * 2) * 0.0001,
+                                            longitude: origin.longitude + cos(elapsed * 2) * 0.0002)
+            map.setCamera(camera, animated: false)
+        } else {
+            timer?.invalidate()
+            timer = nil
+        }
+        samples += 1
+        if samples % 15 == 0 {
+            // MapKit may deliver another didAdd/visibility refresh for the same view.
+            map.annotationsDidAppear([marker])
+            let count = orangePixels(in: marker)
+            if baselinePixels > 0 {
+                let ratio = Double(count) / Double(baselinePixels)
+                if ratio < minimumRatio {
+                    minimumRatio = ratio
+                    minimumDetails = "at=\(String(format: "%.2f", elapsed)) alpha=\(marker.alpha) layerOpacity=\(marker.layer.opacity) viewScale=\(hypot(marker.transform.a, marker.transform.b)) contentScale=\(marker.layer.sublayerTransform.m11)"
+                }
+            }
+            if nativePan, let meterView = map.view(for: meter), baselineMeterPixels > 0 {
+                minimumMeterRatio = min(minimumMeterRatio,
+                    Double(orangePixels(in: meterView, green: true)) / Double(baselineMeterPixels))
+            }
+            status.text = "done=\(elapsed >= 10 ? 1 : 0) pixels=\(count) base=\(baselinePixels) ratio=\(Int(minimumRatio * 100)) meterBase=\(baselineMeterPixels) meterRatio=\(Int(minimumMeterRatio * 100)) alpha=\(marker.alpha) scale=\(marker.transform.a)"
+            print(status.text!)
+        }
+        if elapsed >= 10 {
+            timer?.invalidate()
+            timer = nil
+            status.text = "done=1 base=\(baselinePixels) ratio=\(Int(minimumRatio * 100)) meterBase=\(baselineMeterPixels) meterRatio=\(Int(minimumMeterRatio * 100)) samples=\(samples) \(minimumDetails)"
+        }
+    }
+
+    private func orangePixels(in marker: MKAnnotationView, green: Bool = false) -> Int {
+        let rect = marker.bounds.insetBy(dx: -8, dy: -8)
+        let screenRect = marker.convert(rect, to: map)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: screenRect.size, format: format).image { context in
+            // Render the map-space crop so ancestor/native view scales are measured too.
+            context.cgContext.translateBy(x: -screenRect.minX, y: -screenRect.minY)
+            map.drawHierarchy(in: map.bounds, afterScreenUpdates: false)
+        }
+        guard let cg = image.cgImage else { return 0 }
+        let width = cg.width, height = cg.height
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        return bytes.withUnsafeMutableBytes { data in
+            guard let context = CGContext(data: data.baseAddress, width: width, height: height,
+                bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+            context.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+            let pixels = data.bindMemory(to: UInt8.self)
+            return stride(from: 0, to: pixels.count, by: 4).reduce(0) { count, i in
+                let matches = green
+                    ? Int(pixels[i+1]) > 130 && Int(pixels[i]) < 100 && Int(pixels[i+2]) < 130
+                    : Int(pixels[i]) > 150 && Int(pixels[i+1]) > 45 && Int(pixels[i+1]) < 210 && Int(pixels[i+2]) < 80
+                return count + (matches ? 1 : 0)
+            }
+        }
+    }
+
 }
 
 final class MapCameraFitCheckController: UIViewController {
@@ -85,7 +296,7 @@ final class MapCameraFitCheckController: UIViewController {
         let size = CGSize(width: 390, height: 844)
         let shifted = NonAdjustingMapView.displayFrame(in: size, centerOffset: .init(x: 0, y: -2 * MapCameraMotion.trackingPointDownshift))
         check(shifted.contains(CGRect(origin: .zero, size: size)), "Tracking offset cannot expose a map gap")
-        check(shifted.midY == size.height / 2 + 40, "Tracking center is exactly 40pt lower")
+        check(shifted.midY == size.height / 2 + MapCameraMotion.trackingPointDownshift, "Tracking center matches the configured downward offset")
         let seated = NonAdjustingMapView.displayFrame(in: size, centerOffset: .init(x: 0, y: size.height / 2))
         check(seated.contains(CGRect(origin: .zero, size: size)), "Hinge map still covers the viewport")
         check(seated.midY == size.height / 4, "Hinge retains its existing upper-screen center")
@@ -215,9 +426,10 @@ final class MapAnnotationFadeCheckController: UIViewController, MKMapViewDelegat
     func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
         let isCluster = annotation is MKClusterAnnotation
         let id = isCluster ? "cluster" : "single"
-        let old = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? FadingMarkerAnnotationView
+        let old = mapView.dequeueReusableAnnotationView(withIdentifier: id) as? ScaledMarkerAnnotationView
         if old != nil { reused += 1 }
-        let marker = old ?? FadingMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+        let marker = old ?? ScaledMarkerAnnotationView(annotation: annotation, reuseIdentifier: id)
+        marker.sizeScale = isCluster ? 1 : 1.3
         marker.annotation = annotation
         marker.glyphText = isCluster ? "2" : "P"
         marker.markerTintColor = .systemOrange

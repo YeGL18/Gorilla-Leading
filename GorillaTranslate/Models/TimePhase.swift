@@ -1,5 +1,64 @@
 import SwiftUI
 import CoreLocation
+import Combine
+
+enum GorillaColorGroup: Int, CaseIterable {
+    case normal = 0, darkKnight = 1, m3Concept = 2
+
+    static func resolve(raw: Int, legacyDarkKnight: Bool) -> Self {
+        Self(rawValue: raw) ?? (legacyDarkKnight ? .darkKnight : .normal)
+    }
+
+    static func load(_ defaults: UserDefaults = .standard) -> Self {
+        resolve(raw: defaults.object(forKey: "colorGroupMode") as? Int ?? -1,
+                legacyDarkKnight: defaults.bool(forKey: "darkKnightMode"))
+    }
+
+    var titleKey: String {
+        switch self {
+        case .normal: return "Normal Mode"
+        case .darkKnight: return "黑武士模式"
+        case .m3Concept: return "M3 Concept"
+        }
+    }
+
+    var showsOrbControls: Bool { self == .normal }
+    var usesSpecialMap: Bool { self == .darkKnight }
+    var forcesDarkGlass: Bool { self != .normal }
+
+    func dotColorHex(speed: Double, preset: Int) -> String {
+        let speed = speed.isFinite ? max(0, speed) : 0
+        if self == .m3Concept { return "#" + M3ConceptPalette.orange }
+        if self == .darkKnight {
+            let amount = min(1, max(0, (speed - 100) / 100))
+            return String(format: "#%02X%02X%02X", 255,
+                          Int(196 * (1 - amount) + 69 * amount), Int(109 * (1 - amount)))
+        }
+        switch preset {
+        case 1:
+            let amount = min(1, max(0, (speed - 30) / 90))
+            let green = amount < 0.5 ? 140 - 66 * amount : 107 - 76 * (amount - 0.5)
+            return String(format: "#%02X%02X%02X", 255, Int(green), 0)
+        case 2: return "#9BF783"
+        case 3: return "#99E695"
+        case 4: return "#97D5AB"
+        default: return "#ffd700"
+        }
+    }
+}
+
+enum M3ConceptPalette {
+    // Decode the PNG's Display P3 pixels before converting to sRGB.
+    static let orange = "EF363B"
+    static let yellow = "DDD11B"
+    static let paper = "E6EFEA"
+    static let gray = "5C575D"
+    static let black = "0D0B0E"
+    static let all = [orange, yellow, paper, gray, black]
+    static let homeIndigo = "20245C"
+    static let homeOrbMixing = true
+    static let homeOrbs: [(hex: String, opacity: Double)] = [(orange, 0.75), (yellow, 0.7), (homeIndigo, 0.85)]
+}
 
 // MARK: - Time Phase Model
 
@@ -108,9 +167,74 @@ enum TimePhase: Int, CaseIterable {
     }
 }
 
+struct TimePhaseSchedule: Equatable {
+    struct Segment: Equatable {
+        let phase: TimePhase
+        let start: Double
+        let end: Double
+    }
+
+    let startHours: [Double]
+    let sunriseHour: Double
+    let sunsetHour: Double
+
+    init(civilDawn: Double, sunrise: Double, sunset: Double) {
+        let valid = civilDawn.isFinite && sunrise.isFinite && sunset.isFinite &&
+            civilDawn >= 0 && civilDawn < sunrise && sunrise >= 0.25 &&
+            sunset <= 24 && sunset - sunrise >= 4
+        let rise = valid ? sunrise : 6
+        let set = valid ? sunset : 18
+        let dawn = valid ? civilDawn : 5.5
+        sunriseHour = rise
+        sunsetHour = set
+        let sunriseStart = rise - 0.15
+        let morning = sunriseStart + min(2, (set - sunriseStart) * 0.25)
+        let evening = set - 1.5
+        let afternoon = max(morning + 0.25, min(16.5, evening - 1))
+        // Only deep night crosses midnight. Dawn must precede the sunrise palette.
+        startHours = [set, min(dawn, sunriseStart - 0.1), sunriseStart,
+                      morning, afternoon, evening, set - 0.5]
+    }
+
+    var segments: [Segment] {
+        let phases = TimePhase.allCases
+        var result = [Segment(phase: .deepNight, start: 0, end: startHours[1])]
+        for index in 1..<phases.count {
+            result.append(Segment(phase: phases[index], start: startHours[index],
+                                  end: index == phases.count - 1 ? sunsetHour : startHours[index + 1]))
+        }
+        result.append(Segment(phase: .deepNight, start: sunsetHour, end: 24))
+        return result
+    }
+
+    func state(at hour: Double) -> (phase: TimePhase, next: TimePhase, progress: Double) {
+        let normalized = Self.hourInDay(hour)
+        let phases = TimePhase.allCases
+        let holds = [0.85, 0.80, 0.60, 0.70, 0.65, 0.60, 0.0]
+        for index in phases.indices {
+            let nextIndex = (index + 1) % phases.count
+            let start = startHours[index]
+            let end = startHours[nextIndex] + (index == 0 ? 24 : 0)
+            let time = index == 0 && normalized < start ? normalized + 24 : normalized
+            guard time >= start, time < end else { continue }
+            let raw = (time - start) / (end - start)
+            let progress = min(1, max(0, (raw - holds[index]) / (1 - holds[index])))
+            return (phases[index], phases[nextIndex], progress)
+        }
+        return (.deepNight, .preDawn, 0)
+    }
+
+    static func hourInDay(_ hour: Double) -> Double {
+        guard hour.isFinite else { return 0 }
+        // Preserve exact boundaries already in today's range (no rounding via +24).
+        let remainder = hour.truncatingRemainder(dividingBy: 24)
+        return remainder < 0 ? remainder + 24 : remainder
+    }
+}
+
 // MARK: - Blended Colors
 
-struct BlendedPhaseColors {
+struct BlendedPhaseColors: Equatable {
     var background1: Color
     var background2: Color
     var background3: Color
@@ -125,7 +249,7 @@ struct BlendedPhaseColors {
             background2: Color.blend(from: from.background2, to: to.background2, amount: p),
             background3: Color.blend(from: from.background3, to: to.background3, amount: p),
             sunColor: Color.blend(from: from.sunColor, to: to.sunColor, amount: p),
-            sunOpacity: p < 0.5 ? (from.sunIndex >= 0 ? 1 : 0) : (to.sunIndex >= 0 ? 1 : 0),
+            sunOpacity: (from.sunIndex >= 0 ? 1 - p : 0) + (to.sunIndex >= 0 ? p : 0),
             sunIndex: p < 0.5 ? from.sunIndex : to.sunIndex
         )
     }
@@ -155,23 +279,22 @@ extension Color {
 
 // MARK: - Sun Position
 
-struct SunPosition {
+struct SunPosition: Equatable {
     let x: CGFloat  // 0-1, 0=左, 1=右
     let y: CGFloat  // 0-1, 0=上, 1=下
     let visible: Bool
     let scale: CGFloat
     let blur: CGFloat
     
-    static func calculate(hour: Double) -> SunPosition {
-        // 太陽軌跡：平滑拋物線，左邊升起 → 頂部中央 → 右邊落下
-        // 可見時間：5:00 ~ 19:00（14 小時）
+    static func calculate(hour: Double, sunrise: Double = 5, sunset: Double = 19) -> SunPosition {
+        // Keep the same parabolic path, stretched between actual sunrise and sunset.
 
-        guard hour >= 5, hour <= 19 else {
+        guard sunset > sunrise, hour >= sunrise, hour <= sunset else {
             return SunPosition(x: hour < 12 ? 0.1 : 0.9, y: 1.2, visible: false, scale: 0.5, blur: 120)
         }
 
-        // t: 0 = 日出 (5:00), 1 = 日落 (19:00)
-        let t = (hour - 5.0) / 14.0
+        // t: 0 = sunrise, 1 = sunset.
+        let t = (hour - sunrise) / (sunset - sunrise)
 
         // x: 線性左→右
         let x: CGFloat = 0.1 + 0.8 * t
@@ -200,15 +323,21 @@ class TimePhaseManager: ObservableObject {
     @Published var blendedColors: BlendedPhaseColors
     @Published var sunPosition: SunPosition = SunPosition(x: 0.5, y: 0.5, visible: false, scale: 0.5, blur: 80)
     
-    private var displayLink: CADisplayLink?
-    private var lastTimestamp: TimeInterval = 0
+    private var updateTimer: Timer?
     private var previewHour: Double? = nil  // 预览模式
-    private let weatherService = WeatherService.shared
+    private let weatherService: WeatherService
+    private var sunTimesSubscription: AnyCancellable?
+    @Published private(set) var hasActualSunTimes = false
     
     // 动态阶段起始时间（基于真实日出日落）
-    private var dynamicStartHours: [Double] = []
+    @Published private(set) var schedule: TimePhaseSchedule
+    private var dynamicStartHours: [Double] { schedule.startHours }
     
-    init() {
+    init(weatherService: WeatherService = .shared) {
+        self.weatherService = weatherService
+        let times = weatherService.getCurrentSunTimes()
+        schedule = TimePhaseSchedule(civilDawn: times.civilDawnHour,
+                                     sunrise: times.sunriseHour, sunset: times.sunsetHour)
         let phase = TimePhase.deepNight
         self.blendedColors = BlendedPhaseColors(
             background1: phase.colors.background1,
@@ -229,6 +358,14 @@ class TimePhaseManager: ObservableObject {
         
         // 初始化动态时间
         updateDynamicTimes()
+        hasActualSunTimes = weatherService.sunTimes != nil
+        // Every preview shares the asynchronous result, not just the caller that fetched it.
+        sunTimesSubscription = weatherService.$sunTimes.dropFirst().sink { [weak self] times in
+            guard let self, let times else { return }
+            self.updateDynamicTimes(times)
+            if !self.hasActualSunTimes { self.hasActualSunTimes = true }
+            self.update()
+        }
     }
     
     @objc private func handlePreviewChanged(_ notification: Notification) {
@@ -238,15 +375,19 @@ class TimePhaseManager: ObservableObject {
     }
     
     func start() {
-        displayLink?.invalidate()
-        displayLink = CADisplayLink(target: self, selector: #selector(tick))
-        displayLink?.add(to: .main, forMode: .common)
+        guard updateTimer == nil, !isEntranceAnimating else { return }
+        updateDynamicTimes()
         update()
+        let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in self?.update() }
+        timer.tolerance = 0.15
+        RunLoop.main.add(timer, forMode: .common)
+        updateTimer = timer
     }
 
     /// 啟動時先顯示上一個階段，再用非線性動畫轉變到當前階段（顏色 + 太陽位置）
     func startWithEntranceAnimation() {
-        // 先正常計算當前目標（唔啟動 displayLink）
+        stop()
+        // 先正常計算當前目標（唔啟動定期更新）
         let savedPreview = previewHour
         update()
         let targetColors = blendedColors
@@ -261,7 +402,7 @@ class TimePhaseManager: ObservableObject {
         let prevPhase = phases[prevIndex]
         // 上一個階段嘅太陽位置：用上一個階段嘅起始小時計算
         let prevSunHour = dynamicStartHours.isEmpty ? prevPhase.startHour : dynamicStartHours[prevIndex]
-        let prevSun = SunPosition.calculate(hour: prevSunHour)
+        let prevSun = SunPosition.calculate(hour: prevSunHour, sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour)
 
         // 瞬間切到上一個階段
         isEntranceAnimating = true
@@ -310,10 +451,8 @@ class TimePhaseManager: ObservableObject {
                 self.sunPosition = targetSun
                 self.currentPhase = targetPhase
                 self.phaseTransitionProgress = targetProgress
-                // 入場動畫完成後啟動 displayLink 保持實時更新
-                self.displayLink?.invalidate()
-                self.displayLink = CADisplayLink(target: self, selector: #selector(self.tick))
-                self.displayLink?.add(to: .main, forMode: .common)
+                // 入場動畫完成後恢復每秒更新日夜資料
+                self.start()
             }
         }
         RunLoop.main.add(entranceTimer!, forMode: .common)
@@ -325,12 +464,16 @@ class TimePhaseManager: ObservableObject {
     func fetchSunTimes(for location: CLLocationCoordinate2D) {
         weatherService.fetchSunTimes(for: location) { [weak self] _ in
             self?.updateDynamicTimes()
+            self?.update()
         }
     }
     
     func stop() {
-        displayLink?.invalidate()
-        displayLink = nil
+        updateTimer?.invalidate()
+        updateTimer = nil
+        entranceTimer?.invalidate()
+        entranceTimer = nil
+        isEntranceAnimating = false
     }
     
     func setPreviewHour(_ hour: Double) {
@@ -353,33 +496,13 @@ class TimePhaseManager: ObservableObject {
         return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60.0
     }
     
-    @objc private func tick(_ link: CADisplayLink) {
-        update()
-    }
-    
     // 根据日出日落时间计算动态阶段起始时间
-    private func updateDynamicTimes() {
-        let sunTimes = weatherService.getCurrentSunTimes()
-        
-        // 关键：深夜拉長，日出漸變推遲，夜晚感受更長
-        let deepNightEnd = sunTimes.civilDawnHour + 0.75   // 黎明前仍保留深黑夜色多 45 分鐘
-        let preDawn = deepNightEnd                          // 黎明前（微亮）
-        let sunrise = sunTimes.sunriseHour - 0.15          // 日出略為提前進入
-        let sunriseEnd = sunrise + 2.0                      // 日出后（日出后2小時）
-        let afternoon = 16.5                                   // 下午 4:30 才切換（拉長日出後藍天）
-        let sunsetStart = sunTimes.sunsetHour - 0.5
-        let sunset = sunTimes.sunsetHour
-        let nightStart = 20.0                                   // 深夜 8 點才開始（拉長傍晚）
-        
-        dynamicStartHours = [
-            nightStart,     // 0 深夜（日落後0.5h開始，拉長深夜）
-            preDawn,        // 1 黎明前（dawn+45min，之前係 dawn）
-            sunrise,        // 2 日出
-            sunriseEnd,     // 3 日出后（藍天）
-            afternoon,      // 4 接近下午（15:00）
-            sunsetStart,    // 5 黃昏後
-            sunset          // 6 日落時分
-        ]
+    private func updateDynamicTimes(_ times: SunTimes? = nil) {
+        // @Published emits before storage changes; use its emitted value in the subscription.
+        let sunTimes = times ?? weatherService.getCurrentSunTimes()
+        let updated = TimePhaseSchedule(civilDawn: sunTimes.civilDawnHour,
+                                        sunrise: sunTimes.sunriseHour, sunset: sunTimes.sunsetHour)
+        if schedule != updated { schedule = updated }
     }
     
     private func update() {
@@ -394,89 +517,24 @@ class TimePhaseManager: ObservableObject {
             hour = Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60.0 + Double(components.second ?? 0) / 3600.0
         }
         
-        // 如果动态时间还没准备好，使用默认值
-        if dynamicStartHours.isEmpty {
-            // 默认值：日落18:00，深夜從18:30開始，preDawn 4:45，日出 4:51
-            dynamicStartHours = [20.0, 4.75, 4.85, 6.85, 16.5, 17, 18]
-        }
-        
-        // 找到当前和下一个阶段
-        let phases = TimePhase.allCases
-        var currentPhaseIndex = 0
-        var nextPhaseIndex = 0
-        var progress: Double = 0
-        
-        for i in 0..<phases.count {
-            let nextIndex = (i + 1) % phases.count
-            let startHour = dynamicStartHours[i]
-            let endHour = dynamicStartHours[nextIndex]
-            
-            if endHour > startHour {
-                // 正常范围
-                if hour >= startHour && hour < endHour {
-                    currentPhaseIndex = i
-                    nextPhaseIndex = nextIndex
-                    let rawProgress = (hour - startHour) / (endHour - startHour)
-                    // 不同階段用唔同 hold/transition split：
-                    // - 深夜 → 黎明前（i==0）+ 黎明前 → 日出（i==1）：90/10，壓縮漸變，夜晚更長
-                    // - 日出 → 早上（i==2）：65/35，漸變更平滑
-                    // - 其他（下午/日落等）：保留 80/20
-                    let (holdFraction, _): (Double, Double) = {
-                        switch i {
-                        case 0: return (0.85, 0.15)  // 深夜 → 黎明前
-                        case 1: return (0.80, 0.20)  // 黎明前 → 日出
-                        case 2: return (0.60, 0.40)  // 日出 → 日出後
-                        case 3: return (0.70, 0.30)  // 日出後 → 下午
-                        case 4: return (0.65, 0.35)  // 下午 → 傍晚
-                        case 5: return (0.60, 0.40)  // 傍晚 → 日落
-                        case 6: return (0.65, 0.35)  // 日落 → 深夜
-                        default: return (0.80, 0.20)
-                        }
-                    }()
-                    if rawProgress < holdFraction {
-                        progress = 0
-                    } else {
-                        progress = (rawProgress - holdFraction) / (1 - holdFraction)
-                    }
-                    break
-                }
-            } else {
-                // 跨越午夜
-                if hour >= startHour || hour < endHour {
-                    currentPhaseIndex = i
-                    nextPhaseIndex = nextIndex
-                    var rawProgress: Double
-                    if hour >= startHour {
-                        rawProgress = (hour - startHour) / (24 - startHour + endHour)
-                    } else {
-                        rawProgress = (24 - startHour + hour) / (24 - startHour + endHour)
-                    }
-                    // 深夜跨午夜段（i==6, sunset→deepNight）亦採用 92/8 壓縮漸變
-                    let holdFraction: Double = (i == 6) ? 0.92 : 0.80
-                    if rawProgress < holdFraction {
-                        progress = 0
-                    } else {
-                        progress = (rawProgress - holdFraction) / (1 - holdFraction)
-                    }
-                    break
-                }
-            }
-        }
-        
-        let fromPhase = phases[currentPhaseIndex]
-        let toPhase = phases[nextPhaseIndex]
+        let state = schedule.state(at: hour)
+        let fromPhase = state.phase
+        let toPhase = state.next
+        let progress = state.progress
         
         // 平滑混合颜色
-        blendedColors = BlendedPhaseColors.blend(
+        let colors = BlendedPhaseColors.blend(
             from: fromPhase.colors,
             to: toPhase.colors,
             progress: progress
         )
         
         // 更新太阳位置
-        sunPosition = SunPosition.calculate(hour: hour)
-        
-        currentPhase = fromPhase
-        phaseTransitionProgress = progress
+        let normalizedHour = TimePhaseSchedule.hourInDay(hour)
+        let sun = SunPosition.calculate(hour: normalizedHour, sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour)
+        if blendedColors != colors { blendedColors = colors }
+        if sunPosition != sun { sunPosition = sun }
+        if currentPhase != fromPhase { currentPhase = fromPhase }
+        if phaseTransitionProgress != progress { phaseTransitionProgress = progress }
     }
 }

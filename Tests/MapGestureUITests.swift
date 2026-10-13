@@ -2,6 +2,52 @@ import XCTest
 
 final class MapGestureUITests: XCTestCase {
     @MainActor
+    func testParkingAndMeterBodiesRemainVisibleDuringNativePan() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
+        app.launchArguments = ["--marker-native-pan"]
+        app.launch()
+        let status = app.staticTexts["markerMotionStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 15))
+        expectation(for: NSPredicate { _, _ in self.number("base", from: status.label) > 100 }, evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.65))
+        let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.35, dy: 0.62))
+        start.press(forDuration: 1, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 1)
+        end.press(forDuration: 0.05, thenDragTo: start, withVelocity: .slow, thenHoldForDuration: 1)
+        expectation(for: NSPredicate { _, _ in status.label.contains("done=1") }, evaluatedWith: status)
+        waitForExpectations(timeout: 20)
+        XCTAssertGreaterThan(number("meterBase", from: status.label), 100, status.label)
+        XCTAssertGreaterThanOrEqual(number("ratio", from: status.label), 85, status.label)
+        XCTAssertGreaterThanOrEqual(number("meterRatio", from: status.label), 85, status.label)
+        print("Native pan marker pixels: \(status.label)")
+    }
+
+    @MainActor
+    func testMarkerBodyRemainsVisibleDuringCoordinateAndCameraMotion() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
+        app.launchArguments = ["--marker-motion"]
+        app.launch()
+        let status = app.staticTexts["markerMotionStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 15))
+        expectation(for: NSPredicate { _, _ in status.label.contains("done=1") }, evaluatedWith: status)
+        waitForExpectations(timeout: 25)
+        XCTAssertGreaterThan(number("base", from: status.label), 100, status.label)
+        XCTAssertGreaterThanOrEqual(number("ratio", from: status.label), 85, status.label)
+        print(status.label)
+        let attachment = XCTAttachment(screenshot: app.screenshot())
+        attachment.lifetime = .keepAlways
+        add(attachment)
+    }
+    @MainActor
+    func testMarkerScaleDoesNotAccumulateDuringNativeTransformWrites() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
+        app.launchArguments = ["--scale"]
+        app.launch()
+        let status = app.staticTexts["markerCheckStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        XCTAssertTrue(status.label.hasPrefix("PASS:"))
+    }
+
     func testPaddedCameraFitPreservesStartAndFramesBothPoints() {
         let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
         app.launchArguments = ["--fits"]

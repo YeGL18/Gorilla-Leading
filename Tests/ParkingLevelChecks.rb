@@ -12,6 +12,7 @@ points = section(source, 'struct ParkingPointRecord:', '// MARK: - GCJ-02 Coordi
 store = section(source, 'enum ParkingFloorMode:', '/// 樓層慣例標註小膠囊')
 manager = section(source, 'struct BarometerSample:', '    struct WindowResult {') + "}\n"
 visit = section(source, '    struct VisitRecord:', '    @Published var speed:')
+native_event = section(source, 'struct NativeVisitEvent:', '// MARK: - Kalman')
 suite = "gorilla.parking-level-tests.#{Process.pid}"
 models = points + store + manager
 models.gsub!('group.com.gorilla.translate', suite)
@@ -43,7 +44,7 @@ fixtures = File.read("#{repo}/Tests/ParkingSessionFixtures.swift") + <<~SWIFT
 SWIFT
 directory = '/private/tmp/gorilla-parking-level-tests'
 FileUtils.mkdir_p(directory)
-File.write("#{directory}/Models.swift", "import Foundation\nimport CoreLocation\nimport Combine\n#{fixtures}\n#{models}")
+File.write("#{directory}/Models.swift", "import Foundation\nimport CoreLocation\nimport Combine\n#{native_event}\n#{fixtures}\n#{models}")
 abort 'Compilation failed' unless system('swiftc', '-module-cache-path', '/private/tmp/gorilla-swift-test-cache',
   "#{directory}/Models.swift", "#{repo}/Tests/ParkingLevelChecks.swift", '-o', "#{directory}/checks")
 abort 'Tests failed' unless system("#{directory}/checks", suite)

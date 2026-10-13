@@ -6,6 +6,26 @@ import Combine
 import CoreMotion
 import AVFoundation
 
+/// Preserve native arrival/departure events even when protected preferences cannot be read.
+struct NativeVisitEvent: Codable, Equatable {
+    let latitude: Double
+    let longitude: Double
+    let horizontalAccuracy: Double
+    let arrival: Date?
+    let departure: Date?
+
+    init(latitude: Double, longitude: Double, horizontalAccuracy: Double,
+         arrival: Date, departure: Date) {
+        self.latitude = latitude
+        self.longitude = longitude
+        self.horizontalAccuracy = horizontalAccuracy
+        self.arrival = arrival > .distantPast && arrival < .distantFuture ? arrival : nil
+        self.departure = departure > .distantPast && departure < .distantFuture ? departure : nil
+    }
+
+    var coordinate: CLLocationCoordinate2D { CLLocationCoordinate2D(latitude: latitude, longitude: longitude) }
+}
+
 // MARK: - Kalman Filter for speed smoothing
 class KalmanFilter {
     // State: [position, velocity]
@@ -97,6 +117,7 @@ class KalmanFilter {
 }
 
 class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
+    static let shared = LocationManager()
     private(set) var manager = CLLocationManager()
     private let geocoder = CLGeocoder()
     private var recentQualities: [GPSQuality] = []
@@ -113,6 +134,12 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published var lastWalkingTime: Date?
     @Published var lastRunningTime: Date?
     @Published var lastCyclingTime: Date?
+    private var motionHistoryInFlight = false
+    private var motionHistoryThrough: Date?
+    private var motionHistoryFrom: Date?
+    private var motionHistoryGeneration = UUID()
+    private var motionObservedAt: Date?
+    private var motionHistoryAttemptAt: Date?
 
     // MARK: - 車載藍牙斷聯偵測（泊車位置修正）
     /// 最近一次速度超過 15 km/h 嘅時間（判斷「啱啱揸緊車」）
@@ -146,15 +173,17 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         let transportType: String
         /// CMMotionActivity 偵測：到訪前是否有 automotive 活動（舊資料預設 true）
         let isAutomotive: Bool
+        let horizontalAccuracy: Double?
+        var transportManuallySet: Bool
 
         // 向後相容：舊資料沒有 isAutomotive 欄位時預設 true
         enum CodingKeys: String, CodingKey {
-            case id, address, latitude, longitude, arrivalDate, departureDate, transportType, isAutomotive
+            case id, address, latitude, longitude, arrivalDate, departureDate, transportType, isAutomotive, horizontalAccuracy, transportManuallySet
         }
 
         init(id: UUID, address: String, latitude: Double, longitude: Double,
              arrivalDate: Date, departureDate: Date? = nil, transportType: String,
-             isAutomotive: Bool = true) {
+             isAutomotive: Bool = true, horizontalAccuracy: Double? = nil, transportManuallySet: Bool = false) {
             self.id = id
             self.address = address
             self.latitude = latitude
@@ -163,6 +192,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             self.departureDate = departureDate
             self.transportType = transportType
             self.isAutomotive = isAutomotive
+            self.horizontalAccuracy = horizontalAccuracy
+            self.transportManuallySet = transportManuallySet
         }
 
         init(from decoder: Decoder) throws {
@@ -175,6 +206,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             departureDate = try c.decodeIfPresent(Date.self, forKey: .departureDate)
             transportType = try c.decode(String.self, forKey: .transportType)
             isAutomotive = try c.decodeIfPresent(Bool.self, forKey: .isAutomotive) ?? true
+            horizontalAccuracy = try c.decodeIfPresent(Double.self, forKey: .horizontalAccuracy)
+            transportManuallySet = try c.decodeIfPresent(Bool.self, forKey: .transportManuallySet) ?? false
         }
 
         var duration: String {
@@ -190,6 +223,32 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             // Near-identical arrival timestamps identify the same visit despite GPS drift.
             // Wider time tolerance is only safe when coordinates remain very close.
             (timeDifference <= 30 && distance < 500) || (timeDifference < 300 && distance < 150)
+        }
+
+        /// An unknown arrival is a departure-only update, never a new ancient visit.
+        static func matchingEvent(_ event: NativeVisitEvent, in records: [VisitRecord]) -> Int? {
+            let location = CLLocation(latitude: event.latitude, longitude: event.longitude)
+            let candidates = records.indices.filter { index in
+                let record = records[index]
+                let distance = location.distance(from: CLLocation(latitude: record.latitude, longitude: record.longitude))
+                let uncertainty = min(2000, max(150, max(0, event.horizontalAccuracy) + max(0, record.horizontalAccuracy ?? 0)))
+                if let arrival = event.arrival {
+                    let time = abs(record.arrivalDate.timeIntervalSince(arrival))
+                    return matchesArrival(timeDifference: time, distance: distance) || (time <= 30 && distance <= uncertainty)
+                }
+                guard let departure = event.departure, record.arrivalDate <= departure, distance <= uncertainty else { return false }
+                if let existing = record.departureDate {
+                    return abs(existing.timeIntervalSince(departure)) <= 30
+                }
+                // A later arrival bounds an earlier open visit; do not close the wrong return visit.
+                return !records.contains { $0.arrivalDate > record.arrivalDate && $0.arrivalDate < departure }
+            }
+            return candidates.min {
+                if let arrival = event.arrival {
+                    return abs(records[$0].arrivalDate.timeIntervalSince(arrival)) < abs(records[$1].arrivalDate.timeIntervalSince(arrival))
+                }
+                return records[$0].arrivalDate > records[$1].arrivalDate
+            }
         }
 
         /// 時長格式（同參考 UI 一致）：< 1min / 29min / 1hr 36min
@@ -285,9 +344,24 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         UserDefaults.standard.bool(forKey: "kalmanSmoothingEnabled")
     }
 
-    // TripPredictor dedupe：一條 visit 只會 learning departure 一次、predict arrival 一次
+    // Each completed trip is learned once, including arrivals with no native departure yet.
     private var learnedDepartureVisits: Set<UUID> = []
-    private var predictedArrivalVisits: Set<UUID> = []
+    private let learnedTripsKey = "trip_learned_arrival_ids_v1"
+    private var energyPolicy = LocationEnergyPolicy()
+
+    func restoreNavigationAccuracy() {
+        energyPolicy.reset()
+        manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
+        manager.distanceFilter = kCLDistanceFilterNone
+    }
+
+    private func updateLocationAccuracy(_ location: CLLocation) {
+        let mode = energyPolicy.observe(location, captureActive: ParkingFloorStore.shared.barometer.isUpdating)
+        let accuracy = mode == .stationary ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyBestForNavigation
+        if manager.desiredAccuracy != accuracy { manager.desiredAccuracy = accuracy }
+        // Keep regular callbacks: a distance filter would make the existing
+        // GPS-loss watchdog interpret an intentionally quiet receiver as a tunnel.
+    }
 
     override init() {
         super.init()
@@ -296,15 +370,88 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.distanceFilter = kCLDistanceFilterNone
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
+        manager.allowsBackgroundLocationUpdates = true
+    }
+
+    private var historyPrepared = false
+    private var pendingVisitEvents: [NativeVisitEvent] = []
+    private var pendingEventsLoaded = false
+    private var pendingVisitURL: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("pending-native-visits.json")
+    }
+
+    func prepare() {
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        if historyPrepared {
+            loadPendingVisitEvents()
+            drainPendingVisitEvents()
+            backfillMotionSegments()
+            return
+        }
         loadVisits()
         loadMotionSegments()
         loadCarExitEvents()
         loadCarBluetoothState()
+        historyPrepared = true
+        loadPendingVisitEvents()
+        drainPendingVisitEvents()
         startCarAudioRouteMonitor()
+        if manager.authorizationStatus == .authorizedAlways { manager.startMonitoringVisits() }
+        backfillMotionSegments()
+    }
+
+    func reloadAfterRestore() {
+        visits = []
+        motionSegments = []
+        carExitEvents = []
+        seenBluetoothDevices = []
+        myCarBluetooth = nil
+        motionHistoryThrough = nil
+        motionHistoryFrom = nil
+        motionHistoryGeneration = UUID()
+        motionHistoryInFlight = false
+        motionHistoryAttemptAt = nil
+        loadVisits()
+        loadMotionSegments()
+        loadCarExitEvents()
+        loadCarBluetoothState()
+    }
+
+    private func loadPendingVisitEvents() {
+        guard !pendingEventsLoaded else { return }
+        do {
+            let saved = try JSONDecoder().decode([NativeVisitEvent].self, from: Data(contentsOf: pendingVisitURL))
+            pendingVisitEvents = saved + pendingVisitEvents.filter { !saved.contains($0) }
+            pendingEventsLoaded = true
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            pendingEventsLoaded = true
+        } catch {
+            // Before first unlock the file may be inaccessible. Keep events in memory and retry.
+            print("Pending visits not available: \(error.localizedDescription)")
+        }
+    }
+
+    private func persistPendingVisitEvents() {
+        guard pendingEventsLoaded else { return }
+        do {
+            try FileManager.default.createDirectory(at: pendingVisitURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            let data = try JSONEncoder().encode(pendingVisitEvents)
+            try data.write(to: pendingVisitURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+        } catch { print("Pending visits save failed: \(error.localizedDescription)") }
+    }
+
+    private func drainPendingVisitEvents() {
+        guard historyPrepared, UIApplication.shared.isProtectedDataAvailable else { return }
+        // Arrivals establish the records that a delayed departure-only event needs to match.
+        let ordered = pendingVisitEvents.sorted { ($0.arrival != nil) && ($1.arrival == nil) }
+        pendingVisitEvents = ordered.filter { !applyVisitEvent($0) }
+        persistPendingVisitEvents()
     }
 
     func startLocationServicesIfNeeded() {
-        guard !locationServicesStarted else { return }
+        prepare()
+        guard historyPrepared, !locationServicesStarted else { return }
         locationServicesStarted = true
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
@@ -324,6 +471,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         motionActivityManager.startActivityUpdates(to: .main) { [weak self] activity in
             guard let activity else { return }
             self?.currentMotionActivity = activity
+            self?.motionObservedAt = Date()
+            if activity.walking || activity.running || activity.cycling || (activity.automotive && !activity.stationary) {
+                self?.restoreNavigationAccuracy()
+            }
             ParkingFloorStore.shared.barometer.updateMotion(activity)
             let now = Date()
             if activity.automotive {
@@ -340,6 +491,8 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }
             // 持續記錄交通模式分段（行程分段顯示＋開車到達判定用）
             self?.recordMotionActivity(activity)
+            // The first permission prompt may have prevented the startup query.
+            self?.backfillMotionSegments()
         }
         // 回填 App 死咗嗰陣嘅歷史分段
         backfillMotionSegments()
@@ -354,10 +507,11 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     @Published private(set) var motionSegments: [MotionSegment] = []
 
     private static func modeString(_ activity: CMMotionActivity) -> String {
-        if activity.automotive { return "Driving" }
+        guard activity.confidence != .low else { return "Unknown" }
         if activity.walking { return "Walking" }
         if activity.running { return "Running" }
         if activity.cycling { return "Cycling" }
+        if activity.automotive { return "Driving" }
         if activity.stationary { return "Stationary" }
         return "Unknown"
     }
@@ -414,7 +568,13 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         if motionSegments.count > 3000 {
             motionSegments.removeFirst(motionSegments.count - 3000)
         }
-        if let data = try? JSONEncoder().encode(motionSegments) {
+        let savedThrough = Date()
+        let snapshot = motionSegments.map { segment -> MotionSegment in
+            var saved = segment
+            if saved.end == nil { saved.end = max(saved.start, savedThrough) }
+            return saved
+        }
+        if let data = try? JSONEncoder().encode(snapshot) {
             UserDefaults.standard.set(data, forKey: motionSegmentsKey)
         }
     }
@@ -422,28 +582,42 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private func loadMotionSegments() {
         guard let data = UserDefaults.standard.data(forKey: motionSegmentsKey),
               let decoded = try? JSONDecoder().decode([MotionSegment].self, from: data) else { return }
-        motionSegments = decoded
+        motionSegments = decoded.map { segment in
+            var saved = segment
+            // Legacy open samples have no evidence of activity after termination.
+            if saved.end == nil { saved.end = saved.start }
+            return saved
+        }
     }
 
     /// 重啟後回填 CMMotionActivity 歷史（App 死咗嗰陣嘅行程都可以分段＋判定）。
     /// queryActivityStarting 回傳嘅係「轉換點」平面陣列：第 n 段由 startDate 開始，
     /// 到下一段 startDate 為止（CMMotionActivity 冇 endDate）
     private func backfillMotionSegments() {
-        guard CMMotionActivityManager.isActivityAvailable() else { return }
+        guard UIApplication.shared.isProtectedDataAvailable,
+              CMMotionActivityManager.isActivityAvailable(),
+              CMMotionActivityManager.authorizationStatus() == .authorized, !motionHistoryInFlight else { return }
         let to = Date()
+        if let attempted = motionHistoryAttemptAt, to.timeIntervalSince(attempted) < 30 { return }
+        if let through = motionHistoryThrough, to.timeIntervalSince(through) < 30 { return }
         // CoreMotion 只保留最近 7 日數據，窗口控制喺 2.5 日內
         let earliest = to.addingTimeInterval(-2.5 * 24 * 3600)
-        let lastRecorded = motionSegments.last
-        let resumeAt = lastRecorded?.end ?? lastRecorded?.start ?? earliest
-        let from = max(resumeAt.addingTimeInterval(-300), earliest)
+        // First query repairs older visits too, not just the newest five minutes.
+        let from = max(motionHistoryThrough?.addingTimeInterval(-300) ?? earliest, earliest)
         guard to.timeIntervalSince(from) > 60 else { return }
+        motionHistoryInFlight = true
+        motionHistoryAttemptAt = to
+        let generation = motionHistoryGeneration
         motionActivityManager.queryActivityStarting(from: from, to: to, to: .main) { [weak self] activities, error in
-            guard let self, let activities, error == nil else { return }
+            guard let self, self.motionHistoryGeneration == generation else { return }
+            self.motionHistoryInFlight = false
+            guard let activities, error == nil else { return }
             let ordered = activities.sorted { $0.startDate < $1.startDate }
             guard !ordered.isEmpty else { return }
             // Live updates received while the history query was in flight must survive.
             let liveTail = self.motionSegments.compactMap { segment -> MotionSegment? in
-                guard segment.end == nil || segment.resolvedEnd > to else { return nil }
+                guard segment.start >= to || (segment.end == nil && (self.motionObservedAt ?? .distantPast) >= to)
+                    || (segment.end ?? .distantPast) > to else { return nil }
                 var tail = segment
                 tail.start = max(tail.start, to)
                 return tail
@@ -466,18 +640,21 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             for segment in liveTail {
                 self.appendSegment(mode: segment.mode, start: segment.start, end: segment.end)
             }
-            if liveTail.isEmpty, let activity = self.currentMotionActivity {
+            if liveTail.isEmpty, let activity = self.currentMotionActivity,
+               (self.motionObservedAt ?? .distantPast) >= to {
                 self.appendSegment(mode: Self.modeString(activity), start: to, end: nil)
             }
+            self.motionHistoryThrough = to
+            self.motionHistoryFrom = min(self.motionHistoryFrom ?? from, from)
             self.trimAndSaveMotionSegments()
+            self.reclassifyVisitsAfterMotionRecovery()
         }
     }
 
     /// 某時間範圍內嘅「移動」分段（揸車/步行/跑步/騎行）：夾入窗口、濾雜訊、合併同模式短停頓
     func tripSegments(from: Date, to: Date) -> [MotionSegment] {
         guard to > from else { return [] }
-        let clipped = motionSegments
-            .compactMap { $0.clipped(from: from, to: to) }
+        let clipped = tripTimeline(from: from, to: to)
             .filter { $0.isMovement && $0.resolvedEnd.timeIntervalSince($0.start) >= 10 }
         var merged: [MotionSegment] = []
         for seg in clipped {
@@ -513,27 +690,86 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         return result
     }
 
-    /// 「全程揸車先算」：成段行程冇步行/跑步/騎行段（≥20 秒）先算開車到達（泊車記憶）；
-    /// 有任何非揸車段 → 非開車到達（逗留記憶）。冇分段數據就退回舊嘅模式判斷。
-    func classifyTrip(tripStart: Date?, arrival: Date) -> (isAutomotive: Bool, transportType: String) {
-        let earliest = arrival.addingTimeInterval(-8 * 3600)
-        let start = max(tripStart ?? arrival.addingTimeInterval(-2 * 3600), earliest)
-        let segs = tripSegments(from: start, to: arrival)
-        guard !segs.isEmpty else {
-            // 冇分段數據（例如更新前嘅行程）：退回舊判斷
-            let autom = lastTransportMode(around: arrival) == .driving
-            return (autom, autom ? "Driving" : transportTypeFromSpeed())
+    /// Presentation only: brief uncertain/stopped intervals bounded by the same
+    /// movement mode belong to that journey, not a row of sub-minute transfers.
+    func tripDisplayTimeline(from: Date, to: Date) -> [MotionSegment] {
+        let raw = tripTimeline(from: from, to: to)
+        var result: [MotionSegment] = []
+        var index = 0
+        while index < raw.count {
+            var segment = raw[index]
+            index += 1
+            if segment.isMovement {
+                while index < raw.count {
+                    var next = index
+                    while next < raw.count && !raw[next].isMovement { next += 1 }
+                    guard next < raw.count, raw[next].mode == segment.mode,
+                          raw[next].start.timeIntervalSince(segment.resolvedEnd) <= 120 else { break }
+                    segment.end = raw[next].resolvedEnd
+                    index = next + 1
+                }
+            } else {
+                // Keep missing evidence visible, but avoid alternating pause/unknown chips.
+                while index < raw.count && !raw[index].isMovement {
+                    if raw[index].mode != segment.mode { segment.mode = "Unknown" }
+                    segment.end = raw[index].resolvedEnd
+                    index += 1
+                }
+            }
+            result.append(segment)
         }
+        return result
+    }
+
+    /// Stable pedestrian/cycling evidence makes this a mixed trip. Pure driving
+    /// also requires enough recorded coverage; missing history is not driving.
+    func classifyTrip(tripStart: Date?, arrival: Date) -> (isAutomotive: Bool, transportType: String) {
+        guard let start = tripStart, start < arrival else {
+            let recent = tripSegments(from: arrival.addingTimeInterval(-1800), to: arrival)
+            if let last = recent.last, last.mode != "Driving",
+               last.resolvedEnd.timeIntervalSince(last.start) >= 60,
+               arrival.timeIntervalSince(last.resolvedEnd) <= 300 { return (false, last.mode) }
+            return (false, "Unknown")
+        }
+        let segs = tripSegments(from: start, to: arrival)
+        guard !segs.isEmpty else { return (false, "Unknown") }
         let nonDriving = segs.filter {
-            $0.mode != "Driving" && $0.resolvedEnd.timeIntervalSince($0.start) >= 20
+            $0.mode != "Driving" && $0.resolvedEnd.timeIntervalSince($0.start) >= 60
         }
         let driving = segs.filter {
             $0.mode == "Driving" && $0.resolvedEnd.timeIntervalSince($0.start) >= 20
         }
         let lastMode = segs.last?.mode ?? "Unknown"
         if !nonDriving.isEmpty { return (false, lastMode) }
-        if !driving.isEmpty { return (true, lastMode) }
+        if !driving.isEmpty {
+            let covered = driving.reduce(0.0) { $0 + $1.resolvedEnd.timeIntervalSince($1.start) }
+            // Missing walking data must not become a claim of pure driving.
+            guard covered / arrival.timeIntervalSince(start) >= 0.85 else { return (false, "Unknown") }
+            return (true, lastMode)
+        }
         return (false, lastMode)
+    }
+
+    private func reclassifyVisitsAfterMotionRecovery() {
+        let ordered = visits.sorted { $0.arrivalDate < $1.arrivalDate }
+        var replacements: [UUID: VisitRecord] = [:]
+        for visit in ordered {
+            let previous = ordered.last { $0.arrivalDate < visit.arrivalDate && ($0.departureDate ?? .distantFuture) <= visit.arrivalDate }
+            guard !visit.transportManuallySet, let departure = previous?.departureDate,
+                  let recoveredFrom = motionHistoryFrom, let recoveredThrough = motionHistoryThrough,
+                  departure >= recoveredFrom, visit.arrivalDate <= recoveredThrough else { continue }
+            let classification = classifyTrip(tripStart: departure, arrival: visit.arrivalDate)
+            guard classification.isAutomotive != visit.isAutomotive || classification.transportType != visit.transportType else { continue }
+            replacements[visit.id] = VisitRecord(id: visit.id, address: visit.address,
+                latitude: visit.latitude, longitude: visit.longitude, arrivalDate: visit.arrivalDate,
+                departureDate: visit.departureDate, transportType: classification.transportType,
+                isAutomotive: classification.isAutomotive, horizontalAccuracy: visit.horizontalAccuracy)
+        }
+        guard !replacements.isEmpty else { return }
+        ParkingFloorStore.shared.updateAutomotiveFlags(Array(replacements.values))
+        visits = visits.map { replacements[$0.id] ?? $0 }
+        saveVisits()
+        Task { @MainActor in self.learnAvailableTrips() }
     }
 
     private func transportTypeFromSpeed() -> String {
@@ -614,6 +850,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                 timestamp: location.timestamp,
                 coordinate: location.coordinate
             )
+            self.updateLocationAccuracy(location)
             // 藍牙斷聯事件維護：記錄 fix、追蹤「斷聯後有冇再開車」
             let now = Date()
             self.recentFixBuffer.append((location.coordinate.latitude, location.coordinate.longitude, now))
@@ -848,78 +1085,57 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didVisit visit: CLVisit) {
-        // 交通模式判定：「全程揸車先算」—— 成段行程入面冇步行/跑步/騎行段先算
-        // 開車到達（泊車記憶），有任何非揸車段就係非開車到達（逗留記憶）。
-        // 用 CMMotionActivity 分段歷史判斷成段行程，取代以前「到達前後 5 分鐘最近模式」
-        // 嗰種成日睇錯嘅估法。
-        let prev = visits.first { $0.arrivalDate < visit.arrivalDate }
-        let tripStart = prev?.departureDate ?? prev?.arrivalDate
-        let classification = classifyTrip(tripStart: tripStart, arrival: visit.arrivalDate)
-        var transport = classification.transportType
-        // 段行程均速 > 80 km/h 當公共交通（巴士/火車/飛機）
-        if classification.isAutomotive, let prev, let tripStart, tripStart < visit.arrivalDate {
-            let dist = CLLocation(latitude: prev.latitude, longitude: prev.longitude)
-                .distance(from: CLLocation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude))
-            if dist / visit.arrivalDate.timeIntervalSince(tripStart) * 3.6 > 80 {
-                transport = "Transit"
-            }
-        }
-        let automotive = classification.isAutomotive
+        let event = NativeVisitEvent(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude,
+                                     horizontalAccuracy: visit.horizontalAccuracy,
+                                     arrival: visit.arrivalDate, departure: visit.departureDate)
+        guard event.arrival != nil || event.departure != nil else { return }
+        // CLLocationManager was created on the main thread; save before geocoding or hopping queues.
+        loadPendingVisitEvents()
+        if !pendingVisitEvents.contains(event) { pendingVisitEvents.append(event) }
+        persistPendingVisitEvents()
+        drainPendingVisitEvents()
+        backfillMotionSegments()
+    }
 
-        let record = VisitRecord(
-            id: UUID(),
-            address: "",
-            latitude: visit.coordinate.latitude,
-            longitude: visit.coordinate.longitude,
-            arrivalDate: visit.arrivalDate,
-            departureDate: visit.departureDate.timeIntervalSince(visit.arrivalDate) < 7 * 24 * 3600 ? visit.departureDate : nil,
-            transportType: transport,
-            isAutomotive: automotive
-        )
+    @discardableResult
+    private func applyVisitEvent(_ event: NativeVisitEvent) -> Bool {
+        let matched = VisitRecord.matchingEvent(event, in: visits)
+        guard let arrival = event.arrival ?? matched.map({ visits[$0].arrivalDate }) else { return false }
+        guard event.departure == nil || event.departure! >= arrival else { return true }
+        let existing = matched.map { visits[$0] }
+        let previous = visits.first { $0.arrivalDate < arrival && ($0.departureDate ?? .distantFuture) <= arrival }
+        let tripStart = previous?.departureDate
+        let classification = classifyTrip(tripStart: tripStart, arrival: arrival)
+        let transport = existing?.transportType ?? classification.transportType
+        let record = VisitRecord(id: existing?.id ?? UUID(), address: existing?.address ?? "",
+            latitude: existing?.latitude ?? event.latitude, longitude: existing?.longitude ?? event.longitude,
+            arrivalDate: existing?.arrivalDate ?? arrival, departureDate: event.departure,
+            transportType: transport, isAutomotive: existing?.isAutomotive ?? classification.isAutomotive,
+            horizontalAccuracy: existing?.horizontalAccuracy ?? event.horizontalAccuracy,
+            transportManuallySet: existing?.transportManuallySet ?? false)
+        upsertVisitRecord(record)
+        if record.address.isEmpty || record.address == "Unknown" { geocodeVisit(record) }
+        return true
+    }
 
-        let location = CLLocation(latitude: visit.coordinate.latitude, longitude: visit.coordinate.longitude)
-        DispatchQueue.main.async {
-            let matched = self.matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: visit.coordinate)
-            let id = matched != nil ? self.visits[matched!].id : record.id
-            let base = VisitRecord(
-                id: id,
-                address: "",
-                latitude: record.latitude,
-                longitude: record.longitude,
-                arrivalDate: record.arrivalDate,
-                departureDate: record.departureDate,
-                transportType: record.transportType,
-                isAutomotive: record.isAutomotive
-            )
-            self.upsertVisitRecord(base)
-        }
-
-        geocoder.reverseGeocodeLocation(
-            location,
-            preferredLocale: Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
-        ) { [weak self] placemarks, error in
-            guard let self else { return }
-            var addr = ""
-            if let placemark = placemarks?.first {
-                // 順手做區域權威判定（isoCountryCode：HK/MO vs CN）
-                MapRegionJudge.record(placemark: placemark, at: location.coordinate)
-                // 與地圖標點採用同一命名次序：合適 POI > 所在區域。
-                addr = Self.preferredPlaceName(from: placemark)
-            }
+    private func geocodeVisit(_ record: VisitRecord) {
+        let location = CLLocation(latitude: record.latitude, longitude: record.longitude)
+        // A separate geocoder prevents live address requests from cancelling visit enrichment.
+        let visitGeocoder = CLGeocoder()
+        visitGeocoder.reverseGeocodeLocation(location,
+            preferredLocale: LanguageManager.locale) { [weak self, visitGeocoder] placemarks, _ in
+            _ = visitGeocoder
+            guard let self, let placemark = placemarks?.first else { return }
+            MapRegionJudge.record(placemark: placemark, at: location.coordinate)
+            let address = Self.preferredPlaceName(from: placemark)
             DispatchQueue.main.async {
-                let matched = self.matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: visit.coordinate)
-                let id = matched != nil ? self.visits[matched!].id : record.id
-                let updated = VisitRecord(
-                    id: id,
-                    address: addr.isEmpty ? "Unknown" : addr,
-                    latitude: record.latitude,
-                    longitude: record.longitude,
-                    arrivalDate: record.arrivalDate,
-                    departureDate: record.departureDate,
-                    transportType: record.transportType,
-                    isAutomotive: record.isAutomotive
-                )
-                self.upsertVisitRecord(updated)
+                // Do not resurrect a visit deleted while geocoding was in flight.
+                guard let existing = self.visits.first(where: { $0.id == record.id }) else { return }
+                self.upsertVisitRecord(VisitRecord(id: existing.id, address: address,
+                    latitude: existing.latitude, longitude: existing.longitude, arrivalDate: existing.arrivalDate,
+                    departureDate: existing.departureDate, transportType: existing.transportType,
+                    isAutomotive: existing.isAutomotive, horizontalAccuracy: existing.horizontalAccuracy,
+                    transportManuallySet: existing.transportManuallySet))
             }
         }
     }
@@ -929,7 +1145,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         lastGeocodeTime = Date()
         geocoder.reverseGeocodeLocation(
             location,
-            preferredLocale: Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+            preferredLocale: LanguageManager.locale
         ) { [weak self] placemarks, error in
             guard let placemark = placemarks?.first, error == nil else { return }
             // 順手做區域權威判定（isoCountryCode：HK/MO vs CN，同 Apple/高德切換同一條邊界）
@@ -1013,11 +1229,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
     
     private func upsertVisitRecord(_ record: VisitRecord) {
-        let previousCurDep: Date?
-        let matchedIdx: Int? = matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: CLLocationCoordinate2D(latitude: record.latitude, longitude: record.longitude))
+        let matchedIdx = visits.firstIndex { $0.id == record.id }
+            ?? matchVisitIndex(arrivalDate: record.arrivalDate, coordinate: CLLocationCoordinate2D(latitude: record.latitude, longitude: record.longitude))
         if let idx = matchedIdx {
             var cur = visits[idx]
-            previousCurDep = cur.departureDate
 
             if let newDep = record.departureDate {
                 if let oldDep = cur.departureDate {
@@ -1036,13 +1251,13 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
                     arrivalDate: cur.arrivalDate,
                     departureDate: cur.departureDate,
                     transportType: cur.transportType,
-                    isAutomotive: cur.isAutomotive
+                    isAutomotive: cur.isAutomotive, horizontalAccuracy: cur.horizontalAccuracy,
+                    transportManuallySet: cur.transportManuallySet
                 )
             }
 
             visits[idx] = cur
         } else {
-            previousCurDep = nil
             visits.insert(record, at: 0)
         }
 
@@ -1054,46 +1269,33 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         }
         visits = repairVisitDuplicates(visits)
         saveVisits()
+        reclassifyVisitsAfterMotionRecovery()
 
-        // MARK: TripPredictor: arrival / departure 掛鉤（只限開車到訪）
-        Task { @MainActor in
-            // 非開車到訪不納入行程預測
-            guard record.isAutomotive else { return }
+        Task { @MainActor in self.learnAvailableTrips() }
+    }
 
-            // 1) Arrival Predict：新 visit（matched==nil）且 address 非空 → predictNext
-            let latest = self.visits.first(where: { $0.id == record.id }) ?? record
-            if matchedIdx == nil,
-               !latest.address.isEmpty, latest.address != "Unknown",
-               !self.predictedArrivalVisits.contains(latest.id) {
-                self.predictedArrivalVisits.insert(latest.id)
-                let coord = CLLocationCoordinate2D(latitude: latest.latitude, longitude: latest.longitude)
-                let place = ParkingFloorStore.shared.resolvePlace(coordinate: coord, address: latest.address)
-                let _ = TripPredictor.shared.predictNext(currentPlace: place, atDate: latest.arrivalDate)
-            }
-            // 2) Departure Learning：previous dep nil → 而家有 dep，且 fromPlace 搵得到
-            if let dep = latest.departureDate, previousCurDep == nil,
-               !latest.address.isEmpty, latest.address != "Unknown",
-               !self.learnedDepartureVisits.contains(latest.id) {
-                self.learnedDepartureVisits.insert(latest.id)
-                // 搵上一個 complete visit（arrival 早過呢個 arrival 且 dep!=nil）作為 fromPlace
-                let fromVisit = self.visits
-                    .filter { $0.id != latest.id && $0.departureDate != nil && $0.arrivalDate < latest.arrivalDate }
-                    .sorted { $0.arrivalDate > $1.arrivalDate }
-                    .first
-                let coord = CLLocationCoordinate2D(latitude: latest.latitude, longitude: latest.longitude)
-                let toPlace = ParkingFloorStore.shared.resolvePlace(coordinate: coord, address: latest.address)
-                let fromPlace: PlaceInfo?
-                if let fv = fromVisit, !fv.address.isEmpty, fv.address != "Unknown" {
-                    let fcoord = CLLocationCoordinate2D(latitude: fv.latitude, longitude: fv.longitude)
-                    fromPlace = ParkingFloorStore.shared.resolvePlace(coordinate: fcoord, address: fv.address)
-                } else {
-                    fromPlace = nil
-                }
-                TripPredictor.shared.recordLearning(
-                    fromPlace: fromPlace, toPlace: toPlace,
-                    atDate: dep
-                )
-            }
+    @MainActor
+    private func learnAvailableTrips() {
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        let ordered = visits.sorted { $0.arrivalDate < $1.arrivalDate }
+        var changed = false
+        // Recheck adjacent visits: a delayed departure/address can complete an older trip.
+        for (fv, latest) in zip(ordered, ordered.dropFirst()) {
+            guard latest.isAutomotive, !latest.address.isEmpty, latest.address != "Unknown",
+                  !fv.address.isEmpty, fv.address != "Unknown",
+                  !learnedDepartureVisits.contains(latest.id),
+                  let departure = fv.departureDate ?? TripPredictor.shared.observedDrivingDeparture(for: fv, before: latest.arrivalDate),
+                  departure >= fv.arrivalDate, departure < latest.arrivalDate else { continue }
+            let toPlace = ParkingFloorStore.shared.resolvePlace(coordinate: CLLocationCoordinate2D(
+                latitude: latest.latitude, longitude: latest.longitude), address: latest.address)
+            let fromPlace = ParkingFloorStore.shared.resolvePlace(coordinate: CLLocationCoordinate2D(
+                latitude: fv.latitude, longitude: fv.longitude), address: fv.address)
+            TripPredictor.shared.recordLearning(fromPlace: fromPlace, toPlace: toPlace, atDate: departure)
+            learnedDepartureVisits.insert(latest.id)
+            changed = true
+        }
+        if changed {
+            UserDefaults.standard.set(learnedDepartureVisits.map(\.uuidString), forKey: learnedTripsKey)
         }
     }
 
@@ -1145,12 +1347,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let data = UserDefaults.standard.data(forKey: visitsKey),
               let decoded = try? JSONDecoder().decode([VisitRecord].self, from: data) else { return }
         visits = repairVisitDuplicates(decoded.sorted { $0.arrivalDate > $1.arrivalDate })
+        learnedDepartureVisits = Set((UserDefaults.standard.stringArray(forKey: learnedTripsKey) ?? []).compactMap(UUID.init(uuidString:)))
         for v in visits {
             if v.departureDate != nil {
                 learnedDepartureVisits.insert(v.id)
-            }
-            if !v.address.isEmpty && v.address != "Unknown" {
-                predictedArrivalVisits.insert(v.id)
             }
         }
         hasLoadedVisits = true
@@ -1182,16 +1382,18 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             }) {
                 var keep = result[idx]
                 keep.departureDate = Self.laterDate(keep.departureDate, v.departureDate)
-                if (keep.address.isEmpty || keep.address == "Unknown"), !v.address.isEmpty {
+                let edited = keep.transportManuallySet ? keep : (v.transportManuallySet ? v : keep)
+                if edited.transportManuallySet || ((keep.address.isEmpty || keep.address == "Unknown") && !v.address.isEmpty) {
                     keep = VisitRecord(
                         id: keep.id,
-                        address: v.address,
+                        address: (keep.address.isEmpty || keep.address == "Unknown") ? v.address : keep.address,
                         latitude: keep.latitude,
                         longitude: keep.longitude,
                         arrivalDate: keep.arrivalDate,
                         departureDate: keep.departureDate,
-                        transportType: keep.transportType,
-                        isAutomotive: keep.isAutomotive
+                        transportType: edited.transportType,
+                        isAutomotive: edited.isAutomotive, horizontalAccuracy: keep.horizontalAccuracy,
+                        transportManuallySet: edited.transportManuallySet
                     )
                 }
                 result[idx] = keep
@@ -1203,8 +1405,122 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     }
 
     func clearVisits() {
+        motionHistoryGeneration = UUID()
+        motionHistoryInFlight = false
+        pendingVisitEvents = []
+        persistPendingVisitEvents()
         visits = []
         UserDefaults.standard.removeObject(forKey: visitsKey)
+    }
+}
+
+struct VisitTimelineRules: Equatable {
+    var newPlaceMinutes = 10
+    var activePlaceMinutes = 10
+    var activateMinutes = 15
+    var radiusMeters = 100.0
+    var mergeConsecutive = true
+    var mergeMinutes = 20
+    var deactivateDays = 0
+
+    static func load(_ defaults: UserDefaults = .standard) -> Self {
+        func integer(_ key: String, fallback: Int) -> Int { defaults.object(forKey: key) as? Int ?? fallback }
+        return Self(newPlaceMinutes: max(0, integer("visitMinimumNewMinutes", fallback: 10)),
+            activePlaceMinutes: max(0, integer("visitMinimumActiveMinutes", fallback: 10)),
+            activateMinutes: max(1, integer("visitActivateMinutes", fallback: 15)),
+            radiusMeters: Double(max(25, integer("visitMatchRadiusMeters", fallback: 100))),
+            mergeConsecutive: defaults.object(forKey: "visitMergeConsecutive") as? Bool ?? true,
+            mergeMinutes: max(0, integer("visitMergeMinutes", fallback: 20)),
+            deactivateDays: max(0, integer("visitDeactivateDays", fallback: 0)))
+    }
+}
+
+/// A reversible timeline projection. Raw visits, parking sessions and photos
+/// are never rewritten or delayed by duration/matching preferences.
+enum VisitTimeline {
+    struct Entry: Identifiable {
+        var record: LocationManager.VisitRecord
+        var sourceIDs: [UUID]
+        var candidate: Bool
+        var id: UUID { record.id }
+    }
+    private struct Place {
+        var id: UUID
+        var coordinate: CLLocationCoordinate2D
+        var name: String
+        var lastVisit: Date
+    }
+    private struct Group {
+        var first: LocationManager.VisitRecord
+        var last: LocationManager.VisitRecord
+        var sourceIDs: [UUID]
+        var placeID: UUID?
+        var name: String
+        var active: Bool
+    }
+
+    static func make(_ records: [LocationManager.VisitRecord], rules: VisitTimelineRules,
+                     now: Date = .now) -> [Entry] {
+        let ordered = records.sorted { $0.arrivalDate < $1.arrivalDate }
+        var places: [Place] = []
+        var groups: [Group] = []
+        for (index, record) in ordered.enumerated() {
+            let coordinate = CLLocationCoordinate2D(latitude: record.latitude, longitude: record.longitude)
+            // A later raw arrival bounds a stale open visit, but isn't fabricated
+            // as its actual departure time.
+            let upperBound = record.departureDate ?? (index + 1 < ordered.count ? ordered[index + 1].arrivalDate : now)
+            let duration = max(0, upperBound.timeIntervalSince(record.arrivalDate))
+            let matches = places.indices.filter { i in
+                (rules.deactivateDays == 0 || record.arrivalDate.timeIntervalSince(places[i].lastVisit) <= Double(rules.deactivateDays) * 86400)
+                    && distance(coordinate, places[i].coordinate) <= rules.radiusMeters
+            }
+            let match = matches.min { distance(coordinate, places[$0].coordinate) < distance(coordinate, places[$1].coordinate) }
+            let placeID = match.map { places[$0].id }
+            let name = match.map { places[$0].name } ?? record.address
+            let group = Group(first: record, last: record, sourceIDs: [record.id], placeID: placeID,
+                              name: name, active: match != nil)
+            if rules.mergeConsecutive, var previous = groups.last,
+               let departure = previous.last.departureDate,
+               record.arrivalDate >= departure,
+               record.arrivalDate.timeIntervalSince(departure) <= Double(rules.mergeMinutes) * 60,
+               (previous.placeID != nil && previous.placeID == placeID)
+                    || (previous.placeID == nil && placeID == nil && distance(coordinate,
+                        CLLocationCoordinate2D(latitude: previous.first.latitude, longitude: previous.first.longitude)) <= rules.radiusMeters) {
+                previous.last = record
+                previous.sourceIDs.append(record.id)
+                previous.active = previous.active || group.active
+                groups[groups.count - 1] = previous
+            } else { groups.append(group) }
+            if let match {
+                places[match].lastVisit = record.departureDate ?? (index == ordered.count - 1 ? now : record.arrivalDate)
+                if places[match].name.isEmpty || places[match].name == "Unknown" { places[match].name = record.address }
+            } else if (record.departureDate != nil || index == ordered.count - 1),
+                      duration >= Double(rules.activateMinutes) * 60 {
+                places.append(Place(id: record.id, coordinate: coordinate, name: record.address, lastVisit: upperBound))
+                // The first qualifying stay creates an active anchor without
+                // moving that anchor when later GPS samples drift.
+                groups[groups.count - 1].placeID = record.id
+            }
+        }
+        return groups.compactMap { group in
+            let isLatest = group.last.id == ordered.last?.id
+            let end = group.last.departureDate ?? (isLatest ? now : ordered.first { $0.arrivalDate > group.last.arrivalDate }?.arrivalDate ?? now)
+            let minimum = Double(group.active ? rules.activePlaceMinutes : rules.newPlaceMinutes) * 60
+            let duration = max(0, end.timeIntervalSince(group.first.arrivalDate))
+            let ongoing = isLatest && group.last.departureDate == nil
+            guard duration >= minimum || ongoing else { return nil }
+            let first = group.first
+            let record = LocationManager.VisitRecord(id: first.id, address: group.name,
+                latitude: first.latitude, longitude: first.longitude, arrivalDate: first.arrivalDate,
+                departureDate: group.last.departureDate, transportType: first.transportType,
+                isAutomotive: first.isAutomotive, horizontalAccuracy: first.horizontalAccuracy,
+                transportManuallySet: first.transportManuallySet)
+            return Entry(record: record, sourceIDs: group.sourceIDs, candidate: ongoing && duration < minimum)
+        }
+    }
+
+    private static func distance(_ a: CLLocationCoordinate2D, _ b: CLLocationCoordinate2D) -> Double {
+        CLLocation(latitude: a.latitude, longitude: a.longitude).distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude))
     }
 }
 
@@ -1247,6 +1563,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     var barometerFinalAltitude: Double?
     var barometerPressureKPa: Double?
     var barometerReferenceFloorIndex: Int?
+    var barometerCalibrationEligible: Bool?
     var lotAssignedByUser: Bool?
     var floorConfirmedByUser: Bool?
     var predictedFromLotLearned: Bool?
@@ -1288,7 +1605,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         case predictedFloorIndex, manualFloorIndex, confidence
         case barometerAltitudeDeltaMeters, barometerSampleCount
         case barometerReferenceAltitude, barometerFinalAltitude, barometerPressureKPa
-        case barometerReferenceFloorIndex
+        case barometerReferenceFloorIndex, barometerCalibrationEligible
         case lotAssignedByUser
         case floorConfirmedByUser
         case predictedFromLotLearned, llmSpotNumber, llmAreaCode, llmFloorText
@@ -1306,7 +1623,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         isAutomotive: Bool = true, departureConfirmed: Bool? = nil,
         meterID: String? = nil, meterStreet: String? = nil, meterMatchKind: String? = nil,
         barometerReferenceFloorIndex: Int? = nil, lotAssignedByUser: Bool? = nil,
-        floorConfirmedByUser: Bool? = nil
+        floorConfirmedByUser: Bool? = nil, barometerCalibrationEligible: Bool? = nil
     ) {
         self.id = id
         self.address = address
@@ -1322,6 +1639,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         self.barometerFinalAltitude = barometerFinalAltitude
         self.barometerPressureKPa = barometerPressureKPa
         self.barometerReferenceFloorIndex = barometerReferenceFloorIndex
+        self.barometerCalibrationEligible = barometerCalibrationEligible
         self.lotAssignedByUser = lotAssignedByUser
         self.floorConfirmedByUser = floorConfirmedByUser
         self.predictedFromLotLearned = predictedFromLotLearned
@@ -1351,6 +1669,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         barometerFinalAltitude = try c.decodeIfPresent(Double.self, forKey: .barometerFinalAltitude)
         barometerPressureKPa = try c.decodeIfPresent(Double.self, forKey: .barometerPressureKPa)
         barometerReferenceFloorIndex = try c.decodeIfPresent(Int.self, forKey: .barometerReferenceFloorIndex)
+        barometerCalibrationEligible = try c.decodeIfPresent(Bool.self, forKey: .barometerCalibrationEligible)
         lotAssignedByUser = try c.decodeIfPresent(Bool.self, forKey: .lotAssignedByUser)
         floorConfirmedByUser = try c.decodeIfPresent(Bool.self, forKey: .floorConfirmedByUser)
         predictedFromLotLearned = try c.decodeIfPresent(Bool.self, forKey: .predictedFromLotLearned)
@@ -1369,6 +1688,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     }
 
     var displayFloor: String? {
+        guard isAutomotive else { return nil }
         // 慣例跟停車點所在地判定（深圳點用內地慣例，你喺香港睇返都啱）
         // llmFloorText 可能係 VLM／手輸殘留（「地面1」）—— 顯示前正規化，
         // 唔係嘅話地圖標籤會變「地面1/F」（"/F" 後綴再疊埋落去）
@@ -1387,15 +1707,18 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
 
 extension ParkingPointRecord {
     var effectiveFloorIndex: Int? {
-        manualFloorIndex ?? ParkingFloorStore.parseFloorIndex(llmFloorText ?? "", coordinate: coordinate)
+        guard isAutomotive else { return nil }
+        return manualFloorIndex ?? ParkingFloorStore.parseFloorIndex(llmFloorText ?? "", coordinate: coordinate)
             ?? predictedFloorIndex
     }
 
     var isFloorConfirmed: Bool {
-        floorConfirmedByUser ?? (manualFloorIndex != nil && llmFloorText == nil)
+        guard isAutomotive else { return false }
+        return floorConfirmedByUser ?? (manualFloorIndex != nil && llmFloorText == nil)
     }
 
     var floorStatusLabel: String {
+        guard isAutomotive else { return "" }
         guard displayFloor != nil else { return String(localized: "樓層未確認") }
         return isFloorConfirmed ? String(localized: "已確認") : String(localized: "未確認")
     }
@@ -1629,6 +1952,7 @@ struct ParkingLotFloorLearning: Codable, Hashable {
     var lotID: UUID
     var pointID: UUID
     var referenceFloorIndex: Int? = nil
+    var calibrationEligible: Bool? = nil
     var travelledFloors: Int { manualFloorIndex - (referenceFloorIndex ?? 0) }
 }
 
@@ -1637,10 +1961,43 @@ struct ParkingFloorCalibration {
     var offset: Double
     var confidence: Double
 
+    struct FloorHeight: Identifiable {
+        var floor: Int
+        var referenceFloor: Int
+        var height: Double
+        var spread: Double
+        var count: Int
+        var confidence: Double
+        var id: String { "\(referenceFloor):\(floor)" }
+    }
+
+    static func profiles(_ history: [ParkingLotFloorLearning], referenceFloor: Int? = nil) -> [FloorHeight] {
+        let valid = history.filter {
+            $0.calibrationEligible == true && $0.altitudeDeltaMeters.isFinite
+                && abs($0.altitudeDeltaMeters) <= 120
+                && (referenceFloor == nil || ($0.referenceFloorIndex ?? 0) == referenceFloor)
+        }
+        func median(_ values: [Double]) -> Double {
+            let values = values.sorted()
+            let n = values.count
+            return n % 2 == 0 ? (values[n / 2 - 1] + values[n / 2]) / 2 : values[n / 2]
+        }
+        return Dictionary(grouping: valid) { "\($0.referenceFloorIndex ?? 0):\($0.manualFloorIndex)" }
+            .values.map { records in
+                let first = records[0]
+                let height = median(records.map(\.altitudeDeltaMeters))
+                let spread = median(records.map { abs($0.altitudeDeltaMeters - height) })
+                let confidence = min(0.9, 0.35 + Double(min(records.count, 7)) * 0.08)
+                    * max(0.2, 1 - spread / 2)
+                return FloorHeight(floor: first.manualFloorIndex, referenceFloor: first.referenceFloorIndex ?? 0,
+                                   height: height, spread: spread, count: records.count, confidence: confidence)
+            }.sorted { $0.height < $1.height }
+    }
+
     static func learn(_ history: [ParkingLotFloorLearning]) -> Self? {
         // Reject sign mismatches and implausible ratios rather than teaching a wrong entry level.
         let valid = history.filter {
-            $0.travelledFloors != 0 && $0.altitudeDeltaMeters.isFinite
+            $0.calibrationEligible == true && $0.travelledFloors != 0 && $0.altitudeDeltaMeters.isFinite
                 && (2...6).contains($0.altitudeDeltaMeters / Double($0.travelledFloors))
         }
         guard !valid.isEmpty else { return nil }
@@ -1739,6 +2096,15 @@ enum ParkingBoundaryGeometry {
     }
 }
 
+struct ParkingGroupAnchor: Codable, Hashable {
+    var latitude: Double
+    var longitude: Double
+
+    var coordinate: CLLocationCoordinate2D {
+        CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
+    }
+}
+
 struct ParkingLotRecord: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String?
@@ -1758,6 +2124,7 @@ struct ParkingLotRecord: Identifiable, Codable, Hashable {
     /// Only explicitly separated facilities constrain horizontal matching to a floor.
     var floorScopeIndex: Int? = nil
     var boundaryVertices: [ParkingBoundaryVertex]? = nil
+    var groupAnchors: [String: ParkingGroupAnchor]? = nil
 
     var centerCoordinate: CLLocationCoordinate2D {
         CLLocationCoordinate2D(latitude: centerLatitude, longitude: centerLongitude)
@@ -1796,7 +2163,12 @@ struct ParkingRecordGroup: Identifiable {
     }
     let id: ID
     let records: [ParkingPointRecord]
+    let mapCoordinate: CLLocationCoordinate2D
     var latest: ParkingPointRecord { records[0] }
+
+    static func anchorKey(floor: Int?, isAutomotive: Bool, mode: ParkingFloorMode) -> String {
+        "\(mode.rawValue):\(isAutomotive ? "parking" : "stay"):\(floor.map(String.init) ?? "unknown")"
+    }
 
     static func make(lots: [ParkingLotRecord], mode: ParkingFloorMode,
                      including pointIDs: Set<UUID>? = nil) -> [Self] {
@@ -1810,7 +2182,8 @@ struct ParkingRecordGroup: Identifiable {
             }
             for (key, points) in groups {
                 let sorted = points.sorted(by: newer)
-                result.append(Self(id: key, records: sorted))
+                let anchor = lot.groupAnchors?[anchorKey(floor: key.floor, isAutomotive: key.isAutomotive, mode: mode)]
+                result.append(Self(id: key, records: sorted, mapCoordinate: anchor?.coordinate ?? sorted[0].coordinate))
             }
         }
         return result.sorted { newer($0.latest, $1.latest) }
@@ -1962,7 +2335,8 @@ final class ParkingFloorStore: ObservableObject {
 
     func setReferenceFloor(pointID: UUID, floor: Int) {
         guard let li = lots.firstIndex(where: { $0.points.contains { $0.id == pointID } }),
-              let pi = lots[li].points.firstIndex(where: { $0.id == pointID }) else { return }
+              let pi = lots[li].points.firstIndex(where: { $0.id == pointID }),
+              lots[li].points[pi].isAutomotive else { return }
         let reference = max(-10, min(30, floor))
         lots[li].points[pi].barometerReferenceFloorIndex = reference
         let point = lots[li].points[pi]
@@ -2012,8 +2386,8 @@ final class ParkingFloorStore: ObservableObject {
         guard let point = currentPoint, let lot = lot(containing: point.id) else { return nil }
         let lotName = lot.displayName(for: point, mode: floorMode)?.trimmingCharacters(in: .whitespacesAndNewlines)
         let locationName = (lotName?.isEmpty == false) ? lotName : (point.address.isEmpty ? nil : point.address)
-        let floorDisplay = ParkingFloorStore.cleanFloorText(point.llmFloorText, coordinate: point.coordinate) ?? point.displayFloor
-        let floorIndex = point.manualFloorIndex ?? point.predictedFloorIndex
+        let floorDisplay = point.isAutomotive ? (ParkingFloorStore.cleanFloorText(point.llmFloorText, coordinate: point.coordinate) ?? point.displayFloor) : nil
+        let floorIndex = point.isAutomotive ? (point.manualFloorIndex ?? point.predictedFloorIndex) : nil
         return ParkingSessionSnapshot(
             locationName: locationName,
             spotNumber: point.llmSpotNumber,
@@ -2060,7 +2434,21 @@ final class ParkingFloorStore: ObservableObject {
         floorMode = ParkingFloorMode(rawValue: defaults.integer(forKey: "parkingFloorMode")) ?? .fixed
         loadTrash()
         load()
+        for index in lots.indices { rebuildLotLearning(at: index) }
         hasLoaded = true
+    }
+
+    func reloadAfterRestore() {
+        hasLoaded = false
+        barometer.reloadAfterRestore()
+        lots = []
+        deletedPoints = []
+        deletedPlaces = []
+        activeLotID = nil
+        floorReview = nil
+        reviewedCaptureIDs = []
+        lastStationaryCoordinate = nil
+        prepare()
     }
 
     // TripPredictor place resolution helper
@@ -2150,10 +2538,13 @@ final class ParkingFloorStore: ObservableObject {
 
     /// 更新最接近某個時間的停車點的 isAutomotive 標記
     func updateAutomotiveFlag(createdAt: Date, isAutomotive: Bool) {
+        let nearest = allPoints.filter { abs($0.createdAt.timeIntervalSince(createdAt)) < 60 }
+            .min { abs($0.createdAt.timeIntervalSince(createdAt)) < abs($1.createdAt.timeIntervalSince(createdAt)) }
+        guard let nearest else { return }
         for i in lots.indices {
             for j in lots[i].points.indices {
                 let point = lots[i].points[j]
-                if abs(point.createdAt.timeIntervalSince(createdAt)) < 60 {
+                if point.id == nearest.id {
                     lots[i].points[j].isAutomotive = isAutomotive
                     objectWillChange.send()
                     persist()
@@ -2161,6 +2552,27 @@ final class ParkingFloorStore: ObservableObject {
                 }
             }
         }
+    }
+
+    func updateAutomotiveFlags(_ visits: [LocationManager.VisitRecord]) {
+        var updated = lots
+        var changed = false
+        for i in updated.indices {
+            for j in updated[i].points.indices {
+                let point = updated[i].points[j]
+                let matches = visits.filter {
+                    abs($0.arrivalDate.timeIntervalSince(point.createdAt)) < 60
+                        && CLLocation(latitude: $0.latitude, longitude: $0.longitude)
+                            .distance(from: CLLocation(latitude: point.latitude, longitude: point.longitude)) <= max(500, $0.horizontalAccuracy ?? 0)
+                }
+                guard let visit = matches.min(by: {
+                    abs($0.arrivalDate.timeIntervalSince(point.createdAt)) < abs($1.arrivalDate.timeIntervalSince(point.createdAt))
+                }), visit.isAutomotive != point.isAutomotive else { continue }
+                updated[i].points[j].isAutomotive = visit.isAutomotive
+                changed = true
+            }
+        }
+        if changed { lots = updated; persist() }
     }
 
     func recordParkingPoint(
@@ -2271,9 +2683,8 @@ final class ParkingFloorStore: ObservableObject {
             altitudeDelta: result.deltaMeters, sampleCount: result.sampleCount,
             referenceAlt: result.referenceAltitude, finalAlt: result.finalAltitude, pressure: result.pressure,
             referenceFloor: result.referenceFloorIndex ?? 0)
-        let estimated = result.selectedFloor ?? prediction.floorIndex ?? estimatedFloor(near: coordinate,
-            delta: result.deltaMeters, referenceFloor: result.referenceFloorIndex ?? 0)
-        lots[li].points[pi].predictedFloorIndex = max(-10, min(30, estimated))
+        let estimated = result.selectedFloor ?? prediction.floorIndex
+        lots[li].points[pi].predictedFloorIndex = estimated.map { max(-10, min(30, $0)) }
         if Self.parseFloorIndex(point.llmFloorText ?? "", coordinate: coordinate) == nil {
             lots[li].points[pi].llmFloorText = nil
         }
@@ -2283,12 +2694,13 @@ final class ParkingFloorStore: ObservableObject {
         lots[li].points[pi].barometerFinalAltitude = result.finalAltitude
         lots[li].points[pi].barometerPressureKPa = result.pressure
         lots[li].points[pi].barometerReferenceFloorIndex = result.referenceFloorIndex
+        lots[li].points[pi].barometerCalibrationEligible = result.calibrationEligible == true
         lots[li].points[pi].confidence = result.hasSamplingGap == true
             ? min(prediction.confidence ?? 0.3, 0.35) : prediction.confidence
         barometer.bindResult(result.id, pointID: point.id, arrival: point.createdAt)
         if result.userConfirmed, let floor = result.selectedFloor {
             setManualFloor(pointID: point.id, floorIndex: floor,
-                           learnFromAltitude: result.hasSamplingGap != true)
+                           learnFromAltitude: result.calibrationEligible == true)
         } else {
             persist()
         }
@@ -2406,6 +2818,7 @@ final class ParkingFloorStore: ObservableObject {
         persist()
         if isAutomotive {
             barometer.bindActiveCapture(pointID: inserting.id, arrival: createdAt, coordinate: coordinate)
+            if let result = barometer.completedResult, result.pointID == inserting.id { applyCapturedFloor(result) }
         }
         let loadedLots = lots
         DispatchQueue.main.async {
@@ -2417,8 +2830,7 @@ final class ParkingFloorStore: ObservableObject {
                         persistChanges: Bool = true) {
         var changed = false
         for i in lots.indices {
-            if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
-                let before = lots[i].points[pIndex].manualFloorIndex
+            if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID && $0.isAutomotive }) {
                 lots[i].points[pIndex].manualFloorIndex = floorIndex
                 lots[i].points[pIndex].floorConfirmedByUser = floorIndex != nil
                 if floorMode == .fixed {
@@ -2431,7 +2843,7 @@ final class ParkingFloorStore: ObservableObject {
                 lots[i].updatedAt = Date()
                 changed = true
                 
-                if floorIndex != before, learnFromAltitude,
+                if learnFromAltitude, lots[i].points[pIndex].barometerCalibrationEligible == true,
                    let newIdx = floorIndex,
                    let delta = lots[i].points[pIndex].barometerAltitudeDeltaMeters {
                     applyFloorLearning(
@@ -2443,7 +2855,7 @@ final class ParkingFloorStore: ObservableObject {
                 }
                 
                 // Corrections belong to this visit; never rewrite other visits' estimated floors.
-                if floorIndex == nil {
+                if floorIndex == nil || !learnFromAltitude || lots[i].points[pIndex].barometerCalibrationEligible != true {
                     lots[i].floorLearningHistory?.removeAll { $0.pointID == pointID }
                     rebuildLotLearning(at: i)
                 }
@@ -2465,6 +2877,7 @@ final class ParkingFloorStore: ObservableObject {
         manualFloorIndex: Int,
         altitudeDeltaMeters: Double
     ) {
+        guard lots[lotIndex].points.first(where: { $0.id == pointID })?.barometerCalibrationEligible == true else { return }
         let lotID = lots[lotIndex].id
         let delta = altitudeDeltaMeters
         let floorIdx = manualFloorIndex
@@ -2479,7 +2892,7 @@ final class ParkingFloorStore: ObservableObject {
             metersPerFloor: metersPerFloor,
             lotID: lotID,
             pointID: pointID,
-            referenceFloorIndex: reference
+            referenceFloorIndex: reference, calibrationEligible: true
         )
         if lots[lotIndex].floorLearningHistory == nil {
             lots[lotIndex].floorLearningHistory = []
@@ -2550,13 +2963,34 @@ final class ParkingFloorStore: ObservableObject {
             fromLearned = false
         }
         guard let delta = altitudeDelta, let samples = sampleCount else {
-            return (nil, nil, fromLearned)
+            guard let lotIdx else { return (nil, nil, false) }
+            let confirmed = lots[lotIdx].points.filter(\.isFloorConfirmed).compactMap(\.effectiveFloorIndex)
+            let counts = Dictionary(grouping: confirmed, by: { $0 }).mapValues(\.count)
+            let ranked = counts.sorted { $0.value > $1.value }
+            guard let best = ranked.first, ranked.dropFirst().first.map({ $0.value < best.value }) ?? true else {
+                return (nil, nil, false)
+            }
+            return (best.key, min(0.35, Double(best.value) / Double(confirmed.count) * 0.35), true)
         }
         if floorMode == .fixed, let lotIdx {
             let fixed = lots[lotIdx].fixedFloorIndex
                 ?? lots[lotIdx].points.filter { $0.manualFloorIndex != nil }
                     .max(by: { $0.createdAt < $1.createdAt })?.manualFloorIndex
             if let fixed { return (fixed, 0.5, true) }
+        }
+        let profiles = floorHeightProfiles(near: coordinate, referenceFloor: referenceFloor)
+        let ranked = profiles.sorted { abs($0.height - delta) < abs($1.height - delta) }
+        if let best = ranked.first, abs(best.height - delta) <= max(1.2, best.spread * 3) {
+            let error = abs(best.height - delta)
+            var confidence = best.confidence * max(0.3, 1 - error / max(1.5, best.spread * 3))
+            if let other = ranked.dropFirst().first(where: { $0.floor != best.floor }),
+               abs(other.height - delta) - error < 1.5 { confidence *= 0.5 }
+            return (best.floor, max(0.1, confidence), true)
+        }
+        // Do not extrapolate a tall podium's 1/F height into every other floor.
+        if !profiles.isEmpty {
+            let fallback = max(-10, min(30, Int((delta / Self.defaultMetersPerFloor).rounded()) + referenceFloor))
+            return (fallback, 0.1, false)
         }
         let adjustedDelta = delta - offset  // 可負數（入地庫）
         let raw = (adjustedDelta / mpF).rounded(.toNearestOrAwayFromZero)
@@ -2581,9 +3015,30 @@ final class ParkingFloorStore: ObservableObject {
             ?? referenceFloor
     }
 
+    func calibrationHistory(for lot: ParkingLotRecord) -> [ParkingLotFloorLearning] {
+        let eligibleIDs = Set(lot.points.filter { $0.isFloorConfirmed && $0.barometerCalibrationEligible == true }.map(\.id))
+        return (lot.floorLearningHistory ?? []).filter { $0.calibrationEligible == true && eligibleIDs.contains($0.pointID) }
+    }
+
+    func floorHeightProfiles(near coordinate: CLLocationCoordinate2D, referenceFloor: Int = 0) -> [ParkingFloorCalibration.FloorHeight] {
+        let location = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+        let nearby = lots.filter { lot in
+            if let vertices = lot.boundaryVertices, ParkingBoundaryGeometry.isValid(vertices) {
+                return ParkingBoundaryGeometry.contains(coordinate, vertices: vertices)
+            }
+            return location.distance(from: CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)) <= lot.radiusMeters
+        }
+        return ParkingFloorCalibration.profiles(nearby.flatMap { calibrationHistory(for: $0) }, referenceFloor: referenceFloor)
+    }
+
     func setPointCoordinate(pointID: UUID, coordinate: CLLocationCoordinate2D) {
         for i in lots.indices {
             if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
+                let point = lots[i].points[pIndex]
+                let floor = floorMode == .perVisit && point.isAutomotive ? point.effectiveFloorIndex : nil
+                let key = ParkingRecordGroup.anchorKey(floor: floor, isAutomotive: point.isAutomotive, mode: floorMode)
+                if lots[i].groupAnchors == nil { lots[i].groupAnchors = [:] }
+                lots[i].groupAnchors?[key] = ParkingGroupAnchor(latitude: coordinate.latitude, longitude: coordinate.longitude)
                 lots[i].points[pIndex].latitude = coordinate.latitude
                 lots[i].points[pIndex].longitude = coordinate.longitude
                 lots[i].updatedAt = Date()
@@ -3021,17 +3476,12 @@ final class ParkingFloorStore: ObservableObject {
 
     private func rebuildLotLearning(at index: Int) {
         guard lots.indices.contains(index) else { return }
-        let pointIDs = Set(lots[index].points.filter(\.isFloorConfirmed).map(\.id))
-        lots[index].floorLearningHistory?.removeAll { !pointIDs.contains($0.pointID) }
-        guard let calibration = ParkingFloorCalibration.learn(lots[index].floorLearningHistory ?? []) else {
-            lots[index].learnedMetersPerFloor = nil
-            lots[index].learnedOffsetMeters = nil
-            lots[index].learnedConfidence = nil
-            return
-        }
-        lots[index].learnedMetersPerFloor = calibration.metersPerFloor
-        lots[index].learnedOffsetMeters = calibration.offset
-        lots[index].learnedConfidence = calibration.confidence
+        let history = calibrationHistory(for: lots[index])
+        let calibration = ParkingFloorCalibration.learn(history)
+        let profiles = ParkingFloorCalibration.profiles(history)
+        lots[index].learnedMetersPerFloor = calibration?.metersPerFloor
+        lots[index].learnedOffsetMeters = calibration?.offset
+        lots[index].learnedConfidence = profiles.isEmpty ? nil : profiles.map(\.confidence).reduce(0, +) / Double(profiles.count)
     }
     
     // MARK: - 文件備份路徑（Documents/parking_lots_backup.json）
@@ -3042,6 +3492,7 @@ final class ParkingFloorStore: ObservableObject {
 
     private func persist() {
         do {
+            seedGroupAnchors()
             let data = try JSONEncoder().encode(lots)
             // 1. UserDefaults（主存儲）
             defaults.set(data, forKey: storeKey)
@@ -3070,6 +3521,7 @@ final class ParkingFloorStore: ObservableObject {
         }
         print("[ParkingFloorStore] loaded \(decoded.count) lots from \(source)")
         lots = decoded.sorted { $0.updatedAt > $1.updatedAt }
+        seedGroupAnchors()
         let loadedLots = lots
         DispatchQueue.main.async {
             TripPredictor.shared.reconcilePlaceNames(with: loadedLots)
@@ -3078,6 +3530,21 @@ final class ParkingFloorStore: ObservableObject {
         if source == "file backup" {
             defaults.set(data, forKey: storeKey)
             defaults.synchronize()
+        }
+    }
+
+    /// Preserve existing marker positions before new visits can become representatives.
+    private func seedGroupAnchors() {
+        for mode in [ParkingFloorMode.fixed, .perVisit] {
+            for group in ParkingRecordGroup.make(lots: lots, mode: mode) {
+                guard let index = lots.firstIndex(where: { $0.id == group.id.lotID }) else { continue }
+                let key = ParkingRecordGroup.anchorKey(floor: group.id.floor, isAutomotive: group.id.isAutomotive, mode: mode)
+                if lots[index].groupAnchors?[key] == nil {
+                    if lots[index].groupAnchors == nil { lots[index].groupAnchors = [:] }
+                    lots[index].groupAnchors?[key] = ParkingGroupAnchor(
+                        latitude: group.mapCoordinate.latitude, longitude: group.mapCoordinate.longitude)
+                }
+            }
         }
     }
     
@@ -3187,6 +3654,34 @@ final class ParkingFloorStore: ObservableObject {
     }
 }
 
+struct LocationEnergyPolicy {
+    enum Mode { case navigation, stationary }
+    private var anchor: CLLocation?
+    private var stationarySince: Date?
+    private var lastFixTimestamp: Date?
+
+    mutating func reset() { anchor = nil; stationarySince = nil; lastFixTimestamp = nil }
+
+    mutating func observe(_ fix: CLLocation, captureActive: Bool, now: Date = Date()) -> Mode {
+        guard !captureActive, fix.speed >= 0, fix.speed * 3.6 <= 1,
+              fix.horizontalAccuracy >= 0, fix.horizontalAccuracy <= 20,
+              abs(fix.timestamp.timeIntervalSince(now)) < 10 else {
+            reset()
+            return .navigation
+        }
+        if let previous = lastFixTimestamp {
+            let gap = fix.timestamp.timeIntervalSince(previous)
+            if gap > 5 || gap < 0 { reset() }
+        }
+        lastFixTimestamp = fix.timestamp
+        if anchor == nil || fix.distance(from: anchor!) > 15 {
+            anchor = fix
+            stationarySince = fix.timestamp
+        }
+        return fix.timestamp.timeIntervalSince(stationarySince ?? fix.timestamp) >= 60 ? .stationary : .navigation
+    }
+}
+
 /// 樓層慣例標註小膠囊：標明樓層數值跟「香港慣例」定「內地慣例」
 /// （自動模式跟停車點所在地判定，冇坐標就跟當前位置）。可放喺任何樓層顯示隔離。
 struct FloorConventionBadge: View {
@@ -3219,7 +3714,11 @@ struct BarometerSample: Hashable, Codable {
 
 /// Time-based decisions only advance on new sensor events, never timer polls.
 struct ParkingAltitudeCapture {
+    static let briefStopSeconds: TimeInterval = 5
+    static let confirmationSeconds: TimeInterval = 1
+    static let stableStopSeconds = briefStopSeconds + confirmationSeconds
     private(set) var samples: [BarometerSample] = []
+    private(set) var hasSamplingGap = false
     private(set) var stationarySince: Date?
     private var initialAltitudes: [Double] = []
     private(set) var referenceAltitude: Double?
@@ -3229,6 +3728,7 @@ struct ParkingAltitudeCapture {
               samples.last.map({ sample.timestamp > $0.timestamp }) ?? true else { return false }
         if let last = samples.last, sample.timestamp.timeIntervalSince(last.timestamp) > 2.5 {
             stationarySince = nil
+            hasSamplingGap = true
         }
         samples.append(sample)
         if samples.count > 900 { samples.removeFirst(samples.count - 900) }
@@ -3240,13 +3740,19 @@ struct ParkingAltitudeCapture {
             || (sample.speedKmh < 0 && stationaryEvidence)
         guard stopped else { stationarySince = nil; return false }
         if stationarySince == nil { stationarySince = sample.timestamp }
-        guard let since = stationarySince, sample.timestamp.timeIntervalSince(since) >= 10 else { return false }
-        let stable = samples.filter { $0.timestamp >= sample.timestamp.addingTimeInterval(-8) }
-        guard stable.count >= 5, let first = stable.first,
-              sample.timestamp.timeIntervalSince(first.timestamp) >= 7,
-              let lo = stable.map(\.relativeAltitude).min(),
-              let hi = stable.map(\.relativeAltitude).max() else { return false }
-        return hi - lo <= 0.5
+        guard let since = stationarySince, sample.timestamp.timeIntervalSince(since) >= Self.stableStopSeconds else { return false }
+        return hasStableStop
+    }
+
+    var hasStableStop: Bool {
+        guard let last = samples.last, let since = stationarySince,
+              last.timestamp.timeIntervalSince(since) >= Self.stableStopSeconds else { return false }
+        let tail = samples.reversed().prefix { $0.timestamp >= last.timestamp.addingTimeInterval(-5) }.reversed()
+        guard tail.count >= 4, let first = tail.first,
+              last.timestamp.timeIntervalSince(first.timestamp) >= 4,
+              let low = tail.map(\.relativeAltitude).min(),
+              let high = tail.map(\.relativeAltitude).max() else { return false }
+        return high - low <= 0.5
     }
 
     var finalAltitude: Double? {
@@ -3269,6 +3775,7 @@ struct ParkingStopConfirmation {
     mutating func update(stableStop: Bool, isStopped: Bool = true, at date: Date) {
         guard isStopped else { reset(); return }
         guard stableStop else { promptID = nil; return }
+        guard promptID == nil else { return }
         if nextPromptAt.map({ date >= $0 }) ?? true {
             promptID = UUID()
             nextPromptAt = date.addingTimeInterval(10)
@@ -3301,6 +3808,7 @@ struct ParkingAltitudeResult: Codable, Identifiable, Equatable {
     var userConfirmed = false
     var pointID: UUID?
     var hasSamplingGap: Bool?
+    var calibrationEligible: Bool?
     var referenceFloorIndex: Int?
     var deltaMeters: Double { finalAltitude - referenceAltitude }
 
@@ -3325,6 +3833,8 @@ struct ParkingAltitudeResult: Codable, Identifiable, Equatable {
 }
 
 final class BarometerSessionManager: NSObject, ObservableObject {
+    static let captureSpeedThreshold: Double = 30
+
     private let altimeter = CMAltimeter()
     private let queue = OperationQueue()
     @Published private(set) var samples: [BarometerSample] = []
@@ -3336,6 +3846,8 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     @Published var referenceFloorIndex = 0
     private var stopConfirmation = ParkingStopConfirmation()
     private var capture = ParkingAltitudeCapture()
+    private var candidateCapture: ParkingAltitudeCapture?
+    private var referenceVerified = false
     var stationarySince: Date? { capture.stationarySince }
     var captureReferenceAltitude: Double? { capture.referenceAltitude }
     private var startedAt: Date?
@@ -3379,7 +3891,10 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         queue.name = "BarometerSessionManager.queue"
         backgroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
-        ) { [weak self] _ in self?.suspendCapture() }
+        ) { [weak self] _ in
+            guard let self, self.manualSampling else { return }
+            self.cancelCapture()
+        }
     }
     
     deinit {
@@ -3405,6 +3920,8 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         motionStationary = activity.stationary && !activity.walking && !activity.running && !activity.cycling
             && activity.confidence != .low
         motionAutomotive = activity.automotive && !activity.walking && !activity.running
+        if (activity.walking || activity.running), activity.confidence != .low,
+           !manualSampling, candidateCapture != nil { finishCapture(useCandidate: true) }
     }
 
     func updateDriving(speed: Double, timestamp: Date, coordinate: CLLocationCoordinate2D) {
@@ -3412,19 +3929,22 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         lastSpeedUpdateTime = timestamp
         if CLLocationCoordinate2DIsValid(coordinate) { lastCoordinate = coordinate }
         guard Date().timeIntervalSince(timestamp) <= 5 else { return }
-        if speed > 0.5 { resetStopConfirmation() }
+        if speed > 0.5 {
+            resetStopConfirmation()
+            candidateCapture = nil
+        }
         if captureID != nil, capture.resumedAfterBriefStop(speed: speed, at: timestamp),
            gatePassUntil.map({ $0 < timestamp }) ?? true {
             gatePassUntil = Date().addingTimeInterval(3)
         }
-        if speed >= 20 { lastDrivingTime = timestamp }
+        if speed >= Self.captureSpeedThreshold { lastDrivingTime = timestamp }
         let resumedDriving = speed >= 8 || (speed > 2 && motionAutomotive)
         if resumedDriving, completedResult != nil {
             // Keep confirmed captures for delayed visits, even after driving resumes.
             completedResult = nil
         }
-        guard UIApplication.shared.applicationState == .active, !manualSampling else { return }
-        if speed >= 20 {
+        guard !manualSampling else { return }
+        if speed >= Self.captureSpeedThreshold {
             if captureID != nil { cancelCapture() }
             return
         }
@@ -3437,6 +3957,8 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         capturePointID = nil
         captureArrivalDate = nil
         referenceFloorIndex = 0
+        candidateCapture = nil
+        referenceVerified = timestamp.timeIntervalSince(lastDrivingTime) <= 5
         if startSensor() { captureID = UUID() }
     }
 
@@ -3461,8 +3983,7 @@ final class BarometerSessionManager: NSObject, ObservableObject {
             let altitude = data.relativeAltitude.doubleValue
             let pressure = data.pressure.doubleValue
             DispatchQueue.main.async {
-                guard let self, self.isUpdating, self.sensorGeneration == generation,
-                      UIApplication.shared.applicationState == .active else { return }
+                guard let self, self.isUpdating, self.sensorGeneration == generation else { return }
                 let speedAge = timestamp.timeIntervalSince(self.lastSpeedUpdateTime)
                 let speed = speedAge >= -2 && speedAge <= 5 ? self.currentSpeedKmh : -1
                 let sample = BarometerSample(timestamp: timestamp, relativeAltitude: altitude,
@@ -3470,6 +3991,13 @@ final class BarometerSessionManager: NSObject, ObservableObject {
                 let stableStop = self.capture.append(sample, stationaryEvidence: self.motionStationary)
                 self.samples = self.capture.samples
                 if !self.manualSampling {
+                    if stableStop { self.candidateCapture = self.capture }
+                    // A real visit may arrive before the sensor reaches a stable stop.
+                    // Freeze its estimate once stable, even if the picker is never touched.
+                    if stableStop, self.capturePointID != nil {
+                        self.finishCapture()
+                        return
+                    }
                     self.stopConfirmation.update(stableStop: stableStop,
                                                  isStopped: self.capture.stationarySince != nil, at: timestamp)
                     self.publishStopConfirmation()
@@ -3502,12 +4030,12 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         startedAt = nil
         capturePointID = nil
         captureArrivalDate = nil
+        candidateCapture = nil
     }
 
     func suspendCapture() {
-        cancelCapture()
-        lastDrivingTime = nil
-        gatePassUntil = nil
+        // Automatic parking capture follows location events, not the UI lifecycle.
+        if manualSampling { cancelCapture() }
     }
 
     func finishForCarDisconnect() {
@@ -3541,7 +4069,8 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         publishStopConfirmation()
     }
 
-    private func finishCapture() {
+    private func finishCapture(useCandidate: Bool = false) {
+        if useCandidate, let candidateCapture { capture = candidateCapture; samples = capture.samples }
         guard isUpdating, let id = captureID, let first = samples.first, let last = samples.last,
               let reference = capture.referenceAltitude, let final = capture.finalAltitude else { return }
         stop() // Stop the hardware before publishing a result / showing the floor picker.
@@ -3551,7 +4080,9 @@ final class BarometerSessionManager: NSObject, ObservableObject {
             stoppedAt: last.timestamp, arrivalDate: captureArrivalDate ?? capture.stationarySince ?? last.timestamp,
             latitude: lastCoordinate?.latitude, longitude: lastCoordinate?.longitude,
             referenceAltitude: reference, finalAltitude: final, pressure: last.pressure,
-            sampleCount: samples.count, pointID: capturePointID, referenceFloorIndex: referenceFloorIndex)
+            sampleCount: samples.count, pointID: capturePointID, hasSamplingGap: capture.hasSamplingGap,
+            calibrationEligible: referenceVerified && !capture.hasSamplingGap && capture.hasStableStop && samples.count >= 7,
+            referenceFloorIndex: referenceFloorIndex)
         loadResultsIfNeeded()
         results.append(result)
         persistResults()
@@ -3564,6 +4095,14 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         if let data = resultDefaults.data(forKey: resultsKey),
            let saved = try? JSONDecoder().decode([ParkingAltitudeResult].self, from: data) { results = saved }
         resultsLoaded = true
+    }
+
+    func reloadAfterRestore() {
+        cancelCapture()
+        completedResult = nil
+        results = []
+        resultsLoaded = false
+        loadResultsIfNeeded()
     }
 
     private func persistResults() {
@@ -3596,6 +4135,7 @@ final class BarometerSessionManager: NSObject, ObservableObject {
         guard captureArrivalDate.map({ arrival >= $0 }) ?? true else { return }
         capturePointID = pointID
         captureArrivalDate = arrival
+        if capture.hasStableStop { finishCapture() }
     }
 
     func bindResult(_ resultID: UUID, pointID: UUID, arrival: Date? = nil) {
@@ -3619,7 +4159,7 @@ final class BarometerSessionManager: NSObject, ObservableObject {
     }
 
     /// 低速/靜止樣本的最大車速 (km/h)
-    static let stationarySpeedThreshold: Double = 20.0
+    static let stationarySpeedThreshold = captureSpeedThreshold
 
     /// 移動平均平滑海拔數據，去除氣壓計噪音
     private func smoothAltitudes(_ alts: [Double], windowSize: Int = 5) -> [Double] {

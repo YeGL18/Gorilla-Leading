@@ -20,13 +20,14 @@ struct MapCameraMotion {
     private var cameraVelocity: Vector?
     private var correctionVelocity = Vector(east: 0, north: 0)
     private var isAcquiringTarget = true
+    private var displayOffset = CLLocationCoordinate2D(latitude: 0, longitude: 0)
 
     private struct Vector {
         var east: Double
         var north: Double
     }
 
-    mutating func update(_ location: CLLocation) {
+    mutating func update(_ location: CLLocation, displayCoordinate: CLLocationCoordinate2D? = nil) {
         guard CLLocationCoordinate2DIsValid(location.coordinate),
               location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100,
               sample == nil || location.timestamp > sample!.timestamp else { return }
@@ -42,6 +43,9 @@ struct MapCameraMotion {
         speed = location.speed >= 0 ? min(60, location.speed) : inferredSpeed
         course = location.course >= 0 ? location.course : inferredCourse
         sample = location
+        let display = displayCoordinate ?? location.coordinate
+        displayOffset = .init(latitude: display.latitude - location.coordinate.latitude,
+                              longitude: display.longitude - location.coordinate.longitude)
     }
 
     func coordinate(at date: Date) -> CLLocationCoordinate2D? {
@@ -55,7 +59,9 @@ struct MapCameraMotion {
         let projectedLat = asin(sin(lat) * cos(angularDistance) + cos(lat) * sin(angularDistance) * cos(bearing))
         let projectedLon = lon + atan2(sin(bearing) * sin(angularDistance) * cos(lat),
                                        cos(angularDistance) - sin(lat) * sin(projectedLat))
-        return .init(latitude: projectedLat * 180 / .pi, longitude: projectedLon * 180 / .pi)
+        // Convert once per fix; keep speed and distance in GPS space.
+        return .init(latitude: projectedLat * 180 / .pi + displayOffset.latitude,
+                     longitude: projectedLon * 180 / .pi + displayOffset.longitude)
     }
 
     mutating func resetCameraVelocity() {
@@ -137,5 +143,16 @@ struct MapCameraMotion {
         let a = from.latitude * .pi / 180, b = to.latitude * .pi / 180
         let delta = (to.longitude - from.longitude) * .pi / 180
         return atan2(sin(delta) * cos(b), cos(a) * sin(b) - sin(a) * cos(b) * cos(delta)) * 180 / .pi
+    }
+}
+
+/// Same exponential response while held and after release; speed falls with distance.
+enum ParkingMarkerMotion {
+    static func advance(from current: CLLocationCoordinate2D, to target: CLLocationCoordinate2D,
+                        frameDuration: TimeInterval = 1.0 / 60.0) -> CLLocationCoordinate2D {
+        let response = 1 - pow(1 - 0.18, max(0, frameDuration) * 60)
+        return CLLocationCoordinate2D(
+            latitude: current.latitude + (target.latitude - current.latitude) * response,
+            longitude: current.longitude + (target.longitude - current.longitude) * response)
     }
 }

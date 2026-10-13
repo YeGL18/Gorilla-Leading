@@ -3,5 +3,5 @@
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "訪問した場所と駐車位置を記録するために、常時位置情報を使用します。";
 "NSLocationWhenInUseUsageDescription" = "現在の速度を表示するために位置情報を使用します。";
 "NSMicrophoneUsageDescription" = "音声入力のためにマイクを使用します。";
-"NSMotionUsageDescription" = "駐車した階を検知するために動きと高度のデータを使用します。";
+"NSMotionUsageDescription" = "移動履歴から運転と歩行を識別し、高度データから駐車した階を検知します。";
 "NSSpeechRecognitionUsageDescription" = "音声を翻訳用の文字に変換するために音声認識を使用します。";

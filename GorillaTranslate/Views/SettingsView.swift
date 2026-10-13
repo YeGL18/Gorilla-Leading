@@ -10,6 +10,7 @@ struct SettingsView: View {
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
     @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 1
+    @AppStorage("capsuleDarkGlassEnabled") private var capsuleDarkGlassEnabled = true
     @AppStorage("highFrequencyTracking") var highFrequencyTracking: Bool = true
     @AppStorage("mapTrackingAnimation") var mapTrackingAnimation: Int = 1
     @AppStorage("speedBlurEnabled") private var speedBlurEnabled: Bool = true
@@ -23,9 +24,13 @@ struct SettingsView: View {
     @AppStorage("orbBackgroundSpeed") var orbBackgroundSpeed: Bool = true
     @AppStorage("orbColorPreset") var orbColorPreset: Int = 0  // 0=金黃, 1=動態橙, 2=#9BF783, 3=#99E695, 4=#97D5AB
     @AppStorage("orbOverlapGlowEnabled") var orbOverlapGlowEnabled: Bool = true
-    @AppStorage("darkKnightMode") var darkKnightMode: Bool = false
+    @AppStorage("orbCanvasDitherEnabled") private var orbCanvasDitherEnabled = true
+    @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    private var colorGroup: GorillaColorGroup {
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+    }
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
-    @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
     @AppStorage("floorConvention") private var floorConvention: Int = 2  // 0=香港, 1=內地, 2=自動
     @AppStorage("kalmanSmoothingEnabled") var kalmanSmoothingEnabled: Bool = true
@@ -131,7 +136,7 @@ struct SettingsView: View {
                                 .foregroundStyle(.primary)
                             Spacer()
                             Text({
-                                switch Bundle.main.preferredLocalizations.first {
+                                switch LanguageManager.languageCode {
                                 case "zh-Hant": "繁體中文"
                                 case "zh-Hans": "简体中文"
                                 case "ja": "日本語"
@@ -166,20 +171,24 @@ struct SettingsView: View {
 
                 // ── 3. 外觀 ──
                 Section {
+                    GorillaColorGroupPicker()
                     Picker(String(localized: "外觀模式"), selection: $appearanceMode) {
                         Text(String(localized: "System")).tag(0)
                         Text(String(localized: "Dark")).tag(1)
                         Text(String(localized: "Light")).tag(2)
                     }
+                    Picker(String(localized: "玻璃樣式"), selection: Binding(
+                        get: { capsuleDarkGlassEnabled || colorGroup.forcesDarkGlass },
+                        set: { if !colorGroup.forcesDarkGlass { capsuleDarkGlassEnabled = $0 } }
+                    )) {
+                        Text(String(localized: "透明")).tag(false)
+                        Text(String(localized: "深色玻璃")).tag(true)
+                    }
+                    .disabled(colorGroup.forcesDarkGlass)
                     Picker(String(localized: "膠囊動畫"), selection: $capsuleAnimationStyle) {
                         Text(String(localized: "標準")).tag(0)
                         Text(String(localized: "提升縮放")).tag(1)
                     }
-                    Picker(String(localized: "地圖風格"), selection: $mapStyleIndex) {
-                        Text(String(localized: "默認")).tag(0)
-                        Text(String(localized: "我的世界")).tag(1)
-                    }
-                    .pickerStyle(.segmented)
                     Toggle(isOn: $launchAnimationEnabled) {
                         Label(String(localized: "啟動動畫"), systemImage: "play.rectangle.on.rectangle")
                     }
@@ -188,6 +197,18 @@ struct SettingsView: View {
                 }
 
                 SoundSettingsSection()
+
+                Section {
+                    NavigationLink { VisitRecordingSettingsView() } label: {
+                        Label("Visit Recording", systemImage: "clock.arrow.circlepath")
+                    }
+                    NavigationLink { BackupToolsView() } label: {
+                        Label("Backup & Restore", systemImage: "externaldrive")
+                    }
+                    NavigationLink { PerformanceSessionView() } label: {
+                        Label("Performance Check", systemImage: "waveform.path.ecg")
+                    }
+                } header: { Text("Data & Diagnostics") }
 
                 // ── 4. 自定義顏色 ──
                 Section {
@@ -258,7 +279,7 @@ struct SettingsView: View {
                     Text(String(localized: "拍照後自動使用 VLM 識別車位號、樓層、區域代碼。關閉後拍照唔會觸發識別。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    Text(String(localized: "行車後降至 20 km/h 以下開始樓層探測；停穩 10 秒後詢問是否已泊好，未確認就繼續採樣，每隔 10 秒再問。只在前景採樣。"))
+                    Text(String(localized: "行車後降至 30 km/h 以下開始樓層探測；停穩 10 秒後詢問是否已泊好，未確認就繼續採樣，每隔 10 秒再問。只在前景採樣，離開時保留穩定停車估算。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                     HStack(spacing: 8) {
@@ -301,18 +322,8 @@ struct SettingsView: View {
                     Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。\n隱藏時速數字：連 km/h 單位一齊隱藏，其他顯示照舊。")
                 }
 
-                // ── 6.5 黑武士模式 ──
-                Section {
-                    Toggle(isOn: $darkKnightMode) {
-                        Label(String(localized: "黑武士模式"), systemImage: "moon.stars.fill")
-                    }
-                } header: {
-                    Text("黑武士模式")
-                } footer: {
-                    Text("純黑背景 + 金色點綴，時速超過 100 km/h 時金色變為橙紅色")
-                }
-
                 // ── 7. 光球效果 ──
+                if colorGroup.showsOrbControls {
                 Section {
                     Picker(String(localized: "光球配色"), selection: $colorSchemeIndex) {
                         Text(String(localized: "Default")).tag(0)
@@ -332,6 +343,10 @@ struct SettingsView: View {
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
                         if !useTimeBasedOrb {
+                            Picker(String(localized: "光球繪製方式"), selection: $orbCanvasDitherEnabled) {
+                                Text(String(localized: "原生模糊")).tag(false)
+                                Text("Canvas Symbols + Dither").tag(true)
+                            }
                             VStack(alignment: .leading, spacing: 8) {
                                 Text(String(localized: "光球混色"))
                                     .font(.subheadline)
@@ -437,8 +452,22 @@ struct SettingsView: View {
                 } header: {
                     Label(String(localized: "光球效果"), systemImage: "sparkles")
                 }
+                }
 
                 Section {
+                    NavigationLink {
+                        GorillaPageView()
+                    } label: {
+                        Label {
+                            Text("Gorilla")
+                        } icon: {
+                            Image(uiImage: GorillaBrand.tabIcon)
+                                .renderingMode(.template)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(width: 22, height: 22)
+                        }
+                    }
                     NavigationLink {
                         AboutGorillaLeadingView()
                     } label: {
@@ -687,8 +716,6 @@ private let allTestItems: [TestItemDef] = [
     TestItemDef(id: "llmTest", title: "泊車辨識測試 (LLM)", icon: "brain.head.profile") { AnyView(ParkingLLMRecognitionTestView()) },
     TestItemDef(id: "liveActivity", title: "即時活動樣式預覽", icon: "iphone.and.dynamicIsland") { AnyView(LiveActivityPreviewTestView()) },
     TestItemDef(id: "kalmanTest", title: "卡爾曼濾波對比測試", icon: "waveform.path.ecg") { AnyView(KalmanFilterTestView()) },
-    TestItemDef(id: "routeSim", title: "路線模擬測試", icon: "road.lanes") { AnyView(LaneNavigationTestView()) },
-    TestItemDef(id: "amapNavi", title: "高德原生導航測試", icon: "map.fill") { AnyView(AmapNaviTestView()) },
     TestItemDef(id: "prediction", title: "預測目的地測試", icon: "brain.head.profile") { AnyView(PredictionTestView()) },
 ]
 
@@ -900,11 +927,11 @@ struct ParkingFlowTestView: View {
     }
 
     private func floors(in lot: ParkingLotRecord) -> [Int] {
-        Set(lot.points.compactMap { $0.manualFloorIndex ?? $0.predictedFloorIndex }).sorted(by: >)
+        Set(lot.points.filter(\.isAutomotive).compactMap(\.effectiveFloorIndex)).sorted(by: >)
     }
 
     private func points(in lot: ParkingLotRecord, floor: Int) -> [ParkingPointRecord] {
-        lot.points.filter { ($0.manualFloorIndex ?? $0.predictedFloorIndex) == floor }
+        lot.points.filter { $0.isAutomotive && $0.effectiveFloorIndex == floor }
             .sorted { $0.createdAt > $1.createdAt }
     }
 
@@ -917,12 +944,15 @@ struct ParkingFlowTestView: View {
                     .foregroundStyle(point.isAutomotive ? Color.green : Color.teal)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(point.createdAt, format: .dateTime.month().day().hour().minute())
-                    Text(point.manualFloorIndex != nil ? String(localized: "已手動確認") : String(localized: "估算樓層"))
-                        .font(.caption).foregroundStyle(.secondary)
+                    if point.isAutomotive {
+                        Text(point.floorStatusLabel).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
                 Spacer()
-                Text(point.displayFloor ?? String(localized: "未知"))
-                    .monospacedDigit().foregroundStyle(.secondary)
+                if point.isAutomotive {
+                    Text(point.displayFloor ?? String(localized: "未知"))
+                        .monospacedDigit().foregroundStyle(.secondary)
+                }
             }
         }
     }
@@ -1000,30 +1030,37 @@ struct ParkingPointDiagnosticsView: View {
                 Section {
                     Map(initialPosition: .region(MKCoordinateRegion(center: point.coordinate,
                         latitudinalMeters: 240, longitudinalMeters: 240)), interactionModes: []) {
-                        Marker(point.displayFloor ?? String(localized: "停車點"), coordinate: point.coordinate)
+                        Marker(point.isAutomotive ? (point.displayFloor ?? String(localized: "停車點")) : String(localized: "逗留點"), coordinate: point.coordinate)
                     }
                     .frame(height: 200).listRowInsets(EdgeInsets())
                     LabeledContent(String(localized: "建立"), value: point.createdAt.formatted())
-                    Stepper(value: Binding(
-                        get: { self.point?.manualFloorIndex ?? self.point?.predictedFloorIndex ?? 0 },
-                        set: { store.setManualFloor(pointID: pointID, floorIndex: $0) }
-                    ), in: -10...30) {
-                        LabeledContent(String(localized: "樓層"), value: point.displayFloor ?? String(localized: "未知"))
+                    if point.isAutomotive {
+                        Stepper(value: Binding(
+                            get: { self.point?.manualFloorIndex ?? self.point?.predictedFloorIndex ?? 0 },
+                            set: { store.setManualFloor(pointID: pointID, floorIndex: $0) }
+                        ), in: -10...30) {
+                            LabeledContent(String(localized: "樓層"), value: point.displayFloor ?? String(localized: "未知"))
+                        }
                     }
                 }
-                Section(String(localized: "氣壓探測")) {
-                    Stepper(value: Binding(
-                        get: { self.point?.barometerReferenceFloorIndex ?? 0 },
-                        set: { store.setReferenceFloor(pointID: pointID, floor: $0) }
-                    ), in: -10...30) {
-                        LabeledContent(String(localized: "起點樓層"),
-                                       value: ParkingFloorStore.formatFloor(point.barometerReferenceFloorIndex ?? 0))
+                if point.isAutomotive {
+                    Section(String(localized: "氣壓探測")) {
+                        Stepper(value: Binding(
+                            get: { self.point?.barometerReferenceFloorIndex ?? 0 },
+                            set: { store.setReferenceFloor(pointID: pointID, floor: $0) }
+                        ), in: -10...30) {
+                            LabeledContent(String(localized: "起點樓層"),
+                                           value: ParkingFloorStore.formatFloor(point.barometerReferenceFloorIndex ?? 0))
+                        }
+                        LabeledContent(String(localized: "高度變化"),
+                                       value: point.barometerAltitudeDeltaMeters.map { String(format: "%+.1f m", $0) } ?? "—")
+                        LabeledContent(String(localized: "已緩存樣本"), value: "\(point.barometerSampleCount ?? 0)")
+                        LabeledContent(String(localized: "校準資料"), value: String(localized:
+                            point.barometerCalibrationEligible == true ? "完整採樣" :
+                                (point.barometerCalibrationEligible == false ? "採樣不完整" : "完整性未確認")))
+                        LabeledContent(String(localized: "信心度"),
+                                       value: point.confidence.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
                     }
-                    LabeledContent(String(localized: "高度變化"),
-                                   value: point.barometerAltitudeDeltaMeters.map { String(format: "%+.1f m", $0) } ?? "—")
-                    LabeledContent(String(localized: "已緩存樣本"), value: "\(point.barometerSampleCount ?? 0)")
-                    LabeledContent(String(localized: "信心度"),
-                                   value: point.confidence.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
                 }
                 Section(String(localized: "位置")) {
                     LabeledContent(String(localized: "中心"), value: String(format: "%.6f, %.6f", point.latitude, point.longitude))
@@ -1073,11 +1110,22 @@ struct ParkingLotDetailView: View {
                 Text(String(localized: "同位置的上落客區與地下停車場可分別設定歸納樓層；跨樓層停車場選擇所有樓層。"))
             }
             Section(String(localized: "樓層校準")) {
-                LabeledContent(String(localized: "每層高度"),
-                    value: liveLot.learnedMetersPerFloor.map { String(format: "%.2f m", $0) } ?? "—")
+                if let height = liveLot.learnedMetersPerFloor {
+                    LabeledContent(String(localized: "每層高度"), value: String(format: "%.2f m", height))
+                }
                 LabeledContent(String(localized: "信心度"),
                     value: liveLot.learnedConfidence.map { String(format: "%.0f%%", $0 * 100) } ?? "—")
-                if let history = liveLot.floorLearningHistory, !history.isEmpty {
+                let history = parkingFloorStore.calibrationHistory(for: liveLot)
+                let profiles = ParkingFloorCalibration.profiles(history)
+                ForEach(profiles) { profile in
+                    LabeledContent(ParkingFloorStore.formatFloor(profile.floor, coordinate: liveLot.centerCoordinate),
+                                   value: String(format: "%+.2f m · %.0f%%", profile.height, profile.confidence * 100))
+                }
+                let excludedCount = (liveLot.floorLearningHistory ?? []).count - history.count
+                if excludedCount > 0 {
+                    LabeledContent(String(localized: "未納入校準"), value: "\(excludedCount)")
+                }
+                if !history.isEmpty {
                     Chart(Array(history.enumerated()), id: \.offset) { entry in
                         PointMark(x: .value("Floors", entry.element.travelledFloors),
                                   y: .value("Height", entry.element.altitudeDeltaMeters))
@@ -1109,8 +1157,10 @@ struct ParkingLotDetailView: View {
                         HStack {
                             Text(point.createdAt, format: .dateTime.month().day().hour().minute())
                             Spacer()
-                            Text(point.displayFloor ?? String(localized: "未知"))
-                                .foregroundStyle(.secondary).monospacedDigit()
+                            if point.isAutomotive {
+                                Text(point.displayFloor ?? String(localized: "未知"))
+                                    .foregroundStyle(.secondary).monospacedDigit()
+                            }
                         }
                     }
                 }
@@ -1561,7 +1611,7 @@ struct AltimeterTestView: View {
             Section {
                 windowRow(label: "① 到達時間窗口", sublabel: "前4分+後1分",
                           window: window1, threshold: 3)
-                windowRow(label: "② 靜止樣本窗口", sublabel: "最近2分, <20km/h",
+                windowRow(label: "② 靜止樣本窗口", sublabel: "最近2分, <30km/h",
                           window: window2, threshold: 3)
                 windowRow(label: "③ 全部樣本窗口", sublabel: "最近2分, 不限速度",
                           window: window3, threshold: 3)
@@ -1698,7 +1748,7 @@ struct AltimeterTestView: View {
             compactRow("車速", value: gpsIsStale
                        ? String(format: "%.0f（滯留）", barometer.currentSpeedKmh)
                        : String(format: "%.1f km/h", barometer.currentSpeedKmh),
-                       color: gpsIsStale ? .orange : (effectiveSpeed < 20 ? .green : .red))
+                       color: gpsIsStale ? .orange : (effectiveSpeed < BarometerSessionManager.captureSpeedThreshold ? .green : .red))
             compactRow("GPS", value: gpsIsStale
                        ? String(format: "失效 %.0fs", speedAge)
                        : String(format: "正常 %.0fs", speedAge),
@@ -1869,7 +1919,7 @@ struct AltimeterTestView: View {
             infoRow("當前車速", value: gpsIsStale
                     ? String(format: "%.0f km/h（滯留）", barometer.currentSpeedKmh)
                     : String(format: "%.1f km/h", barometer.currentSpeedKmh),
-                    color: gpsIsStale ? .orange : (effectiveSpeed < 20 ? .green : .red))
+                    color: gpsIsStale ? .orange : (effectiveSpeed < BarometerSessionManager.captureSpeedThreshold ? .green : .red))
             infoRow("GPS 狀態", value: gpsIsStale
                     ? String(format: "失效（%.0f 秒冇更新）", speedAge)
                     : String(format: "正常（%.0f 秒前更新）", speedAge),
@@ -2335,6 +2385,88 @@ private struct AltitudeChartView2: View {
     }
 }
 
+struct GorillaColorGroupPicker: View {
+    @AppStorage("colorGroupMode") private var raw = -1
+    @AppStorage("darkKnightMode") private var legacyDarkKnight = false
+    private var selection: Binding<Int> {
+        Binding(get: { GorillaColorGroup.resolve(raw: raw, legacyDarkKnight: legacyDarkKnight).rawValue },
+                set: { raw = $0; legacyDarkKnight = $0 == GorillaColorGroup.darkKnight.rawValue })
+    }
+
+    var body: some View {
+        Picker("Color Group Mode", selection: selection) {
+            ForEach(GorillaColorGroup.allCases, id: \.rawValue) { group in
+                Text(LocalizedStringKey(group.titleKey)).tag(group.rawValue)
+            }
+        }
+        .accessibilityIdentifier("colorGroupMode")
+        if selection.wrappedValue == GorillaColorGroup.m3Concept.rawValue {
+            HStack(spacing: 12) {
+                ForEach(M3ConceptPalette.all, id: \.self) { hex in
+                    RoundedRectangle(cornerRadius: 4)
+                        .fill(Color(hex: hex))
+                        .frame(width: 28, height: 28)
+                        .overlay(RoundedRectangle(cornerRadius: 4).stroke(.primary.opacity(0.15)))
+                        .accessibilityLabel("#" + hex)
+                }
+            }.accessibilityIdentifier("m3Palette")
+        }
+    }
+}
+
+struct VisitRecordingSettingsView: View {
+    @AppStorage("visitMinimumNewMinutes") private var minimumNew = 10
+    @AppStorage("visitMinimumActiveMinutes") private var minimumActive = 10
+    @AppStorage("visitActivateMinutes") private var activateAfter = 15
+    @AppStorage("visitMatchRadiusMeters") private var radius = 100
+    @AppStorage("visitMergeConsecutive") private var merge = true
+    @AppStorage("visitMergeMinutes") private var mergeMinutes = 20
+    @AppStorage("visitDeactivateDays") private var deactivateDays = 0
+
+    var body: some View {
+        List {
+            Section {
+                minutePicker("New Places", selection: $minimumNew)
+                minutePicker("Active Places", selection: $minimumActive)
+            } header: { Text("Minimum Visit Length") } footer: {
+                Text("Short completed stops are excluded from the timeline. Parking memory and its arrival timer remain immediate.")
+            }
+            Section {
+                minutePicker("Activate After", selection: $activateAfter)
+                Picker("Match Radius", selection: $radius) {
+                    ForEach([50, 100, 150, 200, 300], id: \.self) {
+                        Text(String(format: String(localized: "%lld m"), Int64($0))).tag($0)
+                    }
+                }
+                Picker("Deactivate After", selection: $deactivateDays) {
+                    Text("Never").tag(0)
+                    Text("30 days").tag(30)
+                    Text("90 days").tag(90)
+                    Text("1 year").tag(365)
+                }
+                LabeledContent("Match Rule", value: String(localized: "Nearest Active Place"))
+            } header: { Text("Active Places") } footer: {
+                Text("A new place becomes active after a qualifying stay. Future visits match the nearest active place within its radius; inactive places do not match.")
+            }
+            Section {
+                Toggle("Merge Consecutive Visits", isOn: $merge)
+                    .accessibilityIdentifier("visitMergeConsecutive")
+                minutePicker("Maximum Gap", selection: $mergeMinutes).disabled(!merge)
+            } footer: {
+                Text("Nearby consecutive visits can be joined across a short gap. Raw events remain available and changing these rules does not delete records or photos.")
+            }
+        }.navigationTitle("Visit Recording")
+    }
+
+    private func minutePicker(_ title: LocalizedStringKey, selection: Binding<Int>) -> some View {
+        Picker(title, selection: selection) {
+            ForEach([1, 3, 5, 10, 15, 20, 30, 60], id: \.self) {
+                Text(String(format: String(localized: "%lld min"), Int64($0))).tag($0)
+            }
+        }
+    }
+}
+
 struct VisitRecordsTestView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @State private var showEditSheet: Bool = false
@@ -2343,6 +2475,28 @@ struct VisitRecordsTestView: View {
     @State private var editIsAutomotive: Bool = true
     @State private var selectedDate: Date = Calendar.current.startOfDay(for: Date())
     @State private var showMap: Bool = false
+    @State private var showRawRecords = false
+    @State private var timelineNow = Date()
+    @State private var timelineEntries: [VisitTimeline.Entry] = []
+    @AppStorage("visitMinimumNewMinutes") private var minimumNew = 10
+    @AppStorage("visitMinimumActiveMinutes") private var minimumActive = 10
+    @AppStorage("visitActivateMinutes") private var activateAfter = 15
+    @AppStorage("visitMatchRadiusMeters") private var matchRadius = 100
+    @AppStorage("visitMergeConsecutive") private var mergeConsecutive = true
+    @AppStorage("visitMergeMinutes") private var mergeMinutes = 20
+    @AppStorage("visitDeactivateDays") private var deactivateDays = 0
+
+    private var timelineRules: VisitTimelineRules {
+        VisitTimelineRules(
+            newPlaceMinutes: minimumNew, activePlaceMinutes: minimumActive,
+            activateMinutes: activateAfter, radiusMeters: Double(matchRadius),
+            mergeConsecutive: mergeConsecutive, mergeMinutes: mergeMinutes,
+            deactivateDays: deactivateDays)
+    }
+
+    private func rebuildTimeline(_ records: [LocationManager.VisitRecord]? = nil) {
+        timelineEntries = VisitTimeline.make(records ?? locationManager.visits, rules: timelineRules, now: timelineNow)
+    }
 
     private let transportOptions = [
         ("Driving", "car.fill", "開車", true),
@@ -2405,11 +2559,22 @@ struct VisitRecordsTestView: View {
                 }
             }
         }
-        .navigationTitle("到訪記錄")
+        .navigationTitle(LocalizedStringKey(showRawRecords ? "Raw Visit Events" : "到訪記錄"))
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear { timelineNow = .now; rebuildTimeline() }
+        .onReceive(locationManager.$visits) { rebuildTimeline($0) }
+        .onChange(of: timelineRules) { _, _ in rebuildTimeline() }
+        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) {
+            timelineNow = $0
+            rebuildTimeline()
+        }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Menu {
+                    Button { showRawRecords.toggle() } label: {
+                        Label(LocalizedStringKey(showRawRecords ? "Visit Timeline" : "Raw Visit Events"),
+                              systemImage: showRawRecords ? "list.bullet" : "doc.text.magnifyingglass")
+                    }
                     Button {
                         showMap = true
                     } label: {
@@ -2435,7 +2600,7 @@ struct VisitRecordsTestView: View {
         let calendar = Calendar.current
         let startOfDay = selectedDate
         let endOfDay = calendar.date(byAdding: .day, value: 1, to: startOfDay) ?? startOfDay
-        return locationManager.visits
+        return (showRawRecords ? locationManager.visits : timelineEntries.map(\.record))
             .filter { visit in
                 // 跨日記錄兩日都要顯示（27 號尾條＋28 號頭條），所以用「重疊」篩選
                 // 而唔係淨看到達日；兩邊嘅跨日時間再用 +1/-1 標注
@@ -2574,7 +2739,7 @@ struct VisitRecordsTestView: View {
 
     private var dateTitle: String {
         let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: Bundle.main.preferredLocalizations.first ?? "en")
+        formatter.locale = LanguageManager.locale
         formatter.setLocalizedDateFormatFromTemplate("MMMMdEEEE")
         return formatter.string(from: selectedDate)
     }
@@ -2608,6 +2773,9 @@ struct VisitRecordsTestView: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
+                if !showRawRecords && timelineEntries.contains(where: { $0.id == visit.id && $0.candidate }) {
+                    Text("Candidate Visit").font(.caption).foregroundStyle(.secondary)
+                }
 
                 // 時間範圍（跨日時間加 +1/-1 標注）
                 HStack(spacing: 4) {
@@ -2639,7 +2807,7 @@ struct VisitRecordsTestView: View {
                     Circle()
                         .fill(visit.isAutomotive ? .green : .red)
                         .frame(width: 6, height: 6)
-                    Text(visit.isAutomotive ? "開車到達" : "非開車到達")
+                    Text(LocalizedStringKey(visit.transportType == "Unknown" ? "Transport Pending" : (visit.isAutomotive ? "開車到達" : "非開車到達")))
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(visit.isAutomotive ? .green : .red)
                 }
@@ -2698,7 +2866,7 @@ struct VisitRecordsTestView: View {
         // 重疊／壞數據（負數）就唔顯示行程行
         if gap > 0 {
             let items = gapStart.map { tripSegmentItems(from: $0, to: to.arrivalDate) }
-                ?? [TripSegmentItem(icon: "questionmark.circle", text: String(localized: "離場時間未記錄"))]
+                ?? [TripSegmentItem(icon: "clock", text: String(localized: "離場時間未記錄"))]
             HStack(alignment: .top, spacing: 24) {
                 // 左側連接線
                 Rectangle()
@@ -2706,26 +2874,13 @@ struct VisitRecordsTestView: View {
                     .frame(width: 2)
                     .frame(minHeight: 30)
 
-                // 分段流式：🚗33min ▶ 🚶1min ▶ 🚗3min ▶ 🚶12min（一行唔夠位自然換行）
-                FlowLayout(spacing: 10, lineSpacing: 10) {
-                    ForEach(Array(items.enumerated()), id: \.offset) { index, item in
-                        if index > 0 {
-                            Image(systemName: "triangle.fill")
-                                .font(.system(size: 7))
-                                .foregroundStyle(.secondary.opacity(0.45))
-                                .padding(.top, 3)
-                        }
-                        HStack(spacing: 6) {
-                            Image(systemName: item.icon)
-                                .font(.system(size: 13, weight: .medium))
-                            Text(item.text)
-                                .font(.system(size: 14))
-                        }
-                        .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 6) {
+                    if let gapStart {
+                        Text(String(localized: "Journey") + " · " + LocationManager.VisitRecord.formatSpan(to.arrivalDate.timeIntervalSince(gapStart)))
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                }
-
-                Spacer(minLength: 0)
+                    if !items.isEmpty { TripSegmentSummary(items: items) }
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.leading, 34)
             .padding(.vertical, 10)
@@ -2734,17 +2889,17 @@ struct VisitRecordsTestView: View {
 
     /// 行程分段以兩次到訪之間的實際窗口為準；重疊或缺失的偵測不猜交通方式。
     private func tripSegmentItems(from: Date, to: Date) -> [TripSegmentItem] {
-        let segs = locationManager.tripTimeline(from: from, to: to)
+        let segs = locationManager.tripDisplayTimeline(from: from, to: to)
+            .filter { $0.isMovement && $0.resolvedEnd.timeIntervalSince($0.start) >= 60 }
         guard !segs.isEmpty else {
-            return [TripSegmentItem(
-                icon: "questionmark.circle",
-                text: LocationManager.VisitRecord.formatSpan(to.timeIntervalSince(from))
-            )]
+            return []
         }
         return segs.map {
-            TripSegmentItem(
+            let duration = LocationManager.VisitRecord.formatSpan($0.resolvedEnd.timeIntervalSince($0.start))
+            let text = $0.mode == "Unknown" ? String(localized: "交通方式未明") + " · " + duration : duration
+            return TripSegmentItem(
                 icon: tripSegmentIcon($0.mode),
-                text: LocationManager.VisitRecord.formatSpan($0.resolvedEnd.timeIntervalSince($0.start))
+                text: text
             )
         }
     }
@@ -2756,7 +2911,7 @@ struct VisitRecordsTestView: View {
         case "Cycling": return "bicycle"
         case "Running": return "figure.run"
         case "Stationary": return "pause.fill"
-        default: return "questionmark.circle"
+        default: return "ellipsis"
         }
     }
 
@@ -2828,22 +2983,18 @@ struct VisitRecordsTestView: View {
     @EnvironmentObject private var parkingFloorStore: ParkingFloorStore
 
     private func saveTransportChange(visitID: UUID) {
-        guard let idx = locationManager.visits.firstIndex(where: { $0.id == visitID }) else { return }
-        let visit = locationManager.visits[idx]
-        // 更新 transportType 和 isAutomotive
-        locationManager.visits[idx] = LocationManager.VisitRecord(
-            id: visit.id,
-            address: visit.address,
-            latitude: visit.latitude,
-            longitude: visit.longitude,
-            arrivalDate: visit.arrivalDate,
-            departureDate: visit.departureDate,
-            transportType: editTransportType,
-            isAutomotive: editIsAutomotive
-        )
+        let sourceIDs = Set(showRawRecords ? [visitID] : (timelineEntries.first { $0.id == visitID }?.sourceIDs ?? [visitID]))
+        for idx in locationManager.visits.indices where sourceIDs.contains(locationManager.visits[idx].id) {
+            let visit = locationManager.visits[idx]
+            locationManager.visits[idx] = LocationManager.VisitRecord(
+                id: visit.id, address: visit.address, latitude: visit.latitude, longitude: visit.longitude,
+                arrivalDate: visit.arrivalDate, departureDate: visit.departureDate,
+                transportType: editTransportType, isAutomotive: editIsAutomotive,
+                horizontalAccuracy: visit.horizontalAccuracy, transportManuallySet: true
+            )
+            parkingFloorStore.updateAutomotiveFlag(createdAt: visit.arrivalDate, isAutomotive: editIsAutomotive)
+        }
         locationManager.saveVisits()
-        // 同步更新地圖標記的 isAutomotive
-        parkingFloorStore.updateAutomotiveFlag(createdAt: visit.arrivalDate, isAutomotive: editIsAutomotive)
     }
 
     // MARK: - Helpers
@@ -2868,6 +3019,36 @@ private struct TripSegmentItem: Identifiable {
     let id = UUID()
     let icon: String
     let text: String
+}
+
+private struct TripSegmentSummary: View {
+    let items: [TripSegmentItem]
+
+    var body: some View {
+        FlowLayout(spacing: 12, lineSpacing: 8) {
+            ForEach(Array(items.enumerated()), id: \.offset) { index, item in
+                HStack(alignment: .center, spacing: 6) {
+                    if index > 0 {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 8, weight: .semibold))
+                            .foregroundStyle(.secondary.opacity(0.5))
+                            .frame(width: 8, height: 18)
+                            .accessibilityHidden(true)
+                    }
+                    Image(systemName: item.icon)
+                        .font(.system(size: 13, weight: .medium))
+                        .frame(width: 18, height: 18)
+                    Text(item.text)
+                        .font(.system(size: 14))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                }
+                .foregroundStyle(.secondary)
+                .frame(minHeight: 24)
+                .accessibilityElement(children: .combine)
+            }
+        }
+    }
 }
 
 /// 簡單換行流式佈局：行程分段一行唔夠位就自然換行（同參考圖一致）
@@ -2898,7 +3079,7 @@ struct FlowLayout: Layout {
         var lineHeight: CGFloat = 0
         var totalWidth: CGFloat = 0
         for subview in subviews {
-            let size = subview.sizeThatFits(.unspecified)
+            let size = subview.sizeThatFits(ProposedViewSize(width: maxWidth.isFinite ? maxWidth : nil, height: nil))
             if x > 0, x + size.width > maxWidth {
                 x = 0
                 y += lineHeight + lineSpacing
@@ -2910,11 +3091,14 @@ struct FlowLayout: Layout {
             lineHeight = max(lineHeight, size.height)
             totalWidth = max(totalWidth, x - spacing)
         }
-        return (CGSize(width: min(totalWidth, maxWidth), height: y + lineHeight), positions, sizes)
+        // Keep measurement and placement at the same width; shrinking to the
+        // widest row can cause extra wraps without reserving their height.
+        return (CGSize(width: maxWidth.isFinite ? maxWidth : totalWidth, height: y + lineHeight), positions, sizes)
     }
 }
 
 struct TimeOrbAnimationTestView: View {
+    @EnvironmentObject private var locationManager: LocationManager
     @State private var timePreviewHour: Double = Double(Calendar.current.component(.hour, from: Date()))
     @State private var isAutoPlaying = false
     @State private var autoPlayTimer: Timer?
@@ -2923,13 +3107,13 @@ struct TimeOrbAnimationTestView: View {
 
     private var phaseName: String {
         switch previewPhaseManager.currentPhase {
-        case .deepNight:   return "深夜"
-        case .preDawn:     return "黎明前"
-        case .sunrise:     return "日出"
-        case .morning:     return "日出後"
-        case .afternoon:   return "下午"
-        case .postSunset:  return "傍晚"
-        case .sunset:      return "日落"
+        case .deepNight:   return String(localized: "深夜")
+        case .preDawn:     return String(localized: "黎明前")
+        case .sunrise:     return String(localized: "日出")
+        case .morning:     return String(localized: "日出後")
+        case .afternoon:   return String(localized: "下午")
+        case .postSunset:  return String(localized: "傍晚")
+        case .sunset:      return String(localized: "日落")
         }
     }
 
@@ -2952,7 +3136,7 @@ struct TimeOrbAnimationTestView: View {
                     HStack {
                         Text("預覽時間")
                         Spacer()
-                        Text("\(Int(timePreviewHour)):00")
+                        Text(formattedHour(timePreviewHour))
                             .foregroundStyle(isAutoPlaying ? .orange : .secondary)
                             .monospacedDigit()
                     }
@@ -2966,7 +3150,8 @@ struct TimeOrbAnimationTestView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(.primary)
                         if previewPhaseManager.phaseTransitionProgress > 0 {
-                            Text("→ 漸變中 \(Int(previewPhaseManager.phaseTransitionProgress * 100))%")
+                            Text(String(format: String(localized: "→ 漸變中 %d%%"),
+                                        Int(previewPhaseManager.phaseTransitionProgress * 100)))
                                 .font(.caption)
                                 .foregroundStyle(.secondary)
                         }
@@ -2996,6 +3181,24 @@ struct TimeOrbAnimationTestView: View {
 
                     // 階段時間軸
                     phaseTimeline
+                    HStack {
+                        Label("日出", systemImage: "sunrise")
+                        Text(formattedHour(previewPhaseManager.schedule.sunriseHour))
+                        Spacer()
+                        Label("日落", systemImage: "sunset")
+                        Text(formattedHour(previewPhaseManager.schedule.sunsetHour))
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .monospacedDigit()
+
+                    if !previewPhaseManager.hasActualSunTimes {
+                        Text("暫用預設時間，等待定位或日出日落資料")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Link("Sunrise-Sunset.org", destination: URL(string: "https://sunrise-sunset.org")!)
+                        .font(.caption)
 
                     GeometryReader { geo in
                         let phoneHeight = geo.size.width * (19.5 / 9.0)
@@ -3019,20 +3222,21 @@ struct TimeOrbAnimationTestView: View {
         }
         .navigationTitle("時程光球動畫測試")
         .navigationBarTitleDisplayMode(.inline)
+        .onReceive(locationManager.$lastLocation) { location in
+            guard let location, location.horizontalAccuracy >= 0 else { return }
+            previewPhaseManager.fetchSunTimes(for: location.coordinate)
+        }
     }
 
     // MARK: - 階段時間軸
 
+    private func formattedHour(_ hour: Double) -> String {
+        let minutes = Int((hour * 60).rounded())
+        return String(format: "%02d:%02d", minutes / 60, minutes % 60)
+    }
+
     private var phaseTimeline: some View {
-        let phases: [(String, Color, Double)] = [
-            ("深夜",   Color(hex: "1A1E2E") ?? .black,  0),
-            ("黎明前", Color(hex: "927F6B") ?? .gray,   4),
-            ("日出",   Color(hex: "DCAC70") ?? .orange,  5),
-            ("日出後", Color(hex: "83A3C3") ?? .blue,    7),
-            ("下午",   Color(hex: "87A3C7") ?? .blue,   12),
-            ("傍晚",   Color(hex: "F79D6C") ?? .orange, 17),
-            ("日落",   Color(hex: "926361") ?? .red,    18),
-        ]
+        let segments = previewPhaseManager.schedule.segments
         return VStack(spacing: 4) {
             // 色條
             GeometryReader { geo in
@@ -3040,12 +3244,11 @@ struct TimeOrbAnimationTestView: View {
                 let h: CGFloat = 8
                 ZStack(alignment: .leading) {
                     // 背景色塊
-                    HStack(spacing: 1) {
-                        ForEach(0..<phases.count, id: \.self) { i in
-                            let nextEnd = (i + 1 < phases.count) ? phases[i + 1].2 : 24
-                            let duration = nextEnd - phases[i].2
-                            phases[i].1
-                                .frame(width: max(0, w * duration / 24))
+                    HStack(spacing: 0) {
+                        ForEach(segments.indices, id: \.self) { i in
+                            let segment = segments[i]
+                            segment.phase.colors.background3
+                                .frame(width: w * (segment.end - segment.start) / 24)
                         }
                     }
                     .clipShape(Capsule())
@@ -3111,37 +3314,29 @@ struct SpeedAnimationTestView: View {
     @StateObject private var sfxPlayer = SFXPlayer()
     @State private var sfxEnabled = true
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
-    @AppStorage("darkKnightMode") private var darkKnightMode: Bool = false
+    @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
+    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
+    @AppStorage("orbColorPreset") private var orbColorPreset = 0
+    private var colorGroup: GorillaColorGroup {
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+    }
     @State private var accelArmedFromStop: Bool = true
     @State private var lastSpeedSample: Double = 0
     @State private var lastSpeedSampleAt: Date = Date()
     @State private var accelerationCooldownUntil: Date = .distantPast
 
     private var speedColor: Color {
-        let gold = Color(hex: "FFC46D") ?? .yellow
-        let red = Color(hex: "FF4500") ?? .red
-        if darkKnightMode && simSpeed > 100 {
-            let t = min(1, (simSpeed - 100) / 100)
-            return Color.blend(from: gold, to: red, amount: t)
-        }
-        return gold
+        Color(hex: dotColorHex)
     }
 
     private var dotColorHex: String {
-        if !darkKnightMode { return "#ffd700" }
-        if simSpeed <= 100 { return "#FFC46D" }
-        // 100-200 之間漸變到紅色
-        let t = min(1.0, (simSpeed - 100) / 100)
-        let r = Int(255)
-        let g = Int(196 * (1 - t) + 69 * t)
-        let b = Int(109 * (1 - t))
-        return String(format: "#%02x%02x%02x", r, g, b)
+        colorGroup.dotColorHex(speed: simSpeed, preset: orbColorPreset)
     }
 
     var body: some View {
         List {
             Section {
-                Toggle("黑武士模式", isOn: $darkKnightMode)
+                GorillaColorGroupPicker()
                 Toggle("測試音效", isOn: $sfxEnabled)
                 
                 HStack(spacing: 12) {
@@ -3173,7 +3368,8 @@ struct SpeedAnimationTestView: View {
                 DotMatrixView(speed: $simSpeed, accentColor: speedColor, dynamicColorHex: dotColorHex)
                     .frame(minHeight: 360)
                     .listRowInsets(EdgeInsets())
-                    .listRowBackground(darkKnightMode ? Color.black : Color.clear)
+                    .listRowBackground(colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.black)
+                        : (colorGroup == .darkKnight ? Color.black : Color.clear))
             }
         }
         .onChange(of: simSpeed) { _, newSpeed in
@@ -3922,11 +4118,10 @@ struct PlaceManagementView: View {
                         }
 
                         // 候選目的地
-                        let total = rec.candidates.values.reduce(0) { $0 + $1.hitCount }
                         let scored = rec.candidates.values
                             .map { (c: TripNextCandidate) -> (String, Int, Double, Double) in
                                 let score = c.effectiveScore
-                                let conf = total > 0 ? Double(c.hitCount) / Double(total) : 0
+                                let conf = rec.confidence(for: c)
                                 return (c.toPlaceKey, c.hitCount, conf, score)
                             }
                             .sorted { $0.2 > $1.2 }
@@ -7930,6 +8125,8 @@ struct InlineCurveContent: View {
     let h: CGFloat
     let accentColor: Color
     let carIconName: String
+    var floorHeights: [(floor: Int, height: CGFloat)] = []
+    var referenceFloor: Int = 0
 
     /// 左側樓層標籤寬度
     private let labelWidth: CGFloat = 28
@@ -7994,13 +8191,22 @@ struct InlineCurveContent: View {
         let topAlt = mid + range
         let bottomAlt = mid - range
 
+        if !floorHeights.isEmpty {
+            var calibrated = floorHeights
+            if !calibrated.contains(where: { $0.floor == referenceFloor }) {
+                calibrated.append((floor: referenceFloor, height: 0))
+            }
+            return calibrated.filter { $0.height >= bottomAlt - 0.5 && $0.height <= topAlt + 0.5 }
+                .map { ($0.floor, ParkingFloorStore.formatFloor($0.floor), $0.height) }
+        }
+
         var floors: [(Int, String, CGFloat)] = []
         let floorMin = Int(floor(bottomAlt / oneFloorMeters))
         let floorMax = Int(ceil(topAlt / oneFloorMeters))
         for f in floorMin...floorMax {
             let alt = CGFloat(f) * oneFloorMeters
             if alt >= bottomAlt - 0.5 && alt <= topAlt + 0.5 {
-                floors.append((f, ParkingFloorStore.formatFloor(f), alt))
+                floors.append((f, String(format: "%.0fm", Double(alt)), alt))
             }
         }
         return floors

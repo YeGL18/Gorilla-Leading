@@ -38,7 +38,7 @@ final class GorillaActivityManager {
         }
 
         var content = newState
-        content.languageCode = Bundle.main.preferredLocalizations.first ?? "en"
+        content.languageCode = LanguageManager.languageCode
         if forceRefresh {
             content.renderNonce = Int(Date().timeIntervalSince1970)
         }
@@ -81,6 +81,14 @@ final class GorillaActivityManager {
     }
 
     /// Ends the Live Activity (parking session over).
+    func resetForRestore() async {
+        for running in Activity<GorillaActivityAttributes>.activities {
+            await running.end(nil, dismissalPolicy: .immediate)
+        }
+        activity = nil
+        lastState = nil
+    }
+
     func end() {
         guard let activity else { return }
         Task {

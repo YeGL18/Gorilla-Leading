@@ -2,6 +2,21 @@ import SwiftUI
 import UserNotifications
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
+        // A visit can relaunch us while locked, before SwiftUI creates any foreground view.
+        if !UIApplication.shared.isProtectedDataAvailable {
+            // Locked background launches must still receive and queue native visits.
+            _ = LocationManager.shared
+        } else {
+            _ = prepareAppStoresIfAvailable()
+        }
+        return true
+    }
+
+    func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {
+        prepareAppStoresIfAvailable()
+    }
+
     func application(_ application: UIApplication, supportedInterfaceOrientationsFor window: UIWindow?) -> UIInterfaceOrientationMask {
         .all
     }
@@ -14,6 +29,30 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     }
 }
 
+/// Foreground UI and background location launches share the same protected-data gate.
+@MainActor
+private func prepareAppStoresIfAvailable() -> Bool {
+    guard UIApplication.shared.isProtectedDataAvailable else { return false }
+    LanguageManager.refresh()
+    do { try BackupController.transaction.recoverIfNeeded() }
+    catch { return false }
+    // Never interpret inaccessible preferences as a fresh installation, or start
+    // location callbacks that could save empty stores before hydration finishes.
+    LanguageManager.migrateLegacyOverride()
+    let defaults = UserDefaults.standard
+    let onboardingKey = "hasCompletedLeadingOnboarding"
+    let bundleID = Bundle.main.bundleIdentifier ?? "com.gorilla.translation"
+    let persistedDomain = defaults.persistentDomain(forName: bundleID) ?? [:]
+    if persistedDomain[onboardingKey] == nil {
+        defaults.set(!persistedDomain.isEmpty, forKey: onboardingKey)
+    }
+    DestinationManager.shared.prepare()
+    ParkingFloorStore.shared.prepare()
+    TripPredictor.shared.prepare()
+    LocationManager.shared.prepare()
+    return true
+}
+
 @main
 struct GorillaTranslateApp: App {
     init() {
@@ -24,7 +63,8 @@ struct GorillaTranslateApp: App {
             "sfxAccelerationEnabled": false,
             "orbCapsule": false,
             "orbExpanded": false,
-            "orbParkingMemory": false
+            "orbParkingMemory": false,
+            "orbCanvasDitherEnabled": true
         ])
     }
 
@@ -41,13 +81,23 @@ private struct ProtectedStartupView: View {
     let appDelegate: AppDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var ready = false
+    @State private var recoveryFailed = false
+    @State private var languageCode = "en"
 
     var body: some View {
         Group {
             if ready {
                 GorillaRootView(appDelegate: appDelegate)
+                    .environment(\.locale, Locale(identifier: languageCode))
+                    .id(languageCode)
             } else {
-                Color(uiColor: .systemBackground).ignoresSafeArea()
+                if recoveryFailed {
+                    ContentUnavailableView {
+                        Label("Restore Recovery", systemImage: "externaldrive.badge.exclamationmark")
+                    } description: {
+                        Text("Your records have not been opened. Retry recovery before using the app.")
+                    } actions: { Button("Retry") { prepareIfAvailable() } }
+                } else { Color(uiColor: .systemBackground).ignoresSafeArea() }
             }
         }
         .onAppear(perform: prepareIfAvailable)
@@ -60,20 +110,14 @@ private struct ProtectedStartupView: View {
     }
 
     private func prepareIfAvailable() {
-        guard !ready, UIApplication.shared.isProtectedDataAvailable else { return }
-        // Never interpret inaccessible preferences as a fresh installation, or start
-        // location callbacks that could save empty stores before hydration finishes.
-        LanguageManager.migrateLegacyOverride()
-        let defaults = UserDefaults.standard
-        let onboardingKey = "hasCompletedLeadingOnboarding"
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.gorilla.translation"
-        let persistedDomain = defaults.persistentDomain(forName: bundleID) ?? [:]
-        if persistedDomain[onboardingKey] == nil {
-            defaults.set(!persistedDomain.isEmpty, forKey: onboardingKey)
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        if ready {
+            LanguageManager.refresh()
+            languageCode = LanguageManager.languageCode
+            return
         }
-        DestinationManager.shared.prepare()
-        ParkingFloorStore.shared.prepare()
-        TripPredictor.shared.prepare()
+        guard prepareAppStoresIfAvailable() else { recoveryFailed = true; return }
+        languageCode = LanguageManager.languageCode
         ready = true
     }
 }
@@ -81,8 +125,9 @@ private struct ProtectedStartupView: View {
 private struct GorillaRootView: View {
     let appDelegate: AppDelegate
     @StateObject private var destinationManager = DestinationManager.shared
-    @StateObject private var locationManager = LocationManager()
+    @StateObject private var locationManager = LocationManager.shared
     @StateObject private var parkingFloorStore = ParkingFloorStore.shared
+    @ObservedObject private var backupController = BackupController.shared
     @State private var bootstrapped = false
     @State private var showSplash = true
     @State private var splashDone = false
@@ -116,8 +161,18 @@ private struct GorillaRootView: View {
     var body: some View {
             ZStack {
                 Group {
-                    if !shouldShowOnboarding {
+                    if backupController.recoveryRequired {
+                        ContentUnavailableView {
+                            Label("Restore Recovery", systemImage: "externaldrive.badge.exclamationmark")
+                        } description: {
+                            Text("Your records have not been opened. Retry recovery before using the app.")
+                        } actions: { Button("Retry") { backupController.retryRecovery() } }
+                    } else if backupController.restoring {
+                        ProgressView("Restoring Backup")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    } else if !shouldShowOnboarding {
                         ContentView()
+                            .id(backupController.generation)
                             .environmentObject(destinationManager)
                             .environmentObject(locationManager)
                             .environmentObject(parkingFloorStore)
@@ -159,11 +214,13 @@ private struct GorillaRootView: View {
                     .zIndex(2)
                 }
             }
+            .alert("Backup & Restore", isPresented: Binding(get: { backupController.restoreMessage != nil },
+                set: { if !$0 { backupController.restoreMessage = nil } })) {
+                    Button("確定", role: .cancel) { backupController.restoreMessage = nil }
+                } message: { Text(backupController.restoreMessage ?? "") }
             .onAppear {
                 guard !bootstrapped else { return }
                 bootstrapped = true
-
-                AMapConfig.shared.configure()
 
                 let launchAnimEnabled = UserDefaults.standard.object(forKey: "launchAnimationEnabled") as? Bool ?? true
                 if !launchAnimEnabled {

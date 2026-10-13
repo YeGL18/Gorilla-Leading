@@ -36,6 +36,34 @@ enum LanguageMigrationChecks {
         defaults.set(["zh-Hant", "en"], forKey: "AppleLanguages")
         LanguageManager.migrateLegacyOverride(defaults: defaults)
         precondition(defaults.array(forKey: "AppleLanguages") as? [String] == ["zh-Hant", "en"])
+        let supported = ["en", "zh-Hant", "zh-Hans", "ja", "Base"]
+        for language in ["zh-Hant", "zh-Hans", "ja", "en"] {
+            precondition(LanguageManager.resolveLanguage(appLanguages: [language],
+                preferredLanguages: ["en"], localizations: supported) == language,
+                "The native app override must win over the system language")
+        }
+        precondition(LanguageManager.resolveLanguage(appLanguages: ["zh-Hant-HK"],
+            preferredLanguages: ["en"], localizations: supported) == "zh-Hant")
+        precondition(LanguageManager.resolveLanguage(appLanguages: nil,
+            preferredLanguages: ["ja", "en"], localizations: supported) == "ja")
+        precondition(LanguageManager.resolveLanguage(appLanguages: [],
+            preferredLanguages: ["en"], localizations: supported) == "en")
+        if Bundle.main.bundleIdentifier == "com.gorilla.language-regression" {
+            defer { UserDefaults.standard.removePersistentDomain(forName: "com.gorilla.language-regression") }
+            UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
+            _ = Bundle.main.preferredLocalizations
+            LanguageManager.refresh()
+            precondition(String(localized: "語言") == "Language")
+            UserDefaults.standard.set(["zh-Hant"], forKey: "AppleLanguages")
+            LanguageManager.refresh()
+            precondition(LanguageManager.languageCode == "zh-Hant")
+            precondition(String(localized: "語言") == "語言",
+                         "Localized strings must recover without restarting the process")
+            UserDefaults.standard.set(["ja"], forKey: "AppleLanguages")
+            LanguageManager.refresh()
+            precondition(String(localized: "語言") == "言語")
+            print("PASS: explicit translations switch after the main bundle language was already read")
+        }
         print("PASS: native language choices survive migration, repeated launch and legacy mismatch; saved data is unchanged")
     }
 }

@@ -56,6 +56,15 @@ struct PlaceInfo: Codable, Hashable, Identifiable, CustomStringConvertible {
         CLLocationCoordinate2D(latitude: latitude, longitude: longitude)
     }
 
+    func contains(_ coordinate: CLLocationCoordinate2D) -> Bool {
+        CLLocation(latitude: latitude, longitude: longitude).distance(from:
+            CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) <= 180
+    }
+
+    func isSameLocation(as other: PlaceInfo) -> Bool {
+        key == other.key || (lotID != nil && lotID == other.lotID) || contains(other.coordinate)
+    }
+
     var description: String {
         let prefix = kind == .namedLot ? "[Lot] " : "[Addr] "
         return "\(prefix)\(displayName)"
@@ -92,6 +101,12 @@ struct TripPatternRecord: Codable, Hashable, Identifiable {
     var candidates: [String: TripNextCandidate]
     var createdAt: Date
     var updatedAt: Date
+
+    var totalSamples: Int { candidates.values.reduce(0) { $0 + $1.hitCount } }
+    var totalEffectiveScore: Double { candidates.values.reduce(0) { $0 + $1.effectiveScore } }
+    func confidence(for candidate: TripNextCandidate) -> Double {
+        totalEffectiveScore > 0 ? candidate.effectiveScore / totalEffectiveScore : 0
+    }
 }
 
 // MARK: - TripPredictionLevel (action decision)
@@ -118,6 +133,7 @@ struct PendingTripPrediction: Identifiable, Equatable {
     var totalSamples: Int
     var twoStepAhead: PlaceInfo?
     var createdAt: Date
+    var patternKey: TripPatternKey? = nil
 }
 
 // MARK: - TripPredictor (main ObservableObject)
@@ -148,7 +164,54 @@ final class TripPredictor: ObservableObject {
         hasLoaded = true
     }
 
+    func reloadAfterRestore() {
+        placeCatalog = [:]
+        patterns = [:]
+        recentPlaceHistory = []
+        pendingConfirm = nil
+        pendingToast = nil
+        lastPredictionSummary = nil
+        loadState()
+    }
+
     // MARK: - Public APIs
+
+    /// One departure prediction per visit, including driving before CLVisit reports departure.
+    func predictDrivingDeparture(from visit: LocationManager.VisitRecord, at date: Date = Date(),
+                                 currentCoordinate: CLLocationCoordinate2D? = nil) {
+        guard UIApplication.shared.isProtectedDataAvailable else { return }
+        let token = visit.id.uuidString
+        let defaults = UserDefaults.standard
+        guard defaults.string(forKey: "trip_prediction_departure_visit_v1") != token else { return }
+        let place = ParkingFloorStore.shared.resolvePlace(coordinate: CLLocationCoordinate2D(
+            latitude: visit.latitude, longitude: visit.longitude), address: visit.address)
+        var departures = defaults.dictionary(forKey: "trip_observed_driving_departures_v1") ?? [:]
+        departures[token] = date
+        defaults.set(departures, forKey: "trip_observed_driving_departures_v1")
+        defaults.set(token, forKey: "trip_prediction_departure_visit_v1")
+        pendingConfirm = nil
+        pendingToast = nil
+        _ = predictNext(currentPlace: place, atDate: date, currentCoordinate: currentCoordinate)
+    }
+
+    func observedDrivingDeparture(for visit: LocationManager.VisitRecord, before arrival: Date) -> Date? {
+        let departures = UserDefaults.standard.dictionary(forKey: "trip_observed_driving_departures_v1")
+        guard let date = departures?[visit.id.uuidString] as? Date,
+              date >= visit.arrivalDate, date < arrival else { return nil }
+        return date
+    }
+
+    func postponeDeparturePrediction() {
+        guard pendingConfirm != nil else { return }
+        pendingConfirm = nil
+        let defaults = UserDefaults.standard
+        if let token = defaults.string(forKey: "trip_prediction_departure_visit_v1") {
+            var departures = defaults.dictionary(forKey: "trip_observed_driving_departures_v1") ?? [:]
+            departures.removeValue(forKey: token)
+            defaults.set(departures, forKey: "trip_observed_driving_departures_v1")
+        }
+        defaults.removeObject(forKey: "trip_prediction_departure_visit_v1")
+    }
 
     /// 有 CLVisit depatureDate 時（即「真係離開咗某個地點」），調用 learning + 將 history 更新
     func recordLearning(
@@ -206,8 +269,11 @@ final class TripPredictor: ObservableObject {
     /// 返回 prediction level：ignore / ask confirm / auto toast
     func predictNext(
         currentPlace: PlaceInfo,
-        atDate: Date = Date()
+        atDate: Date = Date(),
+        currentCoordinate: CLLocationCoordinate2D? = nil
     ) -> TripPredictionAction {
+        pendingConfirm = nil
+        pendingToast = nil
         upsertPlaceInCatalog(currentPlace)
 
         let cal = Calendar.current
@@ -239,7 +305,11 @@ final class TripPredictor: ObservableObject {
         guard let key = patternKey else { return .ignore }
         guard let rec = patterns[patternID(key)] else { return .ignore }
 
-        let candidates = Array(rec.candidates.values)
+        let candidates = rec.candidates.values.filter { candidate in
+            guard let place = placeCatalog[candidate.toPlaceKey],
+                  !place.isSameLocation(as: currentPlace) else { return false }
+            return currentCoordinate.map { !place.contains($0) } ?? true
+        }
         let totalHits = candidates.reduce(0) { $0 + $1.hitCount }
         guard totalHits > 0 else { return .ignore }
         let scored = candidates
@@ -295,7 +365,7 @@ final class TripPredictor: ObservableObject {
                 confidence: c,
                 totalSamples: s,
                 twoStepAhead: ahead,
-                createdAt: Date()
+                createdAt: Date(), patternKey: key
             )
             pendingToast = nil
         } else if case .autoSwitchToast(let p, let c, let s, let ahead) = action {
@@ -305,7 +375,7 @@ final class TripPredictor: ObservableObject {
                 confidence: c,
                 totalSamples: s,
                 twoStepAhead: ahead,
-                createdAt: Date()
+                createdAt: Date(), patternKey: key
             )
             pendingConfirm = nil
         } else {
@@ -327,8 +397,8 @@ final class TripPredictor: ObservableObject {
         // 對應 pattern 入面的 candidate 加權
         let predictedKey = prediction.predicted.key
         // 搵最近一條 match 咗嘅 pattern key 嚟反饋
-        var targetKey: TripPatternKey? = nil
-        if recentPlaceHistory.count >= 1 {
+        var targetKey: TripPatternKey? = prediction.patternKey
+        if targetKey == nil, recentPlaceHistory.count >= 1 {
             let cal = Calendar.current
             let wd = cal.component(.weekday, from: Date())
             let slot = TripTimeSlot(date: Date())

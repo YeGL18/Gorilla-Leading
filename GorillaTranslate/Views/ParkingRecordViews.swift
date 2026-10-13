@@ -6,6 +6,7 @@ struct ParkingRecordListView: View {
     let groupID: ParkingRecordGroup.ID?
     var onSelect: ((UUID) -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var showAllFloors = false
     @State private var selecting = false
     @State private var selection: Set<UUID> = []
@@ -44,7 +45,7 @@ struct ParkingRecordListView: View {
                                 onSelect(point.id)
                                 dismiss()
                             } label: { recordRow(point) }
-                            .buttonStyle(.automatic)
+                            .buttonStyle(.plain)
                             .accessibilityIdentifier("parkingRecord-\(point.id)")
                         } else {
                             NavigationLink {
@@ -90,6 +91,7 @@ struct ParkingRecordListView: View {
                 }
             }
         }
+        .tint(colorScheme == .dark ? Color.white : Color.accentColor)
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
     }
@@ -103,12 +105,14 @@ struct ParkingRecordListView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(point.createdAt, format: .dateTime.year().month().day().hour().minute())
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
-                HStack(spacing: 6) {
-                    Text(point.displayFloor ?? String(localized: "未知"))
-                    Text(point.floorStatusLabel)
-                    if let spot = point.llmSpotNumber, !spot.isEmpty { Text(spot) }
+                if point.isAutomotive {
+                    HStack(spacing: 6) {
+                        Text(point.displayFloor ?? String(localized: "未知"))
+                        Text(point.floorStatusLabel)
+                        if let spot = point.llmSpotNumber, !spot.isEmpty { Text(spot) }
+                    }
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
                 }
-                .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
             Spacer(minLength: 4)
             if point.id == store.currentPoint?.id {
@@ -128,6 +132,7 @@ private struct ParkingBatchFloorView: View {
     let pointIDs: Set<UUID>
     var onSave: () -> Void
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @State private var floor = 0
     @State private var confirming = false
     private var lot: ParkingLotRecord? { store.lots.first { $0.id == lotID } }
@@ -173,6 +178,7 @@ private struct ParkingBatchFloorView: View {
                 floor = lot?.points.first { validIDs.contains($0.id) }?.effectiveFloorIndex ?? 0
             }
         }
+        .tint(colorScheme == .dark ? Color.white : Color.accentColor)
         .presentationDetents([.medium])
     }
 }

@@ -2,9 +2,10 @@ import SwiftUI
 
 struct TimeBasedOrbView: View {
     @ObservedObject var phaseManager: TimePhaseManager
-    @ObservedObject var clock: AnimationClock
+    let clock: AnimationClock
     var orbEnabled: Bool = true
     var orbSizeMultiplier: CGFloat = 1.0
+    @Environment(\.scenePhase) private var scenePhase
 
     private var starNightIntensity: Double {
         // 日出前要消失得夠快；入夜前要遲先出、慢啲淡入
@@ -62,12 +63,12 @@ struct TimeBasedOrbView: View {
         GeometryReader { geometry in
             let w = geometry.size.width
             let h = geometry.size.height
-            let elapsed = clock.elapsed
             let colors = phaseManager.blendedColors
             let sun = phaseManager.sunPosition
             let starNight = starNightIntensity
             let midStop = gradientMidPoint
 
+            ClockDrivenContent(clock: clock) { elapsed in
             ZStack {
                 // 渐变背景（動態調整藍色佔比）
                 LinearGradient(
@@ -154,61 +155,76 @@ struct TimeBasedOrbView: View {
                         .opacity(0.9)
                 }
             }
+            }
         }
         .ignoresSafeArea()
+        .onAppear { phaseManager.start() }
+        .onDisappear { phaseManager.stop() }
+        .onChange(of: scenePhase) { _, phase in
+            if phase == .active { phaseManager.start() }
+            else { phaseManager.stop() }
+        }
     }
 
     // MARK: - 星空 + 呼吸
     @ViewBuilder
     private func starField(width: CGFloat, height: CGFloat, elapsed: Double, night: Double) -> some View {
-        let starCount = 90
-        ZStack {
-            ForEach(Array(0..<starCount), id: \.self) { i in
-                let pseudoSeed = Double(i) * 0.6180339887498949
-                let (ux, uy) = fract(sin(pseudoSeed * 127.1) * 43758.5453123,
-                                     sin(pseudoSeed * 311.7) * 43758.5453123)
-                let (usize, ufreq) = fract(sin(pseudoSeed * 74.7) * 12345.6789,
-                                           sin(pseudoSeed * 213.3) * 98765.4321)
-                let yFrac = uy * 0.6667
-                let verticalFade: Double = {
-                    if yFrac <= 1.0 / 3.0 {
-                        return 1.0
-                    } else if yFrac < 2.0 / 3.0 {
-                        let p = (yFrac - 1.0 / 3.0) / (1.0 / 3.0)
-                        return 1.0 - p
-                    } else {
-                        return 0.0
-                    }
-                }()
+        OrbStarField(elapsed: elapsed, night: night)
+            .frame(width: width, height: height)
+    }
 
-                let sx = ux * width
-                let sy = yFrac * height
-                let baseR = (0.6 + usize * 1.8) * CGFloat(sqrt(max(0.0001, verticalFade)))
-                let breathFreq = 0.45 + ufreq * 1.15
-                let phaseRaw = (elapsed * breathFreq + pseudoSeed)
-                let phase = fract(phaseRaw, 0).0
-                let breath = 0.45 + 0.55 * (0.5 - 0.5 * cos(phase * 2 * Double.pi))
-                let twinkle = 0.82 + 0.18 * sin(elapsed * 5.0 + pseudoSeed * 30.0)
-                let opacity = min(1.0, breath * twinkle) * night * verticalFade
+}
 
-                if opacity > 0.001 {
-                    Circle()
-                        .fill(Color.white)
-                        .frame(width: baseR * 2, height: baseR * 2)
-                        .blur(radius: baseR > 1.6 ? 0.6 : 0.2)
-                        .position(x: sx, y: sy)
-                        .opacity(opacity)
-                } else {
-                    EmptyView()
-                }
-            }
+struct OrbStarField: View {
+    struct Star {
+        let seed: Double
+        let x: Double
+        let y: Double
+        let radius: Double
+        let frequency: Double
+        let fade: Double
+
+        func opacity(at elapsed: Double, night: Double) -> Double {
+            let raw = elapsed * frequency + seed
+            let phase = raw - floor(raw)
+            let breath = 0.45 + 0.55 * (0.5 - 0.5 * cos(phase * 2 * .pi))
+            let twinkle = 0.82 + 0.18 * sin(elapsed * 5 + seed * 30)
+            return min(1, breath * twinkle) * night * fade
         }
     }
 
-    // MARK: - 偽隨機工具
-    private func fract(_ a: Double, _ b: Double) -> (Double, Double) {
-        let x = a - floor(a)
-        let y = b - floor(b)
-        return (x < 0 ? x + 1 : x, y < 0 ? y + 1 : y)
+    // Positions, sizes and frequencies never change with the animation clock.
+    static let stars: [Star] = (0..<90).map { index in
+        let seed = Double(index) * 0.6180339887498949
+        func fraction(_ value: Double) -> Double { value - floor(value) }
+        let x = fraction(sin(seed * 127.1) * 43758.5453123)
+        let y = fraction(sin(seed * 311.7) * 43758.5453123) * 0.6667
+        let size = fraction(sin(seed * 74.7) * 12345.6789)
+        let frequency = fraction(sin(seed * 213.3) * 98765.4321)
+        let fade = y <= 1.0 / 3 ? 1 : max(0, 1 - (y - 1.0 / 3) / (1.0 / 3))
+        return Star(seed: seed, x: x, y: y, radius: (0.6 + size * 1.8) * sqrt(max(0.0001, fade)),
+                    frequency: 0.45 + frequency * 1.15, fade: fade)
+    }
+
+    var elapsed: Double
+    var night: Double
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+            ForEach(0..<Self.stars.count, id: \.self) { index in
+                let star = Self.stars[index]
+                let opacity = star.opacity(at: elapsed, night: night)
+                if opacity > 0.001 {
+                    Circle().fill(.white).frame(width: star.radius * 2, height: star.radius * 2)
+                        .blur(radius: star.radius > 1.6 ? 0.6 : 0.2)
+                        .position(x: star.x * geometry.size.width, y: star.y * geometry.size.height)
+                        .opacity(opacity)
+                }
+            }
+            }
+        }
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
     }
 }

@@ -10,7 +10,7 @@ the production coordinator gives manual control to the first single-finger drag.
 The padded-fit check verifies that calculating the meter-overview target preserves
 the starting camera and frames both points in portrait, landscape and narrow
 viewports, including a pitched starting camera and asymmetric safe-area padding.
-It also checks the 40pt downward tracking offset preserves full map coverage and
+It also checks the configured 60pt downward tracking offset preserves full map coverage and
 does not change the existing hinge center. The annotation test exercises native
 cluster/member replacements, removal and reuse. It samples actual intermediate
 opacity values, checks that fade-out images contain visible pixels, and verifies
@@ -44,3 +44,12 @@ To run only the standalone harness without an installed Gorilla app, add
 
 Remove the two test-only simulator apps after testing:
 `com.gorilla.map-interaction-checks` and `com.gorilla.map-gesture-uitests.xctrunner`.
+
+The scale check exercises the production latest-marker view through 100 native
+transform updates, drag selection suppression and reuse. Fade/reuse/anchoring
+checks also render the scaled marker.
+The visibility check additionally flips native hidden state 100 times in one
+run-loop turn and ensures the entrance cycle does not restart. The motion
+fixture samples map-space pixels in common run-loop modes and excludes unrelated
+POIs, preventing same-color map icons from inflating the baseline. Native pan
+tests cover both parking and meter bodies while moving and holding a finger.
