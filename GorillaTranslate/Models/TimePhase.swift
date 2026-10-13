@@ -24,7 +24,6 @@ enum GorillaColorGroup: Int, CaseIterable {
 
     var showsOrbControls: Bool { self == .normal }
     var usesSpecialMap: Bool { self == .darkKnight }
-    var forcesDarkGlass: Bool { self != .normal }
 
     func dotColorHex(speed: Double, preset: Int) -> String {
         let speed = speed.isFinite ? max(0, speed) : 0
@@ -55,7 +54,7 @@ enum M3ConceptPalette {
     static let gray = "5C575D"
     static let black = "0D0B0E"
     static let all = [orange, yellow, paper, gray, black]
-    static let homeIndigo = "20245C"
+    static let homeIndigo = "00172D"
     static let homeOrbMixing = true
     static let homeOrbs: [(hex: String, opacity: Double)] = [(orange, 0.75), (yellow, 0.7), (homeIndigo, 0.85)]
 }

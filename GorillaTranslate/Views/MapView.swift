@@ -62,10 +62,8 @@ final class CompassContainerView: UIView {
 struct MapCompassToolbarView: UIViewRepresentable {
     @ObservedObject var bridge: MapCompassBridge
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
-    @AppStorage("darkKnightMode") private var darkKnightMode = false
-    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     private var usesDarkGlass: Bool {
-        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled)
     }
 
     func makeUIView(context: Context) -> CompassContainerView {
@@ -311,10 +309,8 @@ struct MapView: UIViewRepresentable {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.homeMapContext) private var homeMapContext
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
-    @AppStorage("darkKnightMode") private var darkKnightMode = false
-    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     private var usesDarkGlass: Bool {
-        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled)
     }
 
     func makeCoordinator() -> Coordinator {

@@ -28,7 +28,8 @@ final class GlassStyleUITests: XCTestCase {
             predicate: NSPredicate(format: "value == %@", enabled ? "1" : "0"), object: toggle
         )
         XCTAssertEqual(XCTWaiter.wait(for: [changed], timeout: 5), .completed, app.debugDescription)
-        XCTAssertEqual(app.buttons["glassStylePicker"].isEnabled, !enabled)
+        // 玻璃樣式任何色組模式之下都可以自由切換，唔會被 disable。
+        XCTAssertTrue(app.buttons["glassStylePicker"].isEnabled)
         app.descendants(matching: .any)["Home"].firstMatch.tap()
     }
 
@@ -142,19 +143,24 @@ final class GlassStyleUITests: XCTestCase {
         XCTAssertEqual(XCTWaiter.wait(for: [match], timeout: 5), .completed, restoredAudit.label)
     }
 
-    func testDarkKnightRestoresClearGlassAfterRelaunch() {
+    func testDarkKnightRespectsUserGlassPreference() {
         var app = launch()
         select("Clear", in: app)
         let baseline = controlFrames(in: app)
         setDarkKnight(true, in: app)
-        XCTAssertEqual(app.staticTexts["glassMode"].label, "Dark")
+        XCTAssertEqual(app.staticTexts["glassMode"].label, "Clear")
         XCTAssertEqual(app.staticTexts["glassPreference"].label, "Clear")
+        checkLiveBarTint("0.00/0.00", in: app)
+        select("Dark Glass", in: app)
+        XCTAssertEqual(app.staticTexts["glassMode"].label, "Dark")
+        XCTAssertEqual(app.staticTexts["glassPreference"].label, "Dark")
         checkLiveBarTint("0.55/0.55", in: app)
+        select("Clear", in: app)
         app.terminate()
         app = launch(reset: false)
-        XCTAssertEqual(app.staticTexts["glassMode"].label, "Dark")
+        XCTAssertEqual(app.staticTexts["glassMode"].label, "Clear")
         XCTAssertEqual(app.staticTexts["glassPreference"].label, "Clear")
-        checkLiveBarTint("0.55/0.55", in: app)
+        checkLiveBarTint("0.00/0.00", in: app)
         setDarkKnight(false, in: app)
         XCTAssertEqual(app.staticTexts["glassMode"].label, "Clear")
         XCTAssertEqual(app.staticTexts["glassPreference"].label, "Clear")

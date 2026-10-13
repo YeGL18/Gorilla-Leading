@@ -124,38 +124,37 @@ private struct WindowBoundsReader: UIViewRepresentable {
 enum GorillaGlassStyle {
     static let blackTintOpacity = 0.55
 
-    static func usesDarkGlass(preferredDark: Bool, darkKnightMode: Bool, colorGroupRaw: Int = -1) -> Bool {
-        preferredDark || GorillaColorGroup.resolve(raw: colorGroupRaw, legacyDarkKnight: darkKnightMode).forcesDarkGlass
+    // 玻璃樣式完全跟用戶設定；任何色組模式（包括黑武士／M3 Concept）都可以自由切換深色玻璃／透明。
+    static func usesDarkGlass(preferredDark: Bool) -> Bool {
+        preferredDark
     }
 }
 
 private struct GorillaCapsuleGlass: ViewModifier {
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
-    @AppStorage("darkKnightMode") private var darkKnightMode = false
     @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     @Environment(\.colorScheme) private var colorScheme
     let cornerRadius: CGFloat
     private var usesDarkGlass: Bool {
-        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled)
     }
 
     func body(content: Content) -> some View {
         content
             .glassEffect(.regular.tint(colorGroupRaw == GorillaColorGroup.m3Concept.rawValue
                 ? Color(hex: M3ConceptPalette.gray).opacity(0.25) : .clear), in: .rect(cornerRadius: cornerRadius))
-            .foregroundStyle(colorGroupRaw == GorillaColorGroup.m3Concept.rawValue ? Color(hex: M3ConceptPalette.paper)
-                : (usesDarkGlass ? Color.white : Color.primary))
+            .foregroundStyle(usesDarkGlass
+                ? (colorGroupRaw == GorillaColorGroup.m3Concept.rawValue ? Color(hex: M3ConceptPalette.paper) : Color.white)
+                : Color.primary)
             .environment(\.colorScheme, usesDarkGlass ? .dark : colorScheme)
     }
 }
 
 private struct GorillaMapControlAppearance: ViewModifier {
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
-    @AppStorage("darkKnightMode") private var darkKnightMode = false
-    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     @Environment(\.colorScheme) private var colorScheme
     private var usesDarkGlass: Bool {
-        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled)
     }
 
     func body(content: Content) -> some View {
@@ -167,11 +166,9 @@ private struct GorillaMapControlAppearance: ViewModifier {
 
 private struct GorillaTabBarStyle: ViewModifier {
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
-    @AppStorage("darkKnightMode") private var darkKnightMode = false
-    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     @Environment(\.colorScheme) private var colorScheme
     private var usesDarkGlass: Bool {
-        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+        GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled)
     }
 
     func body(content: Content) -> some View {
@@ -731,7 +728,7 @@ struct ContentView: View {
     @AppStorage("capsuleAnimationStyle") private var capsuleAnimationStyle: Int = 1  // 0 = default, 1 = lift-scale
     @AppStorage("capsuleDarkGlassEnabled") private var capsuleDarkGlassEnabled = true
     private var usesDarkGlass: Bool {
-        GorillaGlassStyle.usesDarkGlass(preferredDark: capsuleDarkGlassEnabled, darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw)
+        GorillaGlassStyle.usesDarkGlass(preferredDark: capsuleDarkGlassEnabled)
     }
     @State private var capsuleDragOffsetY: CGFloat = 0  // for lift-scale animation
     @State private var capsuleDragScale: CGFloat = 1.0  // for lift-scale animation
@@ -1084,8 +1081,7 @@ struct ContentView: View {
 
     init() {
         let darkGlassEnabled = GorillaGlassStyle.usesDarkGlass(
-            preferredDark: UserDefaults.standard.object(forKey: "capsuleDarkGlassEnabled") as? Bool ?? true,
-            darkKnightMode: GorillaColorGroup.load().forcesDarkGlass
+            preferredDark: UserDefaults.standard.object(forKey: "capsuleDarkGlassEnabled") as? Bool ?? true
         )
         let appearance = Self.tabBarAppearance(darkGlassEnabled: darkGlassEnabled)
         UITabBar.appearance().standardAppearance = appearance
@@ -2107,7 +2103,7 @@ struct ContentView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
             } else if colorGroup == .m3Concept {
                 AnimatedBackground(clock: animationClock, orbEnabled: true,
-                    orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, overlapGlowEnabled: M3ConceptPalette.homeOrbMixing,
+                    orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, overlapGlowEnabled: orbOverlapGlowEnabled,
                     customOrbColors: M3ConceptPalette.homeOrbs, backgroundColorHex: M3ConceptPalette.black)
                     .ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.5)))

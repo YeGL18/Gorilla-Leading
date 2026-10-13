@@ -2,14 +2,16 @@
 
 One persisted selector (`colorGroupMode`) owns the three exclusive modes. When
 absent, the old `darkKnightMode` preference supplies the initial choice. Orb
-preferences are retained while their controls are hidden outside Normal mode.
+preferences are retained while their controls are hidden outside Normal mode;
+the drawing-style and mixing controls live in Appearance and stay reachable in
+every group. Glass style (dark vs clear) is user-controlled in every group.
 
 - Normal: existing orb/background and dot presets.
 - Dark Knight: black backgrounds and existing inset/vignette map; independent
   gold-to-orange-red dot interpolation above 100 km/h.
 - M3 Concept: sampled orange-red dots at every speed, yellow Gorilla title,
   paper-white foregrounds, gray glass accents, and orange/yellow/deep-indigo
-  (`20245C`) home orbs with the existing white/additive mixing enabled.
+  (`00172D`) home orbs with white/additive mixing enabled by default.
   The speed screen retains a near-black background behind its orange-red dots.
   Uses the normal full-screen map and respects the existing map appearance.
 

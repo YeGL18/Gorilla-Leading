@@ -5,7 +5,7 @@ enum ColorGroupChecks {
     static func main() {
         precondition(GorillaColorGroup.allCases.count == 3)
         precondition(M3ConceptPalette.all == ["EF363B", "DDD11B", "E6EFEA", "5C575D", "0D0B0E"])
-        precondition(M3ConceptPalette.homeOrbs.map(\.hex) == [M3ConceptPalette.orange, M3ConceptPalette.yellow, "20245C"])
+        precondition(M3ConceptPalette.homeOrbs.map(\.hex) == [M3ConceptPalette.orange, M3ConceptPalette.yellow, "00172D"])
         precondition(M3ConceptPalette.homeOrbMixing)
         precondition(GorillaColorGroup.resolve(raw: -1, legacyDarkKnight: true) == .darkKnight)
         precondition(GorillaColorGroup.resolve(raw: -1, legacyDarkKnight: false) == .normal)
@@ -16,7 +16,6 @@ enum ColorGroupChecks {
         precondition(GorillaColorGroup.darkKnight.usesSpecialMap)
         precondition(!GorillaColorGroup.m3Concept.usesSpecialMap)
         precondition(!GorillaColorGroup.normal.usesSpecialMap)
-        precondition(GorillaColorGroup.m3Concept.forcesDarkGlass)
         for preset in 0...4 {
             for speed in [0.0, 30, 100, 150, 200, 240, .nan, .infinity] {
                 precondition(GorillaColorGroup.m3Concept.dotColorHex(speed: speed, preset: preset) == "#" + M3ConceptPalette.orange)

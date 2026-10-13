@@ -177,20 +177,31 @@ struct SettingsView: View {
                         Text(String(localized: "Dark")).tag(1)
                         Text(String(localized: "Light")).tag(2)
                     }
-                    Picker(String(localized: "玻璃樣式"), selection: Binding(
-                        get: { capsuleDarkGlassEnabled || colorGroup.forcesDarkGlass },
-                        set: { if !colorGroup.forcesDarkGlass { capsuleDarkGlassEnabled = $0 } }
-                    )) {
+                    Picker(String(localized: "玻璃樣式"), selection: $capsuleDarkGlassEnabled) {
                         Text(String(localized: "透明")).tag(false)
                         Text(String(localized: "深色玻璃")).tag(true)
                     }
-                    .disabled(colorGroup.forcesDarkGlass)
                     Picker(String(localized: "膠囊動畫"), selection: $capsuleAnimationStyle) {
                         Text(String(localized: "標準")).tag(0)
                         Text(String(localized: "提升縮放")).tag(1)
                     }
                     Toggle(isOn: $launchAnimationEnabled) {
                         Label(String(localized: "啟動動畫"), systemImage: "play.rectangle.on.rectangle")
+                    }
+                    // 光球繪製方式／光球混色擺入外觀：任何色組模式都調校到，唔會因為光球效果嗰欄隱藏而失蹤。
+                    Picker(String(localized: "光球繪製方式"), selection: $orbCanvasDitherEnabled) {
+                        Text(String(localized: "原生模糊")).tag(false)
+                        Text("Canvas Symbols + Dither").tag(true)
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(String(localized: "光球混色"))
+                            .font(.subheadline)
+                        Picker(String(localized: "光球混色"), selection: $orbOverlapGlowEnabled) {
+                            Text(String(localized: "原本效果")).tag(false)
+                            Text(String(localized: "白色混色")).tag(true)
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
                     }
                 } header: {
                     Label(String(localized: "外觀"), systemImage: "paintpalette")
@@ -342,22 +353,6 @@ struct SettingsView: View {
                         Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
                         Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
                         Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
-                        if !useTimeBasedOrb {
-                            Picker(String(localized: "光球繪製方式"), selection: $orbCanvasDitherEnabled) {
-                                Text(String(localized: "原生模糊")).tag(false)
-                                Text("Canvas Symbols + Dither").tag(true)
-                            }
-                            VStack(alignment: .leading, spacing: 8) {
-                                Text(String(localized: "光球混色"))
-                                    .font(.subheadline)
-                                Picker(String(localized: "光球混色"), selection: $orbOverlapGlowEnabled) {
-                                    Text(String(localized: "原本效果")).tag(false)
-                                    Text(String(localized: "白色混色")).tag(true)
-                                }
-                                .pickerStyle(.segmented)
-                                .labelsHidden()
-                            }
-                        }
                         // 圓點顏色：一行色點直接點選（控制圓點動畫嘅圓點顏色，選中加高亮圈）
                         HStack(spacing: 12) {
                             Text(String(localized: "圓點顏色"))

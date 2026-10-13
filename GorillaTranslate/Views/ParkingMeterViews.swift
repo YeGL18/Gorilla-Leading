@@ -213,13 +213,10 @@ private enum MeterPopupStyle {
 
 private struct MeterPopupAppearance: ViewModifier {
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
-    @AppStorage("darkKnightMode") private var darkKnightMode = false
-    @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        let dark = GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled,
-            darkKnightMode: darkKnightMode, colorGroupRaw: colorGroupRaw) || colorScheme == .dark
+        let dark = GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled) || colorScheme == .dark
         content
             .foregroundStyle(dark ? Color.white : Color.primary)
             .tint(dark ? .white : MeterPopupStyle.paymentTint)

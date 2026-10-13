@@ -68,7 +68,7 @@ fixture = <<~SWIFT
     @State private var launchAnimation = true
     @StateObject private var compassBridge = MapCompassBridge()
     private var usesDarkGlass: Bool {
-      GorillaGlassStyle.usesDarkGlass(preferredDark: capsuleDarkGlassEnabled, darkKnightMode: darkKnightMode)
+      GorillaGlassStyle.usesDarkGlass(preferredDark: capsuleDarkGlassEnabled)
     }
     var body: some View {
       TabView(selection: $selectedTab) {
@@ -209,8 +209,7 @@ fixture = <<~SWIFT
         UserDefaults.standard.removeObject(forKey: "darkKnightMode")
       }
       let dark = GorillaGlassStyle.usesDarkGlass(
-        preferredDark: UserDefaults.standard.object(forKey: "capsuleDarkGlassEnabled") as? Bool ?? true,
-        darkKnightMode: UserDefaults.standard.bool(forKey: "darkKnightMode")
+        preferredDark: UserDefaults.standard.object(forKey: "capsuleDarkGlassEnabled") as? Bool ?? true
       )
       let appearance = BarFixture.tabBarAppearance(darkGlassEnabled: dark)
       UITabBar.appearance().standardAppearance = appearance
