@@ -12,7 +12,13 @@ enum ColorGroupChecks {
         precondition(GorillaColorGroup.resolve(raw: 2, legacyDarkKnight: true) == .m3Concept)
         precondition(GorillaColorGroup.resolve(raw: 0, legacyDarkKnight: true) == .normal)
         precondition(GorillaColorGroup.normal.showsOrbControls)
-        precondition(!GorillaColorGroup.m3Concept.showsOrbControls)
+        precondition(GorillaColorGroup.m3Concept.showsOrbControls)
+        precondition(!GorillaColorGroup.darkKnight.showsOrbControls)
+        for group in GorillaColorGroup.allCases {
+            precondition(!group.orbsEnabled(master: false, surface: true))
+            precondition(!group.orbsEnabled(master: true, surface: false))
+            precondition(group.orbsEnabled(master: true, surface: true) == (group != .darkKnight))
+        }
         precondition(GorillaColorGroup.darkKnight.usesSpecialMap)
         precondition(!GorillaColorGroup.m3Concept.usesSpecialMap)
         precondition(!GorillaColorGroup.normal.usesSpecialMap)

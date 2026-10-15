@@ -1,3 +1,32 @@
+/* Assetto Corsa */
+"電腦遙測" = "PC Telemetry";
+"GPS · 等待電腦遙測" = "GPS · Waiting for PC telemetry";
+"連線設定" = "Connection Settings";
+"儲存並等待連線" = "Save and Wait for Connection";
+"關閉電腦連線" = "Disable PC Connection";
+"油門" = "Throttle";
+"煞車" = "Brake";
+"ASSETTO CORSA · 電腦遙測" = "ASSETTO CORSA · PC TELEMETRY";
+"波段" = "Gear";
+"完成圈數" = "Completed Laps";
+"本圈" = "Current Lap";
+"上圈" = "Last Lap";
+"最佳" = "Best Lap";
+"時速來源" = "Speed Source";
+"真實時速 · GPS" = "Real Speed · GPS";
+"電腦遊戲" = "PC Game";
+"Windows 電腦" = "Windows PC";
+"IP 地址" = "IP Address";
+"重新連線" = "Reconnect";
+"連接電腦" = "Connect to PC";
+"未連線" = "Disconnected";
+"請輸入電腦 IP 地址" = "Enter the PC IP address";
+"正在連接電腦" = "Connecting to PC";
+"等待 AC 遙測" = "Waiting for AC telemetry";
+"連線失敗，請檢查區域網絡及防火牆" = "Connection failed. Check local network and firewall.";
+"連線中斷" = "Connection interrupted";
+"電腦遙測已連線" = "PC telemetry connected";
+
 /* ============================================ */
 /* Tab Bar                                      */
 /* ============================================ */

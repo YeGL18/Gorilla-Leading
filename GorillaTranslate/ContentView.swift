@@ -8,60 +8,6 @@ import CoreImage
 import WidgetKit
 import Vision
 
-// MARK: - 專注模式
-
-/// 時速頁專注模式 —— 閂走時速顯示以外嘅功能，減少耗電同發熱。
-enum FocusModeLevel: String, CaseIterable, Identifiable {
-    case balanced   // 平衡：保留泊車偵測＋靈動島，切地圖／資訊彈出／ETA 網絡請求
-    case light      // 輕度：只切地圖渲染，其餘全部照行
-    case extreme    // 極致：再停用泊車狀態偵測同靈動島更新
-
-    var id: String { rawValue }
-
-    var title: String {
-        switch self {
-        case .balanced: return String(localized: "平衡")
-        case .extreme:  return String(localized: "極致")
-        case .light:    return String(localized: "輕度")
-        }
-    }
-
-    var icon: String {
-        switch self {
-        case .balanced: return "leaf.fill"
-        case .extreme:  return "bolt.slash.fill"
-        case .light:    return "circle.lefthalf.filled"
-        }
-    }
-
-    var summary: String {
-        switch self {
-        case .balanced:
-            return String(localized: "保留泊車偵測同靈動島狀態；切走地圖渲染、資訊彈出、ETA／路線網絡請求")
-        case .extreme:
-            return String(localized: "最慳電：額外暫停泊車／停留／開車狀態偵測同靈動島更新，退出專注模式後會自動補返")
-        case .light:
-            return String(localized: "只切走地圖渲染，靈動島同所有功能照常運作")
-        }
-    }
-
-    /// 每種模式嘅代表色：平衡＝綠、輕度＝黃、極致＝紫
-    var color: Color {
-        switch self {
-        case .balanced: return .green
-        case .light:    return Color(red: 0.95, green: 0.78, blue: 0.05)
-        case .extreme:  return .purple
-        }
-    }
-}
-
-/// 專注模式下 orb 背景動畫幀率
-enum FocusFrameRate: Int, CaseIterable, Identifiable {
-    case fps60 = 60
-    case fps90 = 90
-    case fps120 = 120
-    var id: Int { rawValue }
-}
 
 @available(iOS 27.1, *)
 private struct DuoVerticalBarReader: View {
@@ -664,6 +610,10 @@ struct ContentView: View {
     @State private var timePhaseManager = TimePhaseManager()
     @StateObject private var photoStorage = PhotoStorage()
     @StateObject private var sfxPlayer = SFXPlayer()
+    // Keep the connection across tabs without observing physics packets in the root view.
+    @State private var acTelemetry = ACTelemetry()
+    @AppStorage("acAutoConnectEnabled") private var acAutoConnectEnabled = false
+    @AppStorage("acComputerHost") private var acComputerHost = ""
     @ObservedObject private var tripPredictor = TripPredictor.shared
     @EnvironmentObject private var locationManager: LocationManager
     @EnvironmentObject private var destinationManager: DestinationManager
@@ -1041,9 +991,6 @@ struct ContentView: View {
     @State private var renamingPointFloor: Int?
     @State private var showRenamePointAlert = false
     @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
-    /// 專注模式（nil = 關閉）—— 時速頁左下角按鈕控制
-    @State private var focusMode: FocusModeLevel? = nil
-    @State private var focusFrameRate: FocusFrameRate = .fps60
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
     @AppStorage("outputAnimationStyle") private var outputAnimationStyle: Int = 0
@@ -1062,8 +1009,6 @@ struct ContentView: View {
         .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
     }
     private var darkKnightMode: Bool { colorGroup.usesSpecialMap }
-    @State private var darkKnightActivatedByFocus = false  // 是否由極致專注模式自動開啟
-    @State private var colorGroupBeforeFocus: GorillaColorGroup?
     /// 黑武士模式地圖圓角（橫屏更大）
     private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 120 : 100 }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
@@ -1179,16 +1124,13 @@ struct ContentView: View {
         )) {
             NavigationStack {
                 SpeedView(
-                    showMap: (showMap || showSatellite) && !focusActive,
+                    acTelemetry: acTelemetry,
+                    showMap: showMap || showSatellite,
                     animationClock: animationClock,
                     mapCamera: $mapCamera,
                     isDuoDevice: isDuoDevice,
                     isDuoInnerDisplay: isDuoInnerDisplay,
-                    isDuoPartiallyOpen: isDuoPartiallyOpen,
-                    focusMode: $focusMode,
-                    focusFrameRate: $focusFrameRate,
-                    onEnterFocus: enterFocusMode,
-                    onExitFocus: exitFocusMode
+                    isDuoPartiallyOpen: isDuoPartiallyOpen
                 )
             }
                 .environment(\.colorScheme, effectiveColorScheme)
@@ -1202,11 +1144,6 @@ struct ContentView: View {
                 }
                 .onChange(of: colorGroup) { _, newValue in
                     updateTabBarAppearance()
-                    // 手動關閉黑武士模式時，清除自動開啟標記
-                    if newValue != .darkKnight {
-                        darkKnightActivatedByFocus = false
-                        colorGroupBeforeFocus = nil
-                    }
                 }
 
             NavigationStack {
@@ -1422,6 +1359,7 @@ struct ContentView: View {
             Button("確定", role: .cancel) { meterRouteError = nil }
         } message: { Text(meterRouteError ?? "") }
         .onAppear {
+            if acAutoConnectEnabled && scenePhase == .active { acTelemetry.ensureConnected(host: acComputerHost) }
             if LanguageManager.syncSharedLanguage() {
                 WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
             }
@@ -1446,6 +1384,7 @@ struct ContentView: View {
             }
         }
         .onDisappear {
+            acTelemetry.disconnect()
             timePhaseManager.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             stopFloorCurveDetection()
@@ -1462,6 +1401,11 @@ struct ContentView: View {
             }
         }
         .onChange(of: scenePhase) { _, phase in
+            if phase == .active && acAutoConnectEnabled {
+                acTelemetry.ensureConnected(host: acComputerHost)
+            } else if phase != .active {
+                acTelemetry.disconnect()
+            }
             meterManager.setActive(phase == .active)
             isInForeground = (phase == .active)
             if phase == .active {
@@ -1491,6 +1435,10 @@ struct ContentView: View {
             }
         }
         .background { floorCaptureEvents }
+        .onChange(of: acAutoConnectEnabled) { _, enabled in
+            if enabled && scenePhase == .active { acTelemetry.ensureConnected(host: acComputerHost) }
+            else { acTelemetry.disconnect() }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .parkingPhotoCaptured)) { notification in
             if let photo = notification.object as? UIImage {
                 guard isParkingMemoryExpanded else { return }
@@ -2102,7 +2050,7 @@ struct ContentView: View {
                 Color.black.ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
             } else if colorGroup == .m3Concept {
-                AnimatedBackground(clock: animationClock, orbEnabled: true,
+                AnimatedBackground(clock: animationClock, orbEnabled: colorGroup.orbsEnabled(master: orbMasterEnabled, surface: orbBackgroundHome),
                     orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, overlapGlowEnabled: orbOverlapGlowEnabled,
                     customOrbColors: M3ConceptPalette.homeOrbs, backgroundColorHex: M3ConceptPalette.black)
                     .ignoresSafeArea()
@@ -5136,7 +5084,6 @@ struct ContentView: View {
         WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
     }
 
-    // MARK: - 專注模式
 
     private var globeToggleIcon: String {
         if showSatellite { return "binoculars.fill" }       // 衛星3D
@@ -5144,56 +5091,6 @@ struct ContentView: View {
         return "map"                                         // 光球
     }
 
-    private var focusActive: Bool { focusMode != nil }
-
-    /// 平衡／極致：切走資訊彈出同 ETA／路線網絡請求
-    private var focusCutsInfoAndETA: Bool {
-        focusMode == .balanced || focusMode == .extreme
-    }
-
-    /// 極致：暫停泊車／停留／開車偵測同靈動島更新
-    private var focusCutsDetection: Bool { focusMode == .extreme }
-
-    private func enterFocusMode(_ level: FocusModeLevel, frameRate: FocusFrameRate) {
-        let wasActive = focusMode != nil
-        focusFrameRate = frameRate
-        animationClock.setFrameRate(Double(frameRate.rawValue))
-        withAnimation(.easeInOut(duration: 0.25)) {
-            focusMode = level
-        }
-        if level == .balanced || level == .extreme {
-            stopCompactRotation()
-        } else if wasActive {
-            startCompactRotation(openingByState: true)
-        }
-        // 極致專注模式：自動開啟黑武士模式
-        if level == .extreme && !darkKnightMode {
-            colorGroupBeforeFocus = colorGroup
-            colorGroupRaw = GorillaColorGroup.darkKnight.rawValue
-            legacyDarkKnightMode = true
-            darkKnightActivatedByFocus = true
-            updateTabBarAppearance()
-        }
-    }
-
-    private func exitFocusMode() {
-        // 如果黑武士模式係由極致專注自動開啟嘅，一併退出
-        if darkKnightActivatedByFocus {
-            let previous = colorGroupBeforeFocus ?? .normal
-            colorGroupRaw = previous.rawValue
-            legacyDarkKnightMode = previous == .darkKnight
-            colorGroupBeforeFocus = nil
-            darkKnightActivatedByFocus = false
-            updateTabBarAppearance()
-        }
-        withAnimation(.easeInOut(duration: 0.25)) {
-            focusMode = nil
-        }
-        animationClock.setFrameRate(60)
-        startCompactRotation(openingByState: true)
-        refreshVisitAndTimersForForeground()
-        syncLiveActivity(forceRefresh: true)
-    }
 
     /// Restart the stationary timer + departure elapsed timer + sync Live Activity.
     /// Called after cold-launch when `manualDeparted` and visit data hasn't changed.
@@ -5334,10 +5231,7 @@ struct ContentView: View {
                 parkingElapsed = e
                 capsuleDuration = e
             }
-            // 專注模式（極致）：連 widget timeline 每秒刷新都慳埋
-            if !focusCutsDetection {
-                WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
-            }
+            WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
         }
         parkingTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -5589,8 +5483,6 @@ struct ContentView: View {
     /// 開車／步行／騎車就速度+ETA 先，泊車／停留就狀態格先。
     private func startCompactRotation(openingByState: Bool = false) {
         guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
-        // 專注模式（平衡／極致）：維持完全唔輪播，唔干擾駕駛
-        guard !focusCutsInfoAndETA else { return }
         if openingByState {
             withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
                 compactSlot = isParkedOrStationary ? .status : .speed
@@ -5654,7 +5546,6 @@ struct ContentView: View {
     /// 新 POI 出現：打斷輪播切去地址格顯示一輪，之後順序繼續（地址 → 狀態 → …）
     private func interruptForNewPOI() {
         guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
-        guard !focusCutsInfoAndETA else { return }
         withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
             compactSlot = .address
         }
@@ -6859,7 +6750,6 @@ struct ContentView: View {
     @State private var lastETASuccessLocation: CLLocation?  // 上次成功計算時嘅位置
 
     private func refreshETA() {
-        guard !focusCutsInfoAndETA else { return }
         guard let dest = destinationManager.selectedDestination,
               let loc = locationManager.lastLocation else {
             return
@@ -6920,8 +6810,6 @@ struct ContentView: View {
             startNavigationToMeter(meter)
             return
         }
-        // 專注模式（平衡／極致）：切走 MKDirections 網絡請求
-        guard !focusCutsInfoAndETA else { return }
         guard let destination = destinationManager.selectedDestination,
               let currentLocation = locationManager.lastLocation else { return }
         destinationManager.requestRoute(from: currentLocation.coordinate, to: destination.coordinate, force: true) { result in
@@ -6957,8 +6845,7 @@ struct ContentView: View {
     }
 
     private func updateVisitStatus() {
-        // 專注模式（極致）：暫停狀態偵測，退出時會重新同步
-        guard !focusCutsDetection, locationManager.hasLoadedVisits else { return }
+        guard locationManager.hasLoadedVisits else { return }
         guard let lastVisit = locationManager.visits.first else {
             visitStatus = "已停留"
             isNonAutomotiveArrival = false
@@ -7091,8 +6978,6 @@ struct ContentView: View {
 
     /// Pushes the current visit state into the system Live Activity.
     private func syncLiveActivity(forceRefresh: Bool = false) {
-        // 專注模式（極致）：靈動島凍結喺最後狀態，退出時會 forceRefresh 補返
-        guard !focusCutsDetection else { return }
         // visits 尚未載入時不結束活動（冷啟動保護）
         guard locationManager.hasLoadedVisits else { return }
         guard !locationManager.visits.isEmpty else {

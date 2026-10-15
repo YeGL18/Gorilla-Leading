@@ -37,6 +37,13 @@ struct SpeedView: View {
 
     /// 時速數字逐格滾動插值器（120Hz，獨立物件令只有數字 Text 重繪）
     @StateObject private var speedRoller = NumberRoller()
+    @ObservedObject var acTelemetry: ACTelemetry
+    @AppStorage("acAutoConnectEnabled") private var acEnabled = false
+    @State private var showSpeedSource = false
+    @AppStorage("acComputerHost") private var acComputerHost = ""
+    private var displaySpeed: Double {
+        acTelemetry.isReceiving ? (acTelemetry.sample?.speed ?? 0) : locationManager.speed
+    }
 
     /// 當前視差 X 值（-1…1），根據模式切換來源
     private var parallaxX: Double {
@@ -60,7 +67,7 @@ struct SpeedView: View {
     /// 「圓點顏色」設定 → 圓點動畫 hex。
     /// 0=金黃（維持現有 #ffd700 照舊）、1=動態橙（30→120 km/h 橙→橙紅）、2-4=指定綠系。
     private var dotMatrixColorHex: String {
-        colorGroup.dotColorHex(speed: locationManager.speed, preset: orbColorPreset)
+        colorGroup.dotColorHex(speed: displaySpeed, preset: orbColorPreset)
     }
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("orbMasterEnabled") private var orbMasterEnabled: Bool = true
@@ -98,23 +105,17 @@ struct SpeedView: View {
     let isDuoInnerDisplay: Bool
     let isDuoPartiallyOpen: Bool
 
-    // 專注模式
-    @Binding var focusMode: FocusModeLevel?
-    @Binding var focusFrameRate: FocusFrameRate
-    var onEnterFocus: (FocusModeLevel, FocusFrameRate) -> Void
-    var onExitFocus: () -> Void
-    @State private var showFocusSheet = false
     @State private var isLandscapeLayout = false
     @State private var safeAreaOnLeft = false
     @State private var toolbarIsOnLeadingEdge = false
 
-    private var focusButtonInToolbar: Bool {
+    private var computerButtonInToolbar: Bool {
         isDuoDevice && !isLandscapeLayout && toolbarIsOnLeadingEdge
     }
 
     var body: some View {
         ZStack {
-            if showMap {
+            if showMap && !acTelemetry.isReceiving {
                 ZStack {
                     GeometryReader { geo in
                         let useUpperHalf = isDuoPartiallyOpen && geo.size.width <= geo.size.height
@@ -155,8 +156,14 @@ struct SpeedView: View {
                     }
                     .allowsHitTesting(false)
                 }
-            } else if !colorGroup.showsOrbControls {
-                (colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.black) : Color.black).ignoresSafeArea()
+            } else if colorGroup == .darkKnight {
+                Color.black.ignoresSafeArea()
+            } else if colorGroup == .m3Concept {
+                AnimatedBackground(clock: animationClock,
+                    orbEnabled: colorGroup.orbsEnabled(master: orbMasterEnabled, surface: orbBackgroundSpeed),
+                    orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, overlapGlowEnabled: orbOverlapGlowEnabled,
+                    customOrbColors: M3ConceptPalette.homeOrbs, backgroundColorHex: M3ConceptPalette.black)
+                    .ignoresSafeArea()
             } else {
                 AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
@@ -168,7 +175,7 @@ struct SpeedView: View {
                 // 數量多咗近一倍），四邊各留 20% 緩衝 ——
                 // 視差旋轉＋位移任何角度都唔會露邊。
                 DotMatrixWebView(speed: Binding(
-                    get: { locationManager.speed },
+                    get: { displaySpeed },
                     set: { _ in }
                 ), canvasScale: 1.0, dynamicColorHex: dotMatrixColorHex)
                 .frame(width: dotGeo.size.width * 1.4, height: dotGeo.size.height * 1.4)
@@ -219,6 +226,7 @@ struct SpeedView: View {
                             }
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .blur(radius: adjustedBlur)
+                            .accessibilityHidden(true)
                             .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showParallaxToggle)
                             .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier + (showParallaxToggle ? -10 : 0))
                             .transaction { $0.animation = nil }
@@ -234,6 +242,7 @@ struct SpeedView: View {
                             color: textColor.opacity(0.6 * speedOpacity),
                             hidden: speedNumberHidden
                         )
+                        .accessibilityIdentifier("speedDigits")
                         Text("km/h")
                             .font(.title3)
                             .foregroundColor(textColor.opacity(0.6 * speedOpacity))
@@ -265,7 +274,33 @@ struct SpeedView: View {
             }
         }
         .overlay {
-            if !focusButtonInToolbar {
+            if acEnabled {
+                ACTelemetryOverlay(telemetry: acTelemetry,
+                    foreground: colorGroup == .m3Concept || colorScheme == .dark || colorGroup == .darkKnight ? .white : .black)
+                    .allowsHitTesting(false)
+            }
+        }
+        .sheet(isPresented: $showSpeedSource) {
+            ACConnectionSheet(host: $acComputerHost, gameMode: acEnabled, connect: {
+                acEnabled = true
+                acTelemetry.connect(host: acComputerHost)
+            }, useGPS: {
+                acEnabled = false
+                acTelemetry.disconnect()
+            })
+            .presentationDetents([.medium, .large])
+        }
+        .onChange(of: acTelemetry.isReceiving) { _, _ in
+            lastKnownSpeed = acTelemetry.isReceiving ? (acTelemetry.sample?.speed ?? 0) : max(0, locationManager.smoothedSpeed)
+            speedRoller.setDisplay(displaySpeed)
+            syncGpsLostState()
+            startActiveParallax()
+        }
+        .onReceive(acTelemetry.$sample) { sample in
+            if let sample { lastKnownSpeed = sample.speed }
+        }
+        .overlay {
+            if !computerButtonInToolbar {
                 GeometryReader { geo in
                     let landscape = geo.size.width > geo.size.height
                     let outerLandscapeWithLeadingBar = isDuoDevice && !isDuoInnerDisplay
@@ -282,12 +317,12 @@ struct SpeedView: View {
                         : 0
 
                     if outerLandscapeWithLeadingBar {
-                        focusModeControl
+                        computerControl
                             .padding(.trailing, 16)
                             .padding(.bottom, 12)
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
                     } else {
-                        focusModeButton
+                        computerButton
                             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
                             .offset(y: downwardCorrection)
                     }
@@ -295,34 +330,18 @@ struct SpeedView: View {
             }
         }
         .toolbar {
-            if focusButtonInToolbar {
+            if computerButtonInToolbar {
                 if #available(iOS 27.1, *) {
                     ToolbarItem(placement: .bottomBar) {
-                        focusModeControl
+                        computerControl
                     }
                     .axisBehavior(.verticalPreferred)
                 } else {
                     ToolbarItem(placement: .bottomBar) {
-                        focusModeControl
+                        computerControl
                     }
                 }
             }
-        }
-        .sheet(isPresented: $showFocusSheet) {
-            FocusModeSheet(
-                initialLevel: focusMode,
-                initialFrameRate: focusFrameRate,
-                compactLayout: isLandscapeLayout || (isDuoDevice && !isDuoInnerDisplay)
-            ) { level, fps in
-                onEnterFocus(level, fps)
-                showFocusSheet = false
-            }
-            .presentationDetents(
-                isLandscapeLayout || (isDuoDevice && !isDuoInnerDisplay)
-                    ? [.large]
-                    : [.fraction(0.61), .large]
-            )
-            .presentationDragIndicator(.visible)
         }
         .statusBarHidden(true)
         // 偵測螢幕方向變化，同步視差旋轉補償
@@ -362,8 +381,10 @@ struct SpeedView: View {
                 syncParallaxFrameRate()
             }
             // 時速數字逐格滾動：卡爾曼開關開啟時以螢幕最高刷新率插值
-            speedRoller.setDisplay(max(0, locationManager.smoothedSpeed))
-            speedRoller.targetProvider = { [lm = locationManager] in
+            lastKnownSpeed = acTelemetry.isReceiving ? (acTelemetry.sample?.speed ?? 0) : max(0, locationManager.smoothedSpeed)
+            speedRoller.setDisplay(lastKnownSpeed)
+            speedRoller.targetProvider = { [lm = locationManager, telemetry = acTelemetry] in
+                if telemetry.isReceiving { return telemetry.sample?.speed }
                 // 失聯就回傳 nil 凍結顯示（隧道入面靠 lastLocation 年齡判定，
                 // 唔係靠 gpsQuality——冇定位回調時 quality 唔會變）
                 return lm.isGPSLost ? nil : lm.predictedSpeed()
@@ -385,11 +406,6 @@ struct SpeedView: View {
                 speedRoller.stop()
             }
         }
-        // 視差取樣率跟背景動畫幀率對齊：進出專注模式／改幀率都即時生效
-        .onChange(of: focusMode) { _, _ in
-            syncParallaxFrameRate()
-        }
-        .onChange(of: focusFrameRate) { _, _ in syncParallaxFrameRate() }
         .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
         .onChange(of: speedParallaxEnabled) { _, enabled in
             if enabled {
@@ -403,7 +419,7 @@ struct SpeedView: View {
         .onChange(of: locationManager.smoothedSpeed) { _, newSpeed in
             // GPS 正常時持續更新最後已知時速（用 Double 驅動平滑漸變）；
             // 失聯時唔更新 = 凍結喺最後已知時速
-            if !locationManager.isGPSLost {
+            if !locationManager.isGPSLost && !acTelemetry.isReceiving {
                 withAnimation(.easeInOut(duration: 0.25)) {
                     lastKnownSpeed = max(0, newSpeed)
                 }
@@ -443,7 +459,7 @@ struct SpeedView: View {
             }
         }
         .onReceive(locationManager.$speed) { newSpeed in
-            guard sfxAccelerationEnabled else { return }
+            guard sfxAccelerationEnabled, !acTelemetry.isReceiving else { return }
             let now = Date()
             let dt = now.timeIntervalSince(lastSpeedSampleAt)
             let prev = lastSpeedSample
@@ -471,35 +487,41 @@ struct SpeedView: View {
         }
     }
 
-    // MARK: - 專注模式按鈕（左下角）
+    // MARK: - Computer telemetry switch
 
-    private var focusModeControl: some View {
-        let active = focusMode != nil
-        let glowColor = focusMode?.color ?? .green
-        let baseColor: Color = colorScheme == .dark ? .white : .black
-        return Button {
-            if active {
-                onExitFocus()
-            } else {
-                showFocusSheet = true
-            }
-        } label: {
-            // 規格同主頁左側按鈕一致：44×44、icon 20pt、液態玻璃
-            FocusModeSymbol(active: active, glowColor: glowColor, baseColor: baseColor)
-                .frame(width: 44, height: 44)
-        }
-        .buttonStyle(.glass)
-        // 長按：任何時候都打開選擇頁（方便專注中切換模式）
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.4)
-                .onEnded { _ in showFocusSheet = true }
-        )
+    private var computerControl: some View {
+        let tint: Color = !acEnabled ? .green : acTelemetry.isReceiving ? .purple : .yellow
+        return Image(systemName: "desktopcomputer")
+            .font(.system(size: 20, weight: .medium))
+            .foregroundStyle(tint)
+            .frame(width: 44, height: 44)
+            .glassEffect(.regular.interactive(), in: Circle())
+            .contentShape(Circle())
+            .gesture(
+                LongPressGesture(minimumDuration: 0.4)
+                    .exclusively(before: TapGesture())
+                    .onEnded { gesture in
+                        switch gesture {
+                        case .first: showSpeedSource = true
+                        case .second:
+                            if !acEnabled && acComputerHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                showSpeedSource = true
+                            } else {
+                                acEnabled.toggle()
+                            }
+                        }
+                    }
+            )
+            .accessibilityIdentifier("computerTelemetrySwitch")
+            .accessibilityLabel(String(localized: "電腦遙測"))
+            .accessibilityValue(acEnabled ? acTelemetry.status : String(localized: "未連線"))
+            .accessibilityAddTraits(.isButton)
+            .accessibilityAction { acEnabled.toggle() }
+            .accessibilityAction(named: Text("連線設定")) { showSpeedSource = true }
     }
 
-    private var focusModeButton: some View {
-        focusModeControl
-        .padding(.leading, 16)
-        .padding(.bottom, 12)
+    private var computerButton: some View {
+        computerControl.padding(.leading, 16).padding(.bottom, 12)
     }
 
     // MARK: - 視差模式切換膠囊
@@ -553,6 +575,10 @@ struct SpeedView: View {
     /// 巡邏 timer、回前景、任何新定位都經呢度一次過同步，
     /// 唔會俾單一途徑失效就困住個顯示狀態。
     private func syncGpsLostState() {
+        if acTelemetry.isReceiving {
+            gpsLostAnim = false
+            return
+        }
         let lost = locationManager.isGPSLost
         if lost != gpsLostAnim {
             withAnimation(.easeInOut(duration: 0.5)) {
@@ -569,16 +595,14 @@ struct SpeedView: View {
     /// 視差 60Hz 足夠跟隨手部動作；圓點 canvas 仍獨立用螢幕刷新率。
     /// 降低 CoreMotion 喺主線程發佈數值造成嘅 SwiftUI 重算。
     private func syncParallaxFrameRate() {
-        let fps = min(60.0, focusMode != nil
-            ? Double(focusFrameRate.rawValue)
-            : Double(max(UIScreen.main.maximumFramesPerSecond, 60)))
+        let fps = 60.0
         tiltMotion.setUpdateRate(fps)
         gForceMotion.setUpdateRate(fps)
     }
 
     /// 根據當前模式啟動對應嘅 motion manager
     private func startActiveParallax() {
-        guard speedParallaxEnabled else { return }
+        guard speedParallaxEnabled, scenePhase == .active else { return }
         if parallaxMode == .gforce {
             tiltMotion.stop()
             gForceMotion.start()
@@ -814,165 +838,6 @@ enum ParallaxMode: String {
     case gforce  // G-force（車輛加速度）
 }
 
-// MARK: - 專注模式選擇頁
-
-/// 每次㩒專注按鈕都喺呢度揀：模式（平衡／輕度／極致）＋背景動畫幀率（60/120fps）
-struct FocusModeSheet: View {
-    let initialLevel: FocusModeLevel?
-    let initialFrameRate: FocusFrameRate
-    let compactLayout: Bool
-    var onEnter: (FocusModeLevel, FocusFrameRate) -> Void
-
-    @State private var selectedLevel: FocusModeLevel = .balanced
-    @State private var fpsSliderValue: Double = 60
-    /// 圖標彈跳動畫觸發器：設為對應 level 後 0.15 秒自動歸 nil
-    @State private var animatingLevel: FocusModeLevel?
-
-    var body: some View {
-        GeometryReader { geo in
-            let horizontal = geo.size.width > geo.size.height
-            Group {
-                if horizontal {
-                    HStack(alignment: .top, spacing: 18) {
-                        VStack(alignment: .leading, spacing: 8) {
-                            heading
-                            ForEach(FocusModeLevel.allCases) { level in
-                                modeCard(level, compact: true)
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
-
-                        VStack(alignment: .leading, spacing: 16) {
-                            frameRateControls
-                            Spacer(minLength: 8)
-                            enterButton
-                        }
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.vertical, 16)
-                } else {
-                    VStack(alignment: .leading, spacing: compactLayout ? 8 : 12) {
-                        heading
-                        ForEach(FocusModeLevel.allCases) { level in
-                            modeCard(level, compact: compactLayout)
-                        }
-                        frameRateControls
-                        enterButton
-                    }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, compactLayout ? 12 : 20)
-                }
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-        }
-        .onAppear {
-            if let lvl = initialLevel { selectedLevel = lvl }
-            fpsSliderValue = Double(initialFrameRate.rawValue)
-        }
-    }
-
-    private var heading: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(String(localized: "專注模式"))
-                .font(.title2.bold())
-            Text(String(localized: "閂走時速顯示以外嘅功能，減少耗電同發熱"))
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private var frameRateControls: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text(String(localized: "背景動畫幀率"))
-                    .font(.subheadline.weight(.semibold))
-                Spacer()
-                Text("\(Int(fpsSliderValue)) fps")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
-                    .animation(.easeInOut(duration: 0.15), value: fpsSliderValue)
-            }
-            Slider(value: $fpsSliderValue, in: 60...120, step: 30) {
-                Text(String(localized: "背景動畫幀率"))
-            } minimumValueLabel: {
-                Text("60").font(.caption).foregroundStyle(.secondary)
-            } maximumValueLabel: {
-                Text("120").font(.caption).foregroundStyle(.secondary)
-            }
-            .tint(selectedLevel.color)
-            Text(String(localized: "120 fps 只喺 ProMotion 機型有效，會稍微增加耗電"))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-        }
-        .padding(.top, 4)
-    }
-
-    private var enterButton: some View {
-        Button {
-            onEnter(selectedLevel, FocusFrameRate(rawValue: Int(fpsSliderValue)) ?? .fps60)
-        } label: {
-            Text(String(localized: "進入專注模式"))
-                .font(.headline)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 6)
-        }
-        .buttonStyle(.borderedProminent)
-        .tint(selectedLevel.color)
-        .padding(.top, 4)
-    }
-
-    private func modeCard(_ level: FocusModeLevel, compact: Bool) -> some View {
-        let selected = selectedLevel == level
-        let c = level.color
-        return Button {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.55)) {
-                selectedLevel = level
-                animatingLevel = level
-            }
-            // 0.15 秒後歸 nil，下次㩒可以再觸發彈跳
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                withAnimation(.spring(response: 0.3, dampingFraction: 0.6)) {
-                    animatingLevel = nil
-                }
-            }
-        } label: {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: level.icon)
-                    .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(selected ? c : Color.secondary)
-                    .scaleEffect(animatingLevel == level ? 1.35 : 1.0)
-                    .frame(width: 26)
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(level.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                    Text(level.summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .multilineTextAlignment(.leading)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                Spacer(minLength: 4)
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .foregroundStyle(selected ? c : Color.secondary.opacity(0.4))
-                    .contentTransition(.symbolEffect(.replace))
-            }
-            .padding(compact ? 8 : 12)
-            .background(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(selected ? c.opacity(0.1) : Color.gray.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(selected ? c.opacity(0.6) : Color.clear, lineWidth: 1.5)
-            )
-            .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-}
 
 // MARK: - 時速數字（逐格滾動插值）
 
@@ -1008,23 +873,6 @@ private struct SpeedDigitsText: View {
 
 // MARK: - 時速數字視差條件修飾器
 
-private struct FocusModeSymbol: View {
-    let active: Bool
-    let glowColor: Color
-    let baseColor: Color
-    @State private var breatheIn = false
-
-    var body: some View {
-        Image(systemName: active ? "leaf.fill" : "leaf")
-            .font(.system(size: 20, weight: .medium))
-            .foregroundStyle(active ? glowColor.opacity(breatheIn ? 1 : 0.7) : baseColor)
-            .shadow(color: active ? glowColor.opacity(breatheIn ? 0.85 : 0.3) : .clear, radius: active ? (breatheIn ? 7 : 4) : 0)
-            .shadow(color: active ? glowColor.opacity(breatheIn ? 0.55 : 0.15) : .clear, radius: active ? (breatheIn ? 14 : 8) : 0)
-            .animation(active ? .easeInOut(duration: 2).repeatForever(autoreverses: true) : .easeOut(duration: 0.2), value: breatheIn)
-            .onAppear { breatheIn = active }
-            .onChange(of: active) { _, value in breatheIn = value }
-    }
-}
 
 private struct SpeedParallaxModifier: ViewModifier {
     let enabled: Bool

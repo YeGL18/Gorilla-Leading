@@ -34,6 +34,8 @@
 		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
+		AC10001 /* ACTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20001 /* ACTelemetry.swift */; };
+		AC10002 /* ACDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20002 /* ACDashboardView.swift */; };
 		BACC1001 /* GorillaBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACC2001 /* GorillaBackup.swift */; };
 		BACC1002 /* DataToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACC2002 /* DataToolsView.swift */; };
 		BACC1003 /* FindCarShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACC2003 /* FindCarShareView.swift */; };
@@ -123,6 +125,8 @@
 		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
+		AC20001 /* ACTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Models/ACTelemetry.swift; sourceTree = "<group>"; };
+		AC20002 /* ACDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACDashboardView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
 		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
 		BACC2001 /* GorillaBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaBackup.swift; sourceTree = "<group>"; };
@@ -322,6 +326,8 @@
 				7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */,
 				A20020 /* DotMatrixView.swift */,
 				B20002 /* SpeedView.swift */,
+				AC20001 /* ACTelemetry.swift */,
+				AC20002 /* ACDashboardView.swift */,
 				C20001 /* MapView.swift */,
 				PR20001 /* ParkingRecordViews.swift */,
 				PA20001 /* ParkingAreaViews.swift */,
@@ -565,6 +571,8 @@
 				C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,
 				B10002 /* SpeedView.swift in Sources */,
+				AC10001 /* ACTelemetry.swift in Sources */,
+				AC10002 /* ACDashboardView.swift in Sources */,
 				C10001 /* MapView.swift in Sources */,
 				PR10001 /* ParkingRecordViews.swift in Sources */,
 				PA10001 /* ParkingAreaViews.swift in Sources */,

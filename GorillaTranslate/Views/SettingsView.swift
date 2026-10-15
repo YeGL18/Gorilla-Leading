@@ -188,20 +188,11 @@ struct SettingsView: View {
                     Toggle(isOn: $launchAnimationEnabled) {
                         Label(String(localized: "啟動動畫"), systemImage: "play.rectangle.on.rectangle")
                     }
-                    // 光球繪製方式／光球混色擺入外觀：任何色組模式都調校到，唔會因為光球效果嗰欄隱藏而失蹤。
-                    Picker(String(localized: "光球繪製方式"), selection: $orbCanvasDitherEnabled) {
-                        Text(String(localized: "原生模糊")).tag(false)
-                        Text("Canvas Symbols + Dither").tag(true)
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(String(localized: "光球混色"))
-                            .font(.subheadline)
-                        Picker(String(localized: "光球混色"), selection: $orbOverlapGlowEnabled) {
-                            Text(String(localized: "原本效果")).tag(false)
-                            Text(String(localized: "白色混色")).tag(true)
+                    if colorGroup.showsOrbControls {
+                        NavigationLink { orbEffectsPage } label: {
+                            Label(String(localized: "光球效果"), systemImage: "sparkles")
                         }
-                        .pickerStyle(.segmented)
-                        .labelsHidden()
+                        .accessibilityIdentifier("orbEffectsSettings")
                     }
                 } header: {
                     Label(String(localized: "外觀"), systemImage: "paintpalette")
@@ -333,121 +324,6 @@ struct SettingsView: View {
                     Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。\n隱藏時速數字：連 km/h 單位一齊隱藏，其他顯示照舊。")
                 }
 
-                // ── 7. 光球效果 ──
-                if colorGroup.showsOrbControls {
-                Section {
-                    Picker(String(localized: "光球配色"), selection: $colorSchemeIndex) {
-                        Text(String(localized: "Default")).tag(0)
-                        Text("27").tag(1)
-                    }
-                    Toggle(isOn: $orbMasterEnabled) {
-                        Label(String(localized: "光球效果總開關"), systemImage: "sparkles")
-                    }
-                    if orbMasterEnabled {
-                        Picker(String(localized: "背景效果"), selection: $useTimeBasedOrb) {
-                            Text(String(localized: "光球")).tag(false)
-                            Text(String(localized: "時程")).tag(true)
-                        }
-                        Toggle(String(localized: "緊湊膠囊"), isOn: $orbCapsule)
-                        Toggle(String(localized: "擴展膠囊"), isOn: $orbExpanded)
-                        Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
-                        Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
-                        Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
-                        // 圓點顏色：一行色點直接點選（控制圓點動畫嘅圓點顏色，選中加高亮圈）
-                        HStack(spacing: 12) {
-                            Text(String(localized: "圓點顏色"))
-                            Spacer()
-                            ForEach(Array(["FFD700", "FF8C00", "9BF783", "99E695", "97D5AB"].enumerated()), id: \.offset) { index, hex in
-                                Button {
-                                    withAnimation(.easeInOut(duration: 0.15)) {
-                                        orbColorPreset = index
-                                    }
-                                } label: {
-                                    Circle()
-                                        .fill(Color(hex: hex))
-                                        .frame(width: 26, height: 26)
-                                        .overlay(
-                                            Circle()
-                                                .strokeBorder(
-                                                    orbColorPreset == index
-                                                        ? Color.primary.opacity(0.9)
-                                                        : Color.primary.opacity(0.15),
-                                                    lineWidth: orbColorPreset == index ? 2.5 : 1
-                                                )
-                                        )
-                                        .scaleEffect(orbColorPreset == index ? 1.15 : 1.0)
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        if useTimeBasedOrb {
-                            VStack(spacing: 12) {
-                                HStack {
-                                    Text(String(localized: "預覽時間"))
-                                    Spacer()
-                                    if isAutoPlaying {
-                                        Text("\(Int(timePreviewHour)):00")
-                                            .foregroundStyle(.orange)
-                                            .monospacedDigit()
-                                    } else {
-                                        Text("\(Int(timePreviewHour)):00")
-                                            .foregroundStyle(.secondary)
-                                    }
-                                }
-                                HStack(spacing: 12) {
-                                    Slider(value: $timePreviewHour, in: 0...24, step: 0.5)
-                                        .tint(.orange)
-                                        .disabled(isAutoPlaying)
-                                        .onChange(of: timePreviewHour) { _, newValue in
-                                            if !isAutoPlaying {
-                                                previewPhaseManager.setPreviewHour(newValue)
-                                            }
-                                        }
-                                    Button {
-                                        toggleAutoPlay()
-                                    } label: {
-                                        Image(systemName: isAutoPlaying ? "stop.fill" : "play.fill")
-                                            .font(.system(size: 14))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 32, height: 32)
-                                            .glassEffect(.regular, in: .circle)
-                                    }
-                                }
-                                HStack {
-                                    Text("0:00").font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("6:00").font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("12:00").font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("18:00").font(.caption).foregroundStyle(.secondary)
-                                    Spacer()
-                                    Text("24:00").font(.caption).foregroundStyle(.secondary)
-                                }
-                                GeometryReader { geo in
-                                    let phoneHeight = geo.size.width * (19.5 / 9.0)
-                                    TimeBasedOrbView(phaseManager: previewPhaseManager, clock: previewClock, orbEnabled: true)
-                                        .frame(width: geo.size.width, height: phoneHeight)
-                                }
-                                .frame(height: UIScreen.main.bounds.width * (19.5 / 9.0))
-                                .clipShape(RoundedRectangle(cornerRadius: 12))
-                                .onAppear {
-                                    previewClock.start()
-                                    previewPhaseManager.start()
-                                    previewPhaseManager.setPreviewHour(timePreviewHour)
-                                }
-                                .onDisappear {
-                                    stopAutoPlay()
-                                    previewClock.stop()
-                                    previewPhaseManager.stop()
-                                }
-                            }
-                        }
-                    }
-                } header: {
-                    Label(String(localized: "光球效果"), systemImage: "sparkles")
-                }
-                }
 
                 Section {
                     NavigationLink {
@@ -513,7 +389,157 @@ struct SettingsView: View {
             }
         }
     }
-    
+
+    private var orbEffectsPage: some View {
+        List {
+            Section {
+                Toggle(isOn: $orbMasterEnabled) {
+                    Label(String(localized: "光球效果總開關"), systemImage: "sparkles")
+                }
+                .accessibilityIdentifier("orbMasterEnabled")
+                if orbMasterEnabled {
+                    if colorGroup == .normal {
+                        Picker(String(localized: "光球配色"), selection: $colorSchemeIndex) {
+                            Text(String(localized: "Default")).tag(0)
+                            Text("27").tag(1)
+                        }
+                    }
+                    if colorGroup == .m3Concept || !useTimeBasedOrb {
+                        Picker(String(localized: "光球繪製方式"), selection: $orbCanvasDitherEnabled) {
+                            Text(String(localized: "原生模糊")).tag(false)
+                            Text("Canvas Symbols + Dither").tag(true)
+                        }
+                        .accessibilityIdentifier("orbCanvasDitherEnabled")
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(String(localized: "光球混色"))
+                                .font(.subheadline)
+                            Picker(String(localized: "光球混色"), selection: $orbOverlapGlowEnabled) {
+                                Text(String(localized: "原本效果")).tag(false)
+                                Text(String(localized: "白色混色")).tag(true)
+                            }
+                            .pickerStyle(.segmented)
+                            .labelsHidden()
+                        }
+
+                    }
+                    if colorGroup == .normal {
+                        Picker(String(localized: "背景效果"), selection: $useTimeBasedOrb) {
+                            Text(String(localized: "光球")).tag(false)
+                            Text(String(localized: "時程")).tag(true)
+                        }
+                    }
+                    Toggle(String(localized: "緊湊膠囊"), isOn: $orbCapsule)
+                    Toggle(String(localized: "擴展膠囊"), isOn: $orbExpanded)
+                    Toggle(String(localized: "泊車記憶"), isOn: $orbParkingMemory)
+                    Toggle(String(localized: "主頁背景"), isOn: $orbBackgroundHome)
+                    Toggle(String(localized: "時速頁背景"), isOn: $orbBackgroundSpeed)
+                    // 圓點顏色：一行色點直接點選（控制圓點動畫嘅圓點顏色，選中加高亮圈）
+                    if colorGroup == .normal {
+                        HStack(spacing: 12) {
+                            Text(String(localized: "圓點顏色"))
+                            Spacer()
+                            ForEach(
+                                Array(["FFD700", "FF8C00", "9BF783", "99E695", "97D5AB"].enumerated()), id: \.offset
+                            ) { index, hex in
+                                Button {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        orbColorPreset = index
+                                    }
+                                } label: {
+                                    Circle()
+                                        .fill(Color(hex: hex))
+                                        .frame(width: 26, height: 26)
+                                        .overlay(
+                                            Circle()
+                                                .strokeBorder(
+                                                    orbColorPreset == index
+                                                        ? Color.primary.opacity(0.9)
+                                                        : Color.primary.opacity(0.15),
+                                                    lineWidth: orbColorPreset == index ? 2.5 : 1
+                                                )
+                                        )
+                                        .scaleEffect(orbColorPreset == index ? 1.15 : 1.0)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if colorGroup == .normal && useTimeBasedOrb {
+                        VStack(spacing: 12) {
+                            HStack {
+                                Text(String(localized: "預覽時間"))
+                                Spacer()
+                                if isAutoPlaying {
+                                    Text("\(Int(timePreviewHour)):00")
+                                        .foregroundStyle(.orange)
+                                        .monospacedDigit()
+                                } else {
+                                    Text("\(Int(timePreviewHour)):00")
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            HStack(spacing: 12) {
+                                Slider(value: $timePreviewHour, in: 0...24, step: 0.5)
+                                    .tint(.orange)
+                                    .disabled(isAutoPlaying)
+                                    .onChange(of: timePreviewHour) { _, newValue in
+                                        if !isAutoPlaying {
+                                            previewPhaseManager.setPreviewHour(newValue)
+                                        }
+                                    }
+                                Button {
+                                    toggleAutoPlay()
+                                } label: {
+                                    Image(systemName: isAutoPlaying ? "stop.fill" : "play.fill")
+                                        .font(.system(size: 14))
+                                        .foregroundStyle(.white)
+                                        .frame(width: 32, height: 32)
+                                        .glassEffect(.regular, in: .circle)
+                                }
+                            }
+                            HStack {
+                                Text("0:00").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Text("6:00").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Text("12:00").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Text("18:00").font(.caption).foregroundStyle(.secondary)
+                                Spacer()
+                                Text("24:00").font(.caption).foregroundStyle(.secondary)
+                            }
+                            GeometryReader { geo in
+                                let phoneHeight = geo.size.width * (19.5 / 9.0)
+                                TimeBasedOrbView(
+                                    phaseManager: previewPhaseManager, clock: previewClock, orbEnabled: true
+                                )
+                                .frame(width: geo.size.width, height: phoneHeight)
+                            }
+                            .frame(height: UIScreen.main.bounds.width * (19.5 / 9.0))
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .onAppear {
+                                previewClock.start()
+                                previewPhaseManager.start()
+                                previewPhaseManager.setPreviewHour(timePreviewHour)
+                            }
+                            .onDisappear {
+                                stopAutoPlay()
+                                previewClock.stop()
+                                previewPhaseManager.stop()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(String(localized: "光球效果"))
+        .navigationBarTitleDisplayMode(.inline)
+        .onDisappear {
+            stopAutoPlay()
+            previewClock.stop()
+            previewPhaseManager.stop()
+        }
+    }
     @ViewBuilder
     private var destinationRows: some View {
         if destinationManager.destinations.isEmpty {

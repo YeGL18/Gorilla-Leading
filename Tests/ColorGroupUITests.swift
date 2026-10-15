@@ -1,6 +1,27 @@
 import XCTest
 
 final class ColorGroupUITests: XCTestCase {
+    func testM3OrbControlsAreUserControlled() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetColorGroup", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        XCTAssertTrue(app.buttons["colorGroupMode"].waitForExistence(timeout: 10))
+        app.buttons["colorGroupMode"].tap()
+        app.buttons["M3 Concept"].tap()
+        app.buttons["orbEffectsSettings"].tap()
+        let master = app.switches["orbMasterEnabled"]
+        XCTAssertTrue(master.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["orbCanvasDitherEnabled"].exists)
+        XCTAssertFalse(app.staticTexts["Orb Color Scheme"].exists)
+        master.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        let off = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '0'"), object: master)
+        XCTAssertEqual(XCTWaiter.wait(for: [off], timeout: 5), .completed)
+        XCTAssertFalse(app.buttons["orbCanvasDitherEnabled"].exists)
+        capture("M3 orb effects disabled")
+        master.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        XCTAssertTrue(app.buttons["orbCanvasDitherEnabled"].waitForExistence(timeout: 5))
+    }
+
     func testM3HomeOrbsInBothRenderers() {
         for native in [true, false] {
             XCUIDevice.shared.orientation = .portrait
@@ -37,7 +58,7 @@ final class ColorGroupUITests: XCTestCase {
         XCTAssertTrue(app.staticTexts["orbControls"].exists)
         picker.tap()
         app.buttons["M3 Concept"].tap()
-        XCTAssertFalse(app.staticTexts["orbControls"].exists)
+        XCTAssertTrue(app.staticTexts["orbControls"].exists)
         XCTAssertEqual(app.staticTexts["dotColor"].label, "#EF363B")
         let canvas = app.webViews.firstMatch
         XCTAssertTrue(canvas.waitForExistence(timeout: 10))

@@ -22,8 +22,12 @@ enum GorillaColorGroup: Int, CaseIterable {
         }
     }
 
-    var showsOrbControls: Bool { self == .normal }
+    var showsOrbControls: Bool { self != .darkKnight }
     var usesSpecialMap: Bool { self == .darkKnight }
+
+    func orbsEnabled(master: Bool, surface: Bool) -> Bool {
+        showsOrbControls && master && surface
+    }
 
     func dotColorHex(speed: Double, preset: Int) -> String {
         let speed = speed.isFinite ? max(0, speed) : 0

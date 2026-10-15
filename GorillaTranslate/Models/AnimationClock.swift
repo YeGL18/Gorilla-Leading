@@ -8,7 +8,7 @@ enum AnimationDiagnostics {
 }
 
 /// 驅動 orb 背景動畫嘅時鐘。用 CADisplayLink 同螢幕刷新同步，
-/// 可以喺 60fps / 120fps（ProMotion）之間切換 —— 專注模式用。
+/// 支援 60fps / 120fps（ProMotion）刷新率。
 class AnimationClock: ObservableObject {
     @Published var elapsed: TimeInterval = 0
     var speedMultiplier: Double = 1.0
