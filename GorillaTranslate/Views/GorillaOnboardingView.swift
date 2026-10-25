@@ -3,6 +3,61 @@ import MapKit
 import CoreLocation
 import UserNotifications
 
+struct LeadingJourneyMotion {
+    struct Turn { let distance: Double; let angle: Double }
+    struct Sample { let distance: Double; let speedKmh: Double }
+    private let stations: [Double]
+    private let speeds: [Double]
+    private let times: [Double]
+    var duration: Double { times.last ?? 0 }
+
+    init(distance: Double, turns: [Turn]) {
+        let length = max(0.01, distance)
+        let count = max(2, Int(ceil(length / 2)))
+        let stations = (0...count).map { length * Double($0) / Double(count) }
+        // A repeatable 48–62 km/h cruise wave, not random changes to the label.
+        // Both the displayed speed and marker motion integrate this same profile.
+        var speeds = stations.map { distance in
+            (55 + 7 * cos(2 * .pi * (distance - 110) / 240)) / 3.6
+        }
+        for turn in turns where turn.angle > 20 {
+            let index = min(count, max(0, Int((turn.distance / length * Double(count)).rounded())))
+            speeds[index] = min(speeds[index], max(3.7, 11.8 - turn.angle / 14))
+        }
+        speeds[0] = 0
+        speeds[count] = 0
+        // Constrain acceleration and braking before integrating distance into time.
+        for i in 1...count {
+            speeds[i] = min(speeds[i], sqrt(speeds[i - 1] * speeds[i - 1] + 2 * 2.6 * (stations[i] - stations[i - 1])))
+        }
+        for i in stride(from: count - 1, through: 0, by: -1) {
+            speeds[i] = min(speeds[i], sqrt(speeds[i + 1] * speeds[i + 1] + 2 * 3.8 * (stations[i + 1] - stations[i])))
+        }
+        var times = [0.0]
+        for i in 1...count {
+            let dt = 2 * (stations[i] - stations[i - 1]) / max(0.01, speeds[i - 1] + speeds[i])
+            times.append(times[i - 1] + dt)
+        }
+        self.stations = stations
+        self.speeds = speeds
+        self.times = times
+    }
+
+    func sample(at elapsed: Double) -> Sample {
+        guard elapsed > 0 else { return Sample(distance: 0, speedKmh: 0) }
+        guard elapsed < duration else { return Sample(distance: stations.last ?? 0, speedKmh: 0) }
+        var lower = 0, upper = times.count - 1
+        while upper - lower > 1 {
+            let middle = (lower + upper) / 2
+            if times[middle] <= elapsed { lower = middle } else { upper = middle }
+        }
+        let dt = elapsed - times[lower]
+        let acceleration = (speeds[upper] - speeds[lower]) / (times[upper] - times[lower])
+        return Sample(distance: stations[lower] + speeds[lower] * dt + 0.5 * acceleration * dt * dt,
+                      speedKmh: max(0, speeds[lower] + acceleration * dt) * 3.6)
+    }
+}
+
 private enum LeadingTourPage: Int, CaseIterable {
     case welcome
     case journey
@@ -52,12 +107,11 @@ struct GorillaOnboardingView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
+            .overlay(alignment: .bottom) {
                 actionBar
+                    .frame(maxWidth: 520)
                     .padding(.horizontal, isWide ? 40 : 24)
-                    .padding(.top, 10)
                     .padding(.bottom, 8)
-                    .background(.ultraThinMaterial)
             }
             .gesture(pageSwipeGesture)
         }
@@ -218,6 +272,7 @@ struct GorillaOnboardingView: View {
             }
             .padding(.horizontal, isWide ? 40 : 24)
             .padding(.vertical, compactHeight ? 12 : 26)
+            .padding(.bottom, 78)
             .frame(maxWidth: 1180)
             .frame(maxWidth: .infinity)
         }
@@ -301,6 +356,7 @@ struct GorillaOnboardingView: View {
             }
             .padding(.horizontal, isWide ? 40 : 24)
             .padding(.vertical, compactHeight ? 12 : 24)
+            .padding(.bottom, 78)
             .frame(maxWidth: 1180)
             .frame(maxWidth: .infinity)
         }
@@ -346,7 +402,7 @@ struct GorillaOnboardingView: View {
             )
         }
         .padding(.horizontal, 16)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 
     private func permissionRow(
@@ -392,11 +448,13 @@ struct GorillaOnboardingView: View {
                 Image(systemName: isLastPage ? "checkmark" : "arrow.right")
                     .font(.system(size: 15, weight: .bold))
             }
-            .frame(maxWidth: .infinity, minHeight: 48)
+            .frame(maxWidth: .infinity, minHeight: 60)
+            .contentShape(Capsule())
         }
-        .buttonStyle(.borderedProminent)
+        .buttonStyle(.plain)
+        .foregroundStyle(.primary)
+        .glassEffect(.clear.interactive(), in: .capsule)
         .buttonBorderShape(.capsule)
-        .controlSize(.large)
         .accessibilityHint(isLastPage ? "完成介紹並進入 Gorilla Leading" : "前往下一頁")
     }
 
@@ -471,6 +529,7 @@ struct GorillaOnboardingView: View {
 
 struct AboutGorillaLeadingView: View {
     @EnvironmentObject private var locationManager: LocationManager
+    @AppStorage("parkingTimerColorHex") private var parkingTimerColorHex = "46ADB8"
     @State private var showTour = false
 
     private var versionText: String {
@@ -506,10 +565,10 @@ struct AboutGorillaLeadingView: View {
             .listRowBackground(Color.clear)
 
             Section("Gorilla Leading") {
-                AboutFeatureRow(icon: "map.fill", color: .blue, title: "旅程與導航", detail: "把地圖、時速、目的地和路線放在同一個駕駛畫面。")
+                AboutFeatureRow(icon: "map.fill", color: .cyan, title: "旅程與導航", detail: "把地圖、時速、目的地和路線放在同一個駕駛畫面。")
                 AboutFeatureRow(icon: "parkingsign.circle.fill", color: .green, title: "咪錶探測", detail: "按距離、狀態與車型顯示附近咪錶位。")
-                AboutFeatureRow(icon: "car.side.fill", color: .orange, title: "泊車記憶", detail: "記錄停車位置、樓層、時間、相片與停車場。")
-                AboutFeatureRow(icon: "brain.head.profile.fill", color: .purple, title: "日常預測", detail: "從你確認過的行程模式提供目的地提示。")
+                AboutFeatureRow(icon: "car.side.fill", color: Color(hex: parkingTimerColorHex), title: "泊車記憶", detail: "記錄停車位置、樓層、時間、相片與停車場。")
+                AboutFeatureRow(icon: "brain.head.profile.fill", color: Color(hex: "0098FF"), title: "日常預測", detail: "從你確認過的行程模式提供目的地提示。")
             }
 
             Section("私隱") {
@@ -526,6 +585,10 @@ struct AboutGorillaLeadingView: View {
                     Label("重新觀看首次介紹", systemImage: "play.rectangle.on.rectangle")
                 }
             }
+
+            Section {
+                GorillaSupportLinks()
+            }
         }
         .navigationTitle("關於 Gorilla Leading")
         .navigationBarTitleDisplayMode(.inline)
@@ -534,6 +597,30 @@ struct AboutGorillaLeadingView: View {
                 showTour = false
             }
             .environmentObject(locationManager)
+        }
+    }
+}
+
+enum GorillaSupport {
+    static let website = URL(string: "https://gorilla-leading.divine-amber-0182.chatgpt.site")!
+    static let review = URL(string: "https://apps.apple.com/app/id6822058970?action=write-review")!
+}
+
+struct GorillaSupportLinks: View {
+    var body: some View {
+        Group {
+            Link(destination: GorillaSupport.review) {
+                Label("為 Gorilla Leading 評分", systemImage: "star")
+            }
+            Link(destination: GorillaSupport.website.appendingPathComponent("help/")) {
+                Label("幫助", systemImage: "questionmark.circle")
+            }
+            Link(destination: GorillaSupport.website.appendingPathComponent("privacy/")) {
+                Label("私隱政策", systemImage: "hand.raised")
+            }
+            Link(destination: GorillaSupport.website.appendingPathComponent("terms/")) {
+                Label("使用條款", systemImage: "doc.text")
+            }
         }
     }
 }
@@ -627,12 +714,11 @@ private struct LeadingWelcomeVisual: View {
 }
 
 private struct LeadingJourneyVisual: View {
-    @State private var speed = 18
-    @State private var distance = 2.4
+    @State private var speed = 0
 
     var body: some View {
-        ZStack(alignment: .topLeading) {
-            LeadingMapDemo(mode: .journey)
+        ZStack(alignment: .topTrailing) {
+            LeadingMapDemo(mode: .journey, onSpeedChange: { speed = $0 })
 
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 0) {
@@ -640,23 +726,18 @@ private struct LeadingJourneyVisual: View {
                         .font(.system(size: 34, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .contentTransition(.numericText(value: Double(speed)))
+                        .animation(.smooth(duration: 0.2), value: speed)
+                        .accessibilityIdentifier("tourJourneySpeed")
                     Text("km/h")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.secondary)
                 }
                 Divider().frame(height: 38)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("距離學校")
+                    Text("示範行程")
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                    HStack(alignment: .firstTextBaseline, spacing: 2) {
-                        Text(distance, format: .number.precision(.fractionLength(1)))
-                            .font(.title3.bold())
-                            .monospacedDigit()
-                            .contentTransition(.numericText(value: distance))
-                        Text("km")
-                            .font(.caption)
-                    }
+                    Text("中環").font(.headline)
                 }
             }
             .padding(.horizontal, 16)
@@ -664,37 +745,18 @@ private struct LeadingJourneyVisual: View {
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .padding(14)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .task {
-            let speeds = [18, 34, 52, 67, 45, 28]
-            var index = 0
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1.05))
-                guard !Task.isCancelled else { break }
-                index = (index + 1) % speeds.count
-                withAnimation(.smooth(duration: 0.55)) {
-                    speed = speeds[index]
-                    distance = max(0.3, distance - 0.2)
-                }
-            }
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
 private struct LeadingParkingVisual: View {
-    @State private var available = 3
-
     var body: some View {
         ZStack(alignment: .bottom) {
             LeadingMapDemo(mode: .meters)
             HStack(spacing: 8) {
                 Circle().fill(.green).frame(width: 10, height: 10)
-                Text("附近有")
-                Text("\(available)")
-                    .font(.headline)
-                    .monospacedDigit()
-                    .contentTransition(.numericText(value: Double(available)))
-                Text("個空置咪錶位")
+                Text("中環 · 紅棉路")
+                Text("狀態示範").foregroundStyle(.secondary)
             }
             .font(.subheadline.weight(.semibold))
             .padding(.horizontal, 16)
@@ -702,87 +764,59 @@ private struct LeadingParkingVisual: View {
             .background(.regularMaterial, in: Capsule())
             .padding(.bottom, 14)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1.6))
-                guard !Task.isCancelled else { break }
-                withAnimation(.smooth(duration: 0.5)) {
-                    available = available == 3 ? 2 : 3
-                }
-            }
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
 private struct LeadingMemoryVisual: View {
-    @State private var minutes = 0
-    @State private var floor = 1
+    @State private var startedAt = Date()
 
     var body: some View {
         ZStack(alignment: .bottom) {
             LeadingMapDemo(mode: .memory)
 
-            HStack(spacing: 16) {
-                Label("已泊車", systemImage: "parkingsign.circle.fill")
-                    .font(.headline)
-                    .foregroundStyle(.mint)
-                Spacer()
-                VStack(alignment: .trailing, spacing: 1) {
-                    Text("\(minutes):00")
-                        .font(.title2.bold())
-                        .monospacedDigit()
-                        .contentTransition(.numericText(value: Double(minutes)))
-                    Text("B\(floor) · 中環中心")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .contentTransition(.numericText(value: Double(floor)))
+            VStack(spacing: 10) {
+                Text("昂船洲大橋觀景點")
+                    .font(.subheadline.weight(.semibold))
+                    .padding(.horizontal, 14).padding(.vertical, 7)
+                    .background(.regularMaterial, in: Capsule())
+                // Match the home screen's compact status capsule, not a second invented panel.
+                HStack(spacing: 8) {
+                    Text("已泊車")
+                    Text(startedAt, style: .timer)
+                        .monospacedDigit().fixedSize()
                 }
+                .font(.body.bold())
+                .padding(.horizontal, 24).padding(.vertical, 14)
+                .glassEffect(.regular, in: .capsule)
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
             .padding(14)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1.2))
-                guard !Task.isCancelled else { break }
-                withAnimation(.smooth(duration: 0.55)) {
-                    minutes = (minutes + 1) % 60
-                    if minutes.isMultiple(of: 4) { floor = floor == 1 ? 2 : 1 }
-                }
-            }
-        }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
     }
 }
 
 private struct LeadingPrivacyVisual: View {
-    @State private var pulse = false
-
     var body: some View {
-        ZStack {
+        ZStack(alignment: .bottomLeading) {
             LeadingMapDemo(mode: .privacy)
-            Circle()
-                .stroke(Color.blue.opacity(pulse ? 0.12 : 0.34), lineWidth: 3)
-                .frame(width: pulse ? 180 : 96, height: pulse ? 180 : 96)
-                .animation(.easeOut(duration: 1.7).repeatForever(autoreverses: false), value: pulse)
-            Image(systemName: "hand.raised.fill")
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 72, height: 72)
-                .background(.blue, in: Circle())
-                .shadow(color: .blue.opacity(0.24), radius: 14, y: 7)
+            VStack(alignment: .leading, spacing: 4) {
+                Label("位置由你掌控", systemImage: "location.shield.fill")
+                    .font(.subheadline.bold())
+                Text("淺水灣 · 示範位置")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .padding(14)
         }
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-        .onAppear { pulse = true }
+        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("定位範圍由你掌控")
     }
 }
 
-private struct LeadingMapDemo: View {
+private struct LeadingMapDemo: UIViewRepresentable {
     enum Mode {
         case journey
         case meters
@@ -791,138 +825,184 @@ private struct LeadingMapDemo: View {
     }
 
     let mode: Mode
-    @State private var phase = 0
-    @State private var routeProgress: CGFloat = 0.08
-    @State private var pulse = false
+    var onSpeedChange: ((Int) -> Void)? = nil
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    private let center = CLLocationCoordinate2D(latitude: 22.2848, longitude: 114.1588)
-    private let route = [
-        CLLocationCoordinate2D(latitude: 22.2818, longitude: 114.1545),
-        CLLocationCoordinate2D(latitude: 22.2837, longitude: 114.1572),
-        CLLocationCoordinate2D(latitude: 22.2860, longitude: 114.1601),
-        CLLocationCoordinate2D(latitude: 22.2881, longitude: 114.1630)
-    ]
-    private let meters = [
-        CLLocationCoordinate2D(latitude: 22.2828, longitude: 114.1562),
-        CLLocationCoordinate2D(latitude: 22.2842, longitude: 114.1591),
-        CLLocationCoordinate2D(latitude: 22.2862, longitude: 114.1610),
-        CLLocationCoordinate2D(latitude: 22.2873, longitude: 114.1578)
-    ]
+    func makeCoordinator() -> Coordinator { Coordinator(mode: mode, onSpeedChange: onSpeedChange) }
 
-    var body: some View {
-        ZStack {
-            Map(initialPosition: .region(MKCoordinateRegion(
-                center: center,
-                span: MKCoordinateSpan(latitudeDelta: 0.015, longitudeDelta: 0.015)
-            )), interactionModes: []) {
-                if mode == .journey {
-                    ForEach(Array(route.enumerated()), id: \.offset) { index, coordinate in
-                        if index == phase % route.count {
-                            Annotation("", coordinate: coordinate) {
-                                userMarker
-                            }
-                        }
-                    }
+    func makeUIView(context: Context) -> MKMapView {
+        let map = MKMapView()
+        map.delegate = context.coordinator
+        map.isUserInteractionEnabled = false
+        map.isPitchEnabled = false
+        map.pointOfInterestFilter = .excludingAll
+        context.coordinator.configure(map, reduceMotion: reduceMotion)
+        return map
+    }
+
+    func updateUIView(_ map: MKMapView, context: Context) {
+        context.coordinator.onSpeedChange = onSpeedChange
+        context.coordinator.displayLink?.isPaused = reduceMotion
+    }
+
+    static func dismantleUIView(_ map: MKMapView, coordinator: Coordinator) {
+        coordinator.displayLink?.invalidate()
+        map.delegate = nil
+    }
+
+    @MainActor final class Coordinator: NSObject, MKMapViewDelegate {
+        let mode: Mode
+        weak var map: MKMapView?
+        var displayLink: CADisplayLink?
+        var route: [MKMapPoint] = []
+        var distances: [Double] = []
+        var motion: LeadingJourneyMotion?
+        var elapsed = 0.0
+        var lastTick = CACurrentMediaTime()
+        var lastPublishedSpeed = -1
+        var lastSpeedPublish = 0.0
+        var onSpeedChange: ((Int) -> Void)?
+        let moving = MKPointAnnotation()
+        let meterColors: [UIColor] = [.systemGreen, .systemYellow, .systemRed]
+
+        init(mode: Mode, onSpeedChange: ((Int) -> Void)?) {
+            self.mode = mode
+            self.onSpeedChange = onSpeedChange
+        }
+
+        func configure(_ map: MKMapView, reduceMotion: Bool) {
+            self.map = map
+            switch mode {
+            case .journey:
+                // Fixed Central road geometry, checked against MapKit directions.
+                // The tour must not wait for a network route or jump when a request finishes.
+                let points = [
+                    (22.2851603, 114.1552321), (22.2850370, 114.1553998),
+                    (22.2849446, 114.1554910), (22.2842016, 114.1561106),
+                    (22.2840136, 114.1562477), (22.2826429, 114.1573558),
+                    (22.2819800, 114.1578674), (22.2817311, 114.1588461),
+                    (22.2817488, 114.1588510), (22.2818003, 114.1588867),
+                    (22.2818031, 114.1589587)
+                ]
+                installRoute(points.map { CLLocationCoordinate2D(latitude: $0.0, longitude: $0.1) }, fit: true)
+                let link = CADisplayLink(target: self, selector: #selector(tick))
+                link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+                link.isPaused = reduceMotion
+                link.add(to: .main, forMode: .common)
+                displayLink = link
+            case .meters:
+                // TD parking-space dataset, 2026-10-24. Positions are real; colours are illustrative.
+                let points = [(22.2775822, 114.1594125), (22.2768088, 114.1577492)]
+                for (index, point) in points.enumerated() {
+                    let pin = MKPointAnnotation()
+                    pin.coordinate = CLLocationCoordinate2D(latitude: point.0, longitude: point.1)
+                    pin.title = "\(index)"
+                    map.addAnnotation(pin)
                 }
-
-                if mode == .meters {
-                    ForEach(Array(meters.enumerated()), id: \.offset) { index, coordinate in
-                        Annotation("", coordinate: coordinate) {
-                            meterMarker(index: index)
-                        }
-                    }
-                }
-
-                if mode == .memory {
-                    Annotation("", coordinate: route[1]) {
-                        Image(systemName: "parkingsign.circle.fill")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 48, height: 48)
-                            .background(.orange, in: Circle())
-                            .shadow(color: .black.opacity(0.2), radius: 8, y: 4)
-                            .symbolEffect(.bounce, value: phase)
-                    }
-                }
-
-                if mode == .privacy {
-                    Annotation("", coordinate: center) {
-                        Circle()
-                            .fill(.blue)
-                            .frame(width: 20, height: 20)
-                            .overlay(Circle().stroke(.white, lineWidth: 4))
-                    }
-                }
+                map.setRegion(MKCoordinateRegion(center: CLLocationCoordinate2D(latitude: 22.2772, longitude: 114.1586),
+                    latitudinalMeters: 550, longitudinalMeters: 550), animated: false)
+            case .memory:
+                // Viewpoint on land, not the bridge deck: OSM node 1645491862.
+                setPlace(CLLocationCoordinate2D(latitude: 22.3231921, longitude: 114.1223040), meters: 1250)
+            case .privacy:
+                setPlace(CLLocationCoordinate2D(latitude: 22.2376, longitude: 114.1971), meters: 1100)
             }
-            .mapStyle(.standard(elevation: .flat, emphasis: .muted))
-            .allowsHitTesting(false)
+        }
 
+        func setPlace(_ coordinate: CLLocationCoordinate2D, meters: Double) {
+            moving.coordinate = coordinate
+            map?.addAnnotation(moving)
+            map?.setRegion(MKCoordinateRegion(center: coordinate, latitudinalMeters: meters, longitudinalMeters: meters), animated: false)
+        }
+
+        func installRoute(_ coordinates: [CLLocationCoordinate2D], fit: Bool) {
+            guard let map, coordinates.count > 1 else { return }
+            route = coordinates.map(MKMapPoint.init)
+            distances = [0]
+            for index in 1..<route.count {
+                distances.append(distances[index - 1] + route[index - 1].distance(to: route[index]))
+            }
+            map.removeOverlays(map.overlays)
+            let line = MKPolyline(coordinates: coordinates, count: coordinates.count)
+            map.addOverlay(line)
+            moving.coordinate = coordinates[0]
+            if !map.annotations.contains(where: { $0 === moving }) { map.addAnnotation(moving) }
+            if fit { map.setVisibleMapRect(line.boundingMapRect, edgePadding: UIEdgeInsets(top: 100, left: 46, bottom: 42, right: 46), animated: false) }
+            let turns = (1..<(route.count - 1)).map { i -> LeadingJourneyMotion.Turn in
+                let a = route[i - 1], b = route[i], c = route[i + 1]
+                let incoming = atan2(b.y - a.y, b.x - a.x)
+                let outgoing = atan2(c.y - b.y, c.x - b.x)
+                let angle = abs(atan2(sin(outgoing - incoming), cos(outgoing - incoming))) * 180 / .pi
+                return LeadingJourneyMotion.Turn(distance: distances[i], angle: angle)
+            }
+            motion = LeadingJourneyMotion(distance: distances.last ?? 0, turns: turns)
+            lastTick = CACurrentMediaTime()
+        }
+
+        @objc func tick() {
+            guard let motion else { return }
+            let now = CACurrentMediaTime()
+            elapsed += min(0.1, max(0, now - lastTick))
+            lastTick = now
+            let sample = motion.sample(at: elapsed)
+            let target = sample.distance
+            let index = max(1, distances.firstIndex(where: { $0 >= target }) ?? (route.count - 1))
+            let a = route[index - 1], b = route[index]
+            let fraction = (target - distances[index - 1]) / max(0.001, distances[index] - distances[index - 1])
+            // The arrow and route share exactly the same projected coordinates.
+            moving.coordinate = MKMapPoint(x: a.x + (b.x - a.x) * fraction, y: a.y + (b.y - a.y) * fraction).coordinate
+            map?.view(for: moving)?.transform = CGAffineTransform(rotationAngle: atan2(b.x - a.x, a.y - b.y) - .pi / 4)
+            let speed = Int(sample.speedKmh.rounded())
+            let finished = elapsed >= motion.duration
+            if speed != lastPublishedSpeed && (now - lastSpeedPublish >= 0.1 || finished) {
+                lastPublishedSpeed = speed
+                lastSpeedPublish = now
+                onSpeedChange?(speed)
+            }
+            if finished { displayLink?.invalidate() }
+        }
+
+        func mapView(_ mapView: MKMapView, rendererFor overlay: MKOverlay) -> MKOverlayRenderer {
+            let renderer = MKPolylineRenderer(overlay: overlay)
+            renderer.strokeColor = .systemBlue
+            renderer.lineWidth = 6
+            renderer.lineCap = .round
+            renderer.lineJoin = .round
+            return renderer
+        }
+
+        func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
             if mode == .journey {
-                LeadingRouteShape()
-                    .trim(from: 0, to: routeProgress)
-                    .stroke(.blue, style: StrokeStyle(lineWidth: 7, lineCap: .round, lineJoin: .round))
-                    .padding(36)
-                    .allowsHitTesting(false)
-            }
-        }
-        .onAppear {
-            pulse = true
-            withAnimation(.easeInOut(duration: 3.2).repeatForever(autoreverses: true)) {
-                routeProgress = 1
-            }
-        }
-        .task {
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(mode == .meters ? 1.4 : 1.8))
-                guard !Task.isCancelled else { break }
-                withAnimation(.spring(response: 0.55, dampingFraction: 0.75)) {
-                    phase += 1
+                let view = MKAnnotationView(annotation: annotation, reuseIdentifier: nil)
+                view.bounds = CGRect(x: 0, y: 0, width: 32, height: 32)
+                let dot = UIView(frame: view.bounds)
+                dot.backgroundColor = .systemBlue
+                dot.layer.cornerRadius = 16
+                dot.layer.borderColor = UIColor.white.cgColor
+                dot.layer.borderWidth = 3
+                if mode == .journey {
+                    let arrow = UIImageView(image: UIImage(systemName: "location.fill")?.withRenderingMode(.alwaysTemplate))
+                    arrow.tintColor = .white
+                    arrow.contentMode = .scaleAspectFit
+                    arrow.frame = dot.bounds.insetBy(dx: 8, dy: 8)
+                    dot.addSubview(arrow)
                 }
+                view.addSubview(dot)
+                return view
             }
+            let view = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: nil)
+            let index = Int((annotation.title ?? nil) ?? "") ?? 0
+            view.markerTintColor = mode == .meters ? meterColors[index % meterColors.count] : (mode == .privacy ? .systemTeal : .systemOrange)
+            if mode == .privacy {
+                view.glyphImage = UIImage(systemName: "beach.umbrella.fill")
+            } else {
+                view.glyphText = "P"
+            }
+            view.glyphTintColor = mode == .meters && index == 1 ? .black : .white
+            view.titleVisibility = .hidden
+            view.displayPriority = .required
+            return view
         }
-    }
-
-    private var userMarker: some View {
-        Image(systemName: "location.fill")
-            .font(.system(size: 17, weight: .bold))
-            .foregroundStyle(.white)
-            .frame(width: 42, height: 42)
-            .background(.blue, in: Circle())
-            .overlay(Circle().stroke(.white, lineWidth: 4))
-            .shadow(color: .black.opacity(0.2), radius: 7, y: 4)
-            .symbolEffect(.pulse, value: phase)
-    }
-
-    private func meterMarker(index: Int) -> some View {
-        let state = (index + phase) % 4
-        let color: Color = state == 0 ? .red : (state == 1 ? .yellow : .green)
-        return Text("P")
-            .font(.system(size: 14, weight: .black, design: .rounded))
-            .foregroundStyle(.white)
-            .frame(width: 36, height: 36)
-            .background(color, in: Circle())
-            .overlay(Circle().stroke(.white, lineWidth: 3))
-            .shadow(color: color.opacity(0.25), radius: 7, y: 4)
-            .scaleEffect(state == 2 ? 1.1 : 1)
-            .animation(.spring(response: 0.45, dampingFraction: 0.7), value: state)
-    }
-}
-
-private struct LeadingRouteShape: Shape {
-    func path(in rect: CGRect) -> Path {
-        var path = Path()
-        path.move(to: CGPoint(x: rect.minX + rect.width * 0.12, y: rect.maxY - rect.height * 0.12))
-        path.addCurve(
-            to: CGPoint(x: rect.minX + rect.width * 0.48, y: rect.midY),
-            control1: CGPoint(x: rect.minX + rect.width * 0.2, y: rect.maxY - rect.height * 0.34),
-            control2: CGPoint(x: rect.minX + rect.width * 0.36, y: rect.midY + rect.height * 0.14)
-        )
-        path.addCurve(
-            to: CGPoint(x: rect.maxX - rect.width * 0.08, y: rect.minY + rect.height * 0.18),
-            control1: CGPoint(x: rect.minX + rect.width * 0.62, y: rect.midY - rect.height * 0.18),
-            control2: CGPoint(x: rect.maxX - rect.width * 0.25, y: rect.minY + rect.height * 0.28)
-        )
-        return path
     }
 }
 

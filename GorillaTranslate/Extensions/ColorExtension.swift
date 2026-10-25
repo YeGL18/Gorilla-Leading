@@ -1,6 +1,35 @@
 import SwiftUI
 
 extension Color {
+    func contrastingLabel(over base: Color, opacity: Double, scheme: ColorScheme) -> Color {
+        let traits = UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light)
+        let foreground = UIColor(self).resolvedColor(with: traits)
+        let background = UIColor(base).resolvedColor(with: traits)
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0
+        foreground.getRed(&r, green: &g, blue: &b, alpha: &a)
+        background.getRed(&br, green: &bg, blue: &bb, alpha: nil)
+        let alpha = CGFloat(min(1, max(0, opacity))) * a
+        let color = UIColor(red: r * alpha + br * (1 - alpha), green: g * alpha + bg * (1 - alpha),
+                            blue: b * alpha + bb * (1 - alpha), alpha: 1)
+        return color.gorillaLuminance > 0.179 ? .black : .white
+    }
+
+    func readableAccent(in scheme: ColorScheme) -> Color {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        UIColor(self).getRed(&r, green: &g, blue: &b, alpha: nil)
+        for _ in 0..<20 {
+            let color = UIColor(red: r, green: g, blue: b, alpha: 1)
+            let luminance = color.gorillaLuminance
+            if (scheme == .dark ? (luminance + 0.05) / 0.05 : 1.05 / (luminance + 0.05)) >= 4.5 {
+                return Color(color)
+            }
+            if scheme == .dark { r += (1 - r) * 0.12; g += (1 - g) * 0.12; b += (1 - b) * 0.12 }
+            else { r *= 0.88; g *= 0.88; b *= 0.88 }
+        }
+        return Color(UIColor(red: r, green: g, blue: b, alpha: 1))
+    }
+
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0
@@ -37,6 +66,16 @@ extension Color {
 }
 
 extension UIColor {
+    var gorillaLuminance: Double {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0
+        getRed(&r, green: &g, blue: &b, alpha: nil)
+        func linear(_ channel: CGFloat) -> Double {
+            let value = Double(channel)
+            return value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)
+        }
+        return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+    }
+
     convenience init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
         var int: UInt64 = 0

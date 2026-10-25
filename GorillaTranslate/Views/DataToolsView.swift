@@ -36,16 +36,24 @@ final class BackupController: ObservableObject {
     nonisolated static var safetyURL: URL { support.appendingPathComponent("before-restore.gorillabackup") }
     static var transaction: BackupTransaction {
         BackupTransaction(standard: .standard, shared: UserDefaults(suiteName: group)!,
-            documents: documents, recoveryURL: support.appendingPathComponent("restore-recovery.gorillabackup"))
+            documents: documents, recoveryURL: support.appendingPathComponent("restore-recovery.gorillabackup"),
+            replayURL: TripReplayStore.defaultStorageURL)
     }
 
     private func capture() throws -> GorillaBackup {
         guard UIApplication.shared.isProtectedDataAvailable else { throw BackupFailure.persistence }
-        return GorillaBackup(createdAt: Date(), appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
+        guard TripReplayStore.shared.flush() else { throw BackupFailure.persistence }
+        var snapshot = GorillaBackup(createdAt: Date(), appVersion: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "",
             standard: try GorillaBackup.preferences(.standard, keys: GorillaBackup.standardKeys,
                 domain: Bundle.main.bundleIdentifier!),
             shared: try GorillaBackup.preferences(UserDefaults(suiteName: Self.group)!, keys: GorillaBackup.sharedKeys, domain: Self.group),
             photos: [:])
+        if let replay = try TripReplayStore.shared.backupData() {
+            var values = try snapshot.values(shared: false)
+            values[TripReplayStore.storageKey] = replay
+            snapshot.standard = try PropertyListSerialization.data(fromPropertyList: values, format: .binary, options: 0)
+        }
+        return snapshot
     }
 
     nonisolated private static func attachPhotos(_ snapshot: GorillaBackup) throws -> GorillaBackup {
@@ -111,6 +119,9 @@ final class BackupController: ObservableObject {
         try check("selected_destination_id", UUID.self, in: standard)
         try check("visit_records", [LocationManager.VisitRecord].self, in: standard)
         try check("motion_segments", [MotionSegment].self, in: standard)
+        if let data = standard[TripReplayStore.storageKey] as? Data {
+            _ = try JSONDecoder().decode(TripReplayArchive.self, from: data).validated()
+        }
         try check("car_exit_events_v1", [CarExitEvent].self, in: standard)
         try check("seen_car_bluetooth_devices_v1", [CarBluetoothDevice].self, in: standard)
         try check("my_car_bluetooth_device_v1", CarBluetoothDevice.self, in: standard)
@@ -162,6 +173,7 @@ final class BackupController: ObservableObject {
         try safetyData.write(to: Self.safetyURL, options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
         lastRestoreHadSafetyCopy = true
         ParkingFloorStore.shared.barometer.cancelCapture()
+        TripReplayStore.shared.prepareForRestore()
         await GorillaActivityManager.shared.resetForRestore()
         do {
             try Self.transaction.restore(target, safety: safety)
@@ -189,6 +201,7 @@ final class BackupController: ObservableObject {
         TripPredictor.shared.reloadAfterRestore()
         DestinationManager.shared.reloadAfterRestore()
         LocationManager.shared.reloadAfterRestore()
+        TripReplayStore.shared.reload()
         LanguageManager.migrateLegacyOverride()
         WidgetCenter.shared.reloadAllTimelines()
         generation = UUID()
@@ -221,6 +234,7 @@ struct BackupToolsView: View {
                     LabeledContent("App Version", value: candidate.appVersion)
                     LabeledContent("Destinations", value: String(candidate.count("saved_destinations")))
                     LabeledContent("Visits", value: String(candidate.count("visit_records")))
+                    LabeledContent("Trip Replay", value: String(candidate.count("trip_replays_v1")))
                     LabeledContent("Parking Lots", value: String(candidate.count("parking_floor_store_v1", shared: true)))
                     LabeledContent("Photos", value: String(candidate.photos.count))
                     Button("Replace Current Data", role: .destructive) { confirming = true }

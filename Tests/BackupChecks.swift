@@ -18,7 +18,9 @@ import Foundation
         let photoList = try JSONSerialization.data(withJSONObject: [["fileName": name]])
         let before = GorillaBackup(createdAt: Date(), appVersion: "1", standard: try plist([
             "visit_records": Data("[]".utf8), "parking_photos_list": photoList, "appearanceMode": 2,
-            "parallaxMode": "subtle"
+            "parallaxMode": "subtle", "speedUnit": "mph", "interactionHapticsEnabled": false,
+            "trip_replays_v1": Data("{\"version\":1,\"trips\":[]}".utf8),
+            "tripReplayEnabled": true, "tripReplayRetentionDays": 30
         ]), shared: try plist(["parkingEntryTime": Date(timeIntervalSince1970: 123)]), photos: [name: Data([1, 2, 3])])
         let after = GorillaBackup(createdAt: Date(), appVersion: "2", standard: try plist([
             "saved_destinations": Data("[]".utf8), "appearanceMode": 1
@@ -33,6 +35,10 @@ import Foundation
         standard.set("secret", forKey: "unrelatedKey")
         try transaction.restore(after, safety: before)
         precondition(standard.integer(forKey: "appearanceMode") == 1)
+        precondition(standard.object(forKey: "speedUnit") == nil)
+        precondition(standard.object(forKey: "interactionHapticsEnabled") == nil)
+        precondition(standard.object(forKey: "trip_replays_v1") == nil)
+        precondition(standard.object(forKey: "tripReplayEnabled") == nil)
         precondition(standard.object(forKey: "visit_records") == nil)
         precondition(standard.string(forKey: "unrelatedKey") == "secret")
         precondition(standard.stringArray(forKey: "AppleLanguages") == ["zh-Hant"])
@@ -46,6 +52,11 @@ import Foundation
         } catch Injected.failure {}
         precondition(standard.integer(forKey: "appearanceMode") == 2)
         precondition(standard.string(forKey: "parallaxMode") == "subtle")
+        precondition(standard.string(forKey: "speedUnit") == "mph")
+        precondition(standard.object(forKey: "interactionHapticsEnabled") as? Bool == false)
+        precondition(standard.data(forKey: "trip_replays_v1") == Data("{\"version\":1,\"trips\":[]}".utf8))
+        precondition(standard.bool(forKey: "tripReplayEnabled"))
+        precondition(standard.integer(forKey: "tripReplayRetentionDays") == 30)
         let restoredPhoto = try Data(contentsOf: root.appendingPathComponent("parking_photos/\(name)"))
         precondition(restoredPhoto == before.photos[name])
         // A terminated process leaves a journal; next launch restores the old snapshot.
@@ -54,6 +65,21 @@ import Foundation
         try transaction.recoverIfNeeded()
         precondition(standard.integer(forKey: "appearanceMode") == 2)
         precondition(shared.object(forKey: "parkingEntryTime") as? Date == Date(timeIntervalSince1970: 123))
+        let replayURL = root.appendingPathComponent("replays/history.json")
+        let fileTransaction = BackupTransaction(standard: standard, shared: shared, documents: root,
+            recoveryURL: root.appendingPathComponent("file-journal"), replayURL: replayURL)
+        try fileTransaction.apply(before)
+        let restoredReplay = try Data(contentsOf: replayURL)
+        precondition(restoredReplay == Data("{\"version\":1,\"trips\":[]}".utf8))
+        precondition(standard.object(forKey: "trip_replays_v1") == nil)
+        try fileTransaction.restore(after, safety: before)
+        precondition(!fm.fileExists(atPath: replayURL.path))
+        do {
+            try fileTransaction.restore(after, safety: before) { throw Injected.failure }
+            preconditionFailure("Expected file rollback")
+        } catch Injected.failure {}
+        let rolledBackReplay = try Data(contentsOf: replayURL)
+        precondition(rolledBackReplay == Data("{\"version\":1,\"trips\":[]}".utf8))
         func rejected(_ snapshot: GorillaBackup) {
             do { _ = try snapshot.encoded(); preconditionFailure("Expected rejection") } catch {}
         }

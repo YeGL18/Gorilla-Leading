@@ -22,6 +22,10 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
         window.rootViewController = UIViewController()
         window.makeKeyAndVisible()
         self.window = window
+        if ProcessInfo.processInfo.arguments.contains("--hold") {
+            window.rootViewController = ParkingHoldCheckController()
+            return
+        }
         if ProcessInfo.processInfo.arguments.contains("--marker-motion") ||
             ProcessInfo.processInfo.arguments.contains("--marker-native-pan") {
             window.rootViewController = MapMarkerMotionCheckController()
@@ -45,7 +49,14 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
             checks += 1
         }
         let marker = ScaledMarkerAnnotationView(annotation: MKPointAnnotation(), reuseIdentifier: "scale-check")
+        check(ParkingHoldGestureRecognizer.holdDuration >= 0.6, "Dragging requires a deliberate hold")
         marker.sizeScale = 1.3
+        marker.animateHold(true)
+        check(abs(marker.layer.sublayerTransform.m11 - 1.3 * 1.28) < 0.00001,
+              "Hold enlargement preserves the latest marker's existing scale")
+        marker.animateHold(false)
+        check(abs(marker.layer.sublayerTransform.m11 - 1.3) < 0.00001,
+              "Releasing or cancelling restores the normal marker scale")
         for _ in 0..<100 {
             // Simulate MapKit's read/modify/write of the native transform.
             marker.transform = marker.transform.rotated(by: 0.01)
@@ -125,6 +136,59 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
         } else {
             DispatchQueue.main.async { exit(0) }
         }
+    }
+}
+
+final class ParkingHoldCheckController: UIViewController, UIGestureRecognizerDelegate {
+    private let marker = ScaledMarkerAnnotationView(annotation: MKPointAnnotation(), reuseIdentifier: "hold")
+    private let status = UILabel()
+    private var unlocks = 0
+    private var releases = 0
+    private var presses = 0
+    private let touchRegion = UIView(frame: CGRect(x: 100, y: 240, width: 100, height: 100))
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.backgroundColor = .systemBackground
+        marker.frame = CGRect(x: 120, y: 260, width: 40, height: 50)
+        marker.markerTintColor = .orange
+        view.addSubview(marker)
+        touchRegion.isAccessibilityElement = true
+        touchRegion.accessibilityIdentifier = "holdMarker"
+        view.addSubview(touchRegion)
+        status.frame = CGRect(x: 10, y: 150, width: 380, height: 40)
+        status.accessibilityIdentifier = "holdStatus"
+        view.addSubview(status)
+        let hold = ParkingHoldGestureRecognizer(target: self, action: #selector(drag(_:)))
+        hold.minimumPressDuration = ParkingHoldGestureRecognizer.holdDuration
+        hold.allowableMovement = 10
+        hold.delegate = self
+        hold.onPress = { [weak self] _ in
+            self?.presses += 1
+            self?.marker.animateHold(true)
+            self?.updateStatus()
+        }
+        hold.onRelease = { [weak self] in
+            self?.marker.animateHold(false)
+            self?.updateStatus()
+        }
+        view.addGestureRecognizer(hold)
+        updateStatus()
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        touchRegion.frame.contains(touch.location(in: view))
+    }
+
+    @objc private func drag(_ hold: ParkingHoldGestureRecognizer) {
+        if hold.state == .began { unlocks += 1 }
+        if hold.state == .changed { marker.center = hold.location(in: view) }
+        if hold.state == .ended { releases += 1 }
+        updateStatus()
+    }
+
+    private func updateStatus() {
+        status.text = "unlocks=\(unlocks) releases=\(releases) scale=\(String(format: "%.2f", marker.layer.sublayerTransform.m11)) presses=\(presses)"
     }
 }
 

@@ -7,6 +7,13 @@ policy = File.read("#{repo}/GorillaTranslate/Models/TimePhase.swift")
 policy = policy[policy.index('enum GorillaColorGroup:')...policy.index('// MARK: - Time Phase Model')]
 dots = File.read("#{repo}/GorillaTranslate/Views/DotMatrixView.swift")
 dots = dots[dots.index('struct DotMatrixWebView:')..]
+map_source = File.read("#{repo}/GorillaTranslate/Views/MapView.swift")
+read_only_map = map_source[map_source.index('struct ReadOnlyMapView:')..]
+home_source = File.read("#{repo}/GorillaTranslate/ContentView.swift")
+glass_policy = home_source[home_source.index('enum GorillaGlassStyle')...home_source.index('private struct GorillaCapsuleGlass')]
+control_appearance = home_source[home_source.index('struct GorillaMapControlAppearance')...home_source.index('private struct GorillaTabBarStyle')]
+prediction_start = home_source.index("    @ViewBuilder\n    private func tripConfirmCard") or abort 'Missing prediction card'
+prediction_card = home_source[prediction_start...home_source.index('    // MARK: - Floor Confirmation Card')]
 fixture = <<~SWIFT
   import SwiftUI
   import Network
@@ -14,7 +21,38 @@ fixture = <<~SWIFT
   import WebKit
   import Combine
   #{policy}
+  #{glass_policy}
+  #{control_appearance}
   #{dots}
+  struct PredictedPlace { let key: String; let displayName: String }
+  struct PendingTripPrediction {
+    let predicted = PredictedPlace(key: "sea", displayName: "Sierra Sea")
+    let twoStepAhead: PredictedPlace? = nil
+    let confidence = 0.85
+    let totalSamples = 5
+  }
+  final class TripPredictor {
+    static let shared = TripPredictor()
+    func applyUserFeedback(prediction: PendingTripPrediction, actualNextPlaceKey: String?, confirmed: Bool) {}
+    func postponeDeparturePrediction() {}
+  }
+  final class DestinationManager {
+    static let shared = DestinationManager()
+    func applyAutoPrediction(_ prediction: PendingTripPrediction) -> Bool { true }
+  }
+  struct PredictionFixture: View {
+    @State var showingTripConfirm = true
+    @State var tripConfirmPrediction: PendingTripPrediction?
+    let tripPredictor = TripPredictor.shared
+    var body: some View {
+      GeometryReader { geo in
+        tripConfirmCard(prediction: PendingTripPrediction())
+          .frame(maxWidth: min(560, geo.size.width - 44))
+          .frame(maxWidth: .infinity, maxHeight: .infinity)
+      }.background(Color.gray.opacity(0.2))
+    }
+    #{prediction_card}
+  }
   final class TimePhaseManager { func stop() {} }
   struct TimeBasedOrbView: View {
     let phaseManager: TimePhaseManager
@@ -23,11 +61,22 @@ fixture = <<~SWIFT
     let orbSizeMultiplier: CGFloat
     var body: some View { Color.clear }
   }
-  struct ReadOnlyMapView: View {
-    let camera: MKMapCamera?
-    let mapStyleIndex: Int
-    var body: some View { Color.clear }
+  // Use the production representable; only the unrelated gesture/camera-lock
+  // subclass is replaced, exposing its actual MapKit configuration for assertions.
+  final class NonAdjustingMapView: MKMapView {
+    var allowCameraChange = false
+    override var preferredConfiguration: MKMapConfiguration {
+      didSet { accessibilityValue = preferredConfiguration is MKHybridMapConfiguration ? "satellite" : "standard" }
+    }
+    override init(frame: CGRect) {
+      super.init(frame: frame)
+      isAccessibilityElement = true
+      accessibilityIdentifier = "fixtureSpeedMap"
+      accessibilityValue = "standard"
+    }
+    required init?(coder: NSCoder) { fatalError() }
   }
+  #{read_only_map}
   final class SFXPlayer: ObservableObject { func playAccelerationBurst() {} }
   final class LocationManager: ObservableObject {
     @Published var speed = 42.0
@@ -42,6 +91,7 @@ fixture = <<~SWIFT
     var connections: [NWConnection] = []
     var timer: Timer?
     var enabled = false
+    var startedAt = 0.0
     func toggle() {
       enabled.toggle()
       if enabled { start() }
@@ -52,6 +102,7 @@ fixture = <<~SWIFT
       }
     }
     func start() {
+      startedAt = ProcessInfo.processInfo.systemUptime
       listener = try! NWListener(using: .udp, on: 9996)
       listener?.newConnectionHandler = { [weak self] connection in
         Task { @MainActor in
@@ -90,6 +141,19 @@ fixture = <<~SWIFT
       put(328, 4, &data); put(Float(123).bitPattern, 8, &data)
       put(Float(6500).bitPattern, 68, &data); put(4, 76, &data)
       put(Float(0.65).bitPattern, 56, &data); put(Float(0.2).bitPattern, 60, &data)
+      var force = SpeedGForce(lateral: -0.29, longitudinal: 0.4)
+      if ProcessInfo.processInfo.arguments.contains("--trail-trace") {
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        force = SpeedGForce(lateral: 0.7 * cos(elapsed * 2), longitudinal: 0.7 * sin(elapsed * 2))
+      }
+      if ProcessInfo.processInfo.arguments.contains("--action-trace") {
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        if elapsed < 5 { force = SpeedGForce(lateral: 0, longitudinal: 0.22) }
+        else if elapsed >= 10 && elapsed < 15 { force = SpeedGForce(lateral: 0, longitudinal: -0.3) }
+        else if elapsed >= 20 && elapsed < 25 { force = SpeedGForce(lateral: -0.26, longitudinal: -0.05) }
+        else { force = SpeedGForce(lateral: 0, longitudinal: 0) }
+      }
+      put(Float(force.lateral).bitPattern, 32, &data); put(Float(force.longitudinal).bitPattern, 36, &data)
       put(83456, 40, &data); put(84000, 44, &data); put(82000, 48, &data); put(2, 52, &data)
       return data
     }
@@ -109,15 +173,44 @@ fixture = <<~SWIFT
     @StateObject var location = LocationManager()
     @State var clock = AnimationClock()
     @State var camera: MKMapCamera?
+    @State var mapMode = 0
+    @State var referenceVisible = ProcessInfo.processInfo.arguments.contains("--reference")
+    @State var showUnits = false
     @AppStorage("acAutoConnectEnabled") var enabled = false
     var body: some View {
-      SpeedView(acTelemetry: telemetry, showMap: false, animationClock: clock,
-                mapCamera: $camera, isDuoDevice: false, isDuoInnerDisplay: false,
-                isDuoPartiallyOpen: false)
+      SpeedView(acTelemetry: telemetry, showMap: mapMode != 0, showSatellite: mapMode == 2,
+                cycleMapPresentation: { mapMode = (mapMode + 1) % 3 }, animationClock: clock,
+                mapCamera: $camera, isDuoDevice: ProcessInfo.processInfo.arguments.contains("--duo"),
+                isDuoInnerDisplay: ProcessInfo.processInfo.arguments.contains("--duo"),
+                isDuoPartiallyOpen: ProcessInfo.processInfo.arguments.contains("--half"))
         .environmentObject(location)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("--light") ? .light : .dark)
         .overlay(alignment: .bottomTrailing) {
           Button(mock.enabled ? "Stop Mock" : "Start Mock") { mock.toggle() }.padding()
+        }
+        .overlay(alignment: .topLeading) {
+          if ProcessInfo.processInfo.arguments.contains("--units") {
+            Button("Units") { showUnits = true }.padding()
+          }
+        }
+        .sheet(isPresented: $showUnits) {
+          NavigationStack {
+            Form { SpeedUnitPicker() }
+              .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                  Button("Done") { showUnits = false }.accessibilityIdentifier("closeUnitSettings")
+                }
+              }
+          }
+        }
+        .overlay(alignment: .topTrailing) {
+          if referenceVisible {
+            Button { referenceVisible = false } label: {
+              Image(systemName: "map").font(.system(size: 20, weight: .medium)).frame(width: 44, height: 44)
+            }
+            .buttonStyle(.glass).modifier(GorillaMapControlAppearance())
+            .accessibilityIdentifier("homeControlReference").padding()
+          }
         }
         .onChange(of: enabled) { _, value in
           if value { telemetry.connect(host: "127.0.0.1") }
@@ -130,10 +223,20 @@ fixture = <<~SWIFT
       UserDefaults.standard.set(false, forKey: "acAutoConnectEnabled")
       UserDefaults.standard.set("127.0.0.1", forKey: "acComputerHost")
       UserDefaults.standard.set(false, forKey: "kalmanSmoothingEnabled")
-      UserDefaults.standard.set(false, forKey: "speedParallaxEnabled")
+      UserDefaults.standard.set(ProcessInfo.processInfo.arguments.contains("--gforce"), forKey: "speedParallaxEnabled")
+      UserDefaults.standard.set("gforce", forKey: "parallaxMode")
       UserDefaults.standard.set(false, forKey: "orbMasterEnabled")
+      if !ProcessInfo.processInfo.arguments.contains("--preserve-units") {
+        UserDefaults.standard.set("kmh", forKey: SpeedUnit.preferenceKey)
+      }
+      UserDefaults.standard.set(ProcessInfo.processInfo.arguments.contains("--rolling"), forKey: "kalmanSmoothingEnabled")
     }
-    var body: some Scene { WindowGroup { Fixture() } }
+    var body: some Scene {
+      WindowGroup {
+        if ProcessInfo.processInfo.arguments.contains("--prediction") { PredictionFixture() }
+        else { Fixture() }
+      }
+    }
   }
 SWIFT
 File.write("#{root}/Fixture.swift", fixture)
@@ -141,10 +244,14 @@ project = Xcodeproj::Project.new("#{root}/ACChecks.xcodeproj")
 app = project.new_target(:application, 'ACChecks', :ios, '26.0')
 tests = project.new_target(:ui_test_bundle, 'ACUITests', :ios, '26.0')
 app.source_build_phase.add_file_reference(project.main_group.new_file("#{root}/Fixture.swift"))
-%w[Models/ACTelemetry.swift Views/ACDashboardView.swift Views/SpeedView.swift Models/NumberRoller.swift Models/AnimationClock.swift Views/AnimatedBackground.swift Extensions/ColorExtension.swift Shaders/MetaballEffect.metal].each do |file|
+app.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Shared/SpeedUnit.swift"))
+%w[Models/ACTelemetry.swift Models/SpeedGForce.swift Views/SpeedInstrumentCards.swift Views/ACDashboardView.swift Views/SpeedView.swift Models/NumberRoller.swift Models/AnimationClock.swift Views/AnimatedBackground.swift Extensions/ColorExtension.swift Shaders/MetaballEffect.metal].each do |file|
   app.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/GorillaTranslate/#{file}"))
 end
 tests.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Tests/ACTelemetryUITests.swift"))
+%w[SpeedUnit.swift GorillaActivityAttributes.swift].each do |file|
+  tests.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Shared/#{file}"))
+end
 tests.add_dependency(app)
 [app, tests].each do |target|
   target.build_configurations.each do |config|
@@ -158,6 +265,7 @@ end
 app.build_configurations.each do |config|
   config.build_settings['INFOPLIST_KEY_UIApplicationSceneManifest_Generation'] = 'YES'
   config.build_settings['INFOPLIST_KEY_UILaunchScreen_Generation'] = 'YES'
+  config.build_settings['INFOPLIST_KEY_UISupportedInterfaceOrientations'] = 'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
   config.build_settings['INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone'] = 'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
   config.build_settings['INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad'] = 'UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight'
 end

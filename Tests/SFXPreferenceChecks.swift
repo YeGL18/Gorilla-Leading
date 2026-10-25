@@ -4,6 +4,16 @@ import AVFoundation
 @main
 struct SFXPreferenceChecks {
     static func main() throws {
+        precondition(AudioHapticEnvelope.intensity(decibels: -160, volume: 1) == 0)
+        precondition(AudioHapticEnvelope.intensity(decibels: -48, volume: 1) == 0)
+        precondition(AudioHapticEnvelope.intensity(decibels: -12, volume: 0) == 0)
+        precondition(AudioHapticEnvelope.intensity(decibels: .nan, volume: 1) == 0)
+        precondition(AudioHapticEnvelope.intensity(decibels: -12, volume: .infinity) == 0)
+        precondition(AudioHapticEnvelope.intensity(decibels: 0, volume: 1) <= 0.65)
+        let quiet = AudioHapticEnvelope.intensity(decibels: -30, volume: 1)
+        let loud = AudioHapticEnvelope.intensity(decibels: -12, volume: 1)
+        precondition(loud > quiet && quiet > 0)
+        precondition(abs(AudioHapticEnvelope.intensity(decibels: -12, volume: 0.5) - loud / 2) < 0.0001)
         let suite = "gorilla-sfx-checks-\(UUID().uuidString)"
         let defaults = UserDefaults(suiteName: suite)!
         defer { defaults.removePersistentDomain(forName: suite) }

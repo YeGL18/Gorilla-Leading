@@ -28,7 +28,7 @@ struct SettingsView: View {
     @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
     @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     private var colorGroup: GorillaColorGroup {
-        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode, legacyTimeBased: useTimeBasedOrb)
     }
     @AppStorage("useTimeBasedOrb") var useTimeBasedOrb: Bool = false
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
@@ -309,6 +309,7 @@ struct SettingsView: View {
 
                 // ── 6.5 時速顯示效果 ──
                 Section {
+                    SpeedUnitPicker()
                     Toggle(isOn: $speedBlurEnabled) {
                         Label(String(localized: "時速模糊光暈"), systemImage: "aqi.medium")
                     }
@@ -321,7 +322,7 @@ struct SettingsView: View {
                 } header: {
                     Text("時速顯示效果")
                 } footer: {
-                    Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。\n隱藏時速數字：連 km/h 單位一齊隱藏，其他顯示照舊。")
+                    Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。\n隱藏時速數字：連單位一齊隱藏，其他顯示照舊。")
                 }
 
 
@@ -345,7 +346,7 @@ struct SettingsView: View {
                         Label("關於 Gorilla Leading", systemImage: "info.circle")
                     }
                 } header: {
-                    Text("關於")
+                    Text("關於 Gorilla")
                 }
             }
             .scrollContentBackground(.hidden)
@@ -404,7 +405,7 @@ struct SettingsView: View {
                             Text("27").tag(1)
                         }
                     }
-                    if colorGroup == .m3Concept || !useTimeBasedOrb {
+                    if colorGroup != .timeBased {
                         Picker(String(localized: "光球繪製方式"), selection: $orbCanvasDitherEnabled) {
                             Text(String(localized: "原生模糊")).tag(false)
                             Text("Canvas Symbols + Dither").tag(true)
@@ -421,12 +422,6 @@ struct SettingsView: View {
                             .labelsHidden()
                         }
 
-                    }
-                    if colorGroup == .normal {
-                        Picker(String(localized: "背景效果"), selection: $useTimeBasedOrb) {
-                            Text(String(localized: "光球")).tag(false)
-                            Text(String(localized: "時程")).tag(true)
-                        }
                     }
                     Toggle(String(localized: "緊湊膠囊"), isOn: $orbCapsule)
                     Toggle(String(localized: "擴展膠囊"), isOn: $orbExpanded)
@@ -464,7 +459,7 @@ struct SettingsView: View {
                             }
                         }
                     }
-                    if colorGroup == .normal && useTimeBasedOrb {
+                    if colorGroup == .timeBased {
                         VStack(spacing: 12) {
                             HStack {
                                 Text(String(localized: "預覽時間"))
@@ -658,13 +653,14 @@ private struct SoundSettingsSection: View {
     @AppStorage(SFXPreferences.launchKey) private var launchVersion = 0
     @AppStorage(SFXPreferences.movementKey) private var movementVersion = 1
     @AppStorage("sfxAccelerationEnabled") private var accelerationEnabled = false
+    @AppStorage("interactionHapticsEnabled") private var hapticsEnabled = true
     @StateObject private var preview = SFXPlayer()
 
     var body: some View {
         Section {
             Picker(String(localized: "App 啟動音效"), selection: $launchVersion) {
-                Text(String(localized: "原有音效")).tag(0)
-                Text(String(localized: "啟動音效 2")).tag(1)
+                Text("Default Launch Sound").tag(0)
+                Text("Gentle Sound").tag(1)
             }
             Button {
                 preview.stopPreviews()
@@ -673,8 +669,8 @@ private struct SoundSettingsSection: View {
                 Label(String(localized: "試聽啟動音效"), systemImage: "play.circle")
             }
             Picker(String(localized: "逗留／開車音效"), selection: $movementVersion) {
-                Text(String(localized: "原有音效")).tag(0)
-                Text(String(localized: "新音效")).tag(1)
+                Text("Gentle Sound").tag(0)
+                Text("Minimal Sound").tag(1)
             }
             HStack {
                 Button {
@@ -692,12 +688,8 @@ private struct SoundSettingsSection: View {
                 }
             }
             .buttonStyle(.borderless)
-            Button {
-                preview.stopPreviews()
-                preview.previewParkingReminder()
-            } label: {
-                Label(String(localized: "泊車時間提醒音效"), systemImage: "play.circle")
-            }
+            Toggle("Tap Haptics", systemImage: "hand.tap", isOn: $hapticsEnabled)
+                .accessibilityIdentifier("interactionHapticsToggle")
             Toggle(isOn: $accelerationEnabled) {
                 Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
             }
@@ -2409,14 +2401,20 @@ private struct AltitudeChartView2: View {
 struct GorillaColorGroupPicker: View {
     @AppStorage("colorGroupMode") private var raw = -1
     @AppStorage("darkKnightMode") private var legacyDarkKnight = false
+    @AppStorage("useTimeBasedOrb") private var legacyTimeBased = false
     private var selection: Binding<Int> {
-        Binding(get: { GorillaColorGroup.resolve(raw: raw, legacyDarkKnight: legacyDarkKnight).rawValue },
-                set: { raw = $0; legacyDarkKnight = $0 == GorillaColorGroup.darkKnight.rawValue })
+        Binding(get: { GorillaColorGroup.resolve(raw: raw, legacyDarkKnight: legacyDarkKnight,
+                                                legacyTimeBased: legacyTimeBased).rawValue },
+                set: {
+                    raw = $0
+                    legacyDarkKnight = $0 == GorillaColorGroup.darkKnight.rawValue
+                    legacyTimeBased = $0 == GorillaColorGroup.timeBased.rawValue
+                })
     }
 
     var body: some View {
-        Picker("Color Group Mode", selection: selection) {
-            ForEach(GorillaColorGroup.allCases, id: \.rawValue) { group in
+        Picker("Visual Theme", selection: selection) {
+            ForEach([GorillaColorGroup.normal, .timeBased, .darkKnight, .m3Concept], id: \.rawValue) { group in
                 Text(LocalizedStringKey(group.titleKey)).tag(group.rawValue)
             }
         }
@@ -2490,6 +2488,7 @@ struct VisitRecordingSettingsView: View {
 
 struct VisitRecordsTestView: View {
     @EnvironmentObject private var locationManager: LocationManager
+    @ObservedObject private var replayStore = TripReplayStore.shared
     @State private var showEditSheet: Bool = false
     @State private var editingVisitID: UUID? = nil
     @State private var editTransportType: String = "Driving"
@@ -2561,7 +2560,6 @@ struct VisitRecordsTestView: View {
                             .listRowBackground(Color.clear)
                             .listRowInsets(EdgeInsets(top: 0, leading: 16, bottom: 0, trailing: 16))
                             .listRowSeparator(.hidden)
-                            .allowsHitTesting(false)
                     }
                 }
             }
@@ -2901,6 +2899,15 @@ struct VisitRecordsTestView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if !items.isEmpty { TripSegmentSummary(items: items) }
+                    if let replay = replayStore.trips.first(where: { $0.destinationVisitID == to.id
+                        && ($0.originVisitID == from.id || $0.start >= (gapStart ?? from.arrivalDate)) }) {
+                        NavigationLink {
+                            TripReplayDetailView(tripID: replay.id)
+                        } label: {
+                            Label("Trip Replay", systemImage: "play.circle")
+                                .font(.caption).foregroundStyle(.tint)
+                        }
+                    }
                 }.frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding(.leading, 34)
@@ -7042,15 +7049,8 @@ struct ParkingLLMRecognitionTestView: View {
             }
         }
         // Action Button prompt
-        .alert("請啟動動作按鈕", isPresented: $showActionPrompt) {
-            Button("已準備好") {
-                // Start polling immediately — result will be detected when shortcut finishes
-                startPollingAfterAction()
-            }
-            Button("取消", role: .cancel) {}
-        } message: {
-            Text("圖片已複製到剪貼簿。\n請按動作按鈕執行「\(shortcutName)」快捷指令。")
-        }
+        .modifier(VLMActionPrompt(isPresented: $showActionPrompt, shortcutName: shortcutName,
+            onReady: { startPollingAfterAction() }, onCancel: {}))
         // Floor confirmation overlay
         .overlay {
             if showFloorConfirm, let floor = recognizedFloorIndex {

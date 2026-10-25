@@ -400,8 +400,14 @@ struct MapView: UIViewRepresentable {
         blankTap.delegate = context.coordinator
         mapView.addGestureRecognizer(blankTap)
 
-        let parkingDrag = UILongPressGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleParkingDrag(_:)))
-        parkingDrag.minimumPressDuration = 0.12
+        let parkingDrag = ParkingHoldGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleParkingDrag(_:)))
+        parkingDrag.minimumPressDuration = ParkingHoldGestureRecognizer.holdDuration
+        parkingDrag.onPress = { [weak coordinator = context.coordinator] point in
+            coordinator?.beginParkingHold(at: point)
+        }
+        parkingDrag.onRelease = { [weak coordinator = context.coordinator] in
+            coordinator?.endParkingHold()
+        }
         parkingDrag.allowableMovement = 10
         parkingDrag.cancelsTouchesInView = false
         parkingDrag.name = "parkingPointDrag"
@@ -1199,6 +1205,7 @@ struct MapView: UIViewRepresentable {
         private var isParkingPointDragging = false
         private var parkingDragGrabOffset = CGPoint.zero
         private var draggingParkingPointID: UUID?
+        private weak var heldParkingMarker: ScaledMarkerAnnotationView?
         private weak var draggingParkingAnnotation: ParkingPointAnnotation?
         private var dragTargetCoordinate: CLLocationCoordinate2D?
         private var parkingDragTimer: Timer?
@@ -2102,6 +2109,7 @@ struct MapView: UIViewRepresentable {
             case .began:
                 if isParkingPointDragging { finishParkingDrag() }
                 if let anno = nearestParkingAnnotation(at: pt) {
+                    AppHaptics.play(.longPress)
                     beginUserInteractionIfNeeded()
                     isParkingPointDragging = true
                     parkingDragReleaseTime = nil
@@ -2160,6 +2168,9 @@ struct MapView: UIViewRepresentable {
                 }
 
             case .ended, .cancelled, .failed:
+                if gesture.state == .ended, isParkingPointDragging {
+                    AppHaptics.play(.tap)
+                }
                 if isParkingPointDragging {
                     if gesture.state == .ended {
                         // Keep chasing the final finger position at the same rate.
@@ -2220,6 +2231,20 @@ struct MapView: UIViewRepresentable {
             guard remaining > 0.01 else { return }
             let next = ParkingMarkerMotion.advance(from: annotation.coordinate, to: target)
             annotation.coordinate = next
+        }
+
+        func beginParkingHold(at point: CGPoint) {
+            endParkingHold()
+            guard !isBoundaryDrawing, let mapView,
+                  let annotation = parkingAnnotation(at: point),
+                  let marker = mapView.view(for: annotation) as? ScaledMarkerAnnotationView else { return }
+            heldParkingMarker = marker
+            marker.animateHold(true)
+        }
+
+        func endParkingHold() {
+            heldParkingMarker?.animateHold(false)
+            heldParkingMarker = nil
         }
 
         private func finishParkingDrag() {
@@ -3227,6 +3252,7 @@ struct VignetteMapView: View {
 struct ReadOnlyMapView: UIViewRepresentable {
     let camera: MKMapCamera?
     var mapStyleIndex: Int = 0
+    var showSatellite: Bool = false
     @Environment(\.colorScheme) private var colorScheme
 
     func makeUIView(context: Context) -> NonAdjustingMapView {
@@ -3236,8 +3262,9 @@ struct ReadOnlyMapView: UIViewRepresentable {
         mapView.showsUserLocation = true
         mapView.userTrackingMode = .none
         mapView.delegate = nil
-        mapView.mapType = .standard
-        if #available(iOS 16.0, *), mapStyleIndex == 1 {
+        if showSatellite {
+            mapView.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .realistic)
+        } else if mapStyleIndex == 1 {
             let config = MKStandardMapConfiguration()
             config.emphasisStyle = .muted
             config.elevationStyle = .realistic
@@ -3258,10 +3285,16 @@ struct ReadOnlyMapView: UIViewRepresentable {
         }
         if #available(iOS 16.0, *) {
             let shouldMute = mapStyleIndex == 1
+            let isSatellite = mapView.preferredConfiguration is MKHybridMapConfiguration
             let isMuted = (mapView.preferredConfiguration as? MKStandardMapConfiguration)?.emphasisStyle == .muted
-            if shouldMute != isMuted {
+            if showSatellite {
+                if !isSatellite {
+                    mapView.preferredConfiguration = MKHybridMapConfiguration(elevationStyle: .realistic)
+                }
+            } else if isSatellite || shouldMute != isMuted {
                 let config = MKStandardMapConfiguration()
                 config.emphasisStyle = shouldMute ? .muted : .default
+                config.elevationStyle = .realistic
                 mapView.preferredConfiguration = config
             }
         }

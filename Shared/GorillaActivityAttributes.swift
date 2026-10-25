@@ -121,6 +121,13 @@ struct GorillaActivityAttributes: ActivityAttributes {
         var spot: String?       // B1258
         // Driving context (開車中) — road/eta also reused by 停留中
         var speedKmh: Int?      // 2
+        var speedKmhExact: Double? = nil
+        var speedUnitRaw: String? = nil
+        var speedUnitSymbol: String { SpeedUnit.resolve(speedUnitRaw).symbol }
+        var speedDisplay: String? {
+            let kmh = speedKmhExact ?? speedKmh.map(Double.init)
+            return kmh.map { String(Int(SpeedUnit.resolve(speedUnitRaw).value(fromKmh: $0))) }
+        }
         var road: String?       // Sai Sha Rd 599
         var etaMinutes: Int?    // 39
         // Stationary context (停留中)

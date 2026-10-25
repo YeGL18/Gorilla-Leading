@@ -39,6 +39,7 @@ final class GorillaActivityManager {
 
         var content = newState
         content.languageCode = LanguageManager.languageCode
+        content.speedUnitRaw = SpeedUnit.resolve(UserDefaults.standard.string(forKey: SpeedUnit.preferenceKey)).rawValue
         if forceRefresh {
             content.renderNonce = Int(Date().timeIntervalSince1970)
         }

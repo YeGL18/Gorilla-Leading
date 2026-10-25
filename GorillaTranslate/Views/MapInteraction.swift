@@ -303,9 +303,58 @@ class FadingMarkerAnnotationView: MKMarkerAnnotationView {
     }
 }
 
-/// Keep the latest marker's content scale separate from MapKit's view transform.
-/// Native selection/pan/zoom must never compound our 30% enlargement.
+final class ParkingHoldGestureRecognizer: UILongPressGestureRecognizer {
+    static let holdDuration: TimeInterval = 0.6
+    var onPress: ((CGPoint) -> Void)?
+    var onRelease: (() -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        if state == .possible, touches.count == 1, event.allTouches?.count == 1,
+           let touch = touches.first, let view {
+            onPress?(touch.location(in: view))
+        }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        if state == .failed || state == .cancelled { onRelease?() }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesCancelled(touches, with: event)
+        onRelease?()
+    }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesEnded(touches, with: event)
+        onRelease?()
+    }
+
+    override func reset() {
+        super.reset()
+        onRelease?()
+    }
+}
+
+/// Keep content scaling separate from MapKit's native view transform.
 final class ScaledMarkerAnnotationView: FadingMarkerAnnotationView {
+    private var holdScale: CGFloat = 1
+
+    func animateHold(_ pressed: Bool) {
+        holdScale = pressed ? 1.28 : 1
+        let target = CATransform3DMakeScale(sizeScale * holdScale, sizeScale * holdScale, 1)
+        let animation = CABasicAnimation(keyPath: "sublayerTransform")
+        animation.fromValue = NSValue(caTransform3D: layer.presentation()?.sublayerTransform ?? layer.sublayerTransform)
+        animation.toValue = NSValue(caTransform3D: target)
+        animation.duration = pressed ? ParkingHoldGestureRecognizer.holdDuration : 0.24
+        animation.timingFunction = CAMediaTimingFunction(name: pressed ? .easeInEaseOut : .easeOut)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        layer.sublayerTransform = target
+        CATransaction.commit()
+        layer.add(animation, forKey: "parkingHold")
+    }
     /// MapKit lays out titles/subtitles outside the marker's own bounds.
     func containsVisibleContent(_ point: CGPoint) -> Bool {
         guard !isHidden, !layer.isHidden, alpha > 0 else { return false }
@@ -335,13 +384,16 @@ final class ScaledMarkerAnnotationView: FadingMarkerAnnotationView {
             guard sizeScale != oldValue else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            layer.sublayerTransform = CATransform3DMakeScale(sizeScale, sizeScale, 1)
+            layer.sublayerTransform = CATransform3DMakeScale(sizeScale * holdScale, sizeScale * holdScale, 1)
             CATransaction.commit()
         }
     }
 
     override func prepareForReuse() {
+        holdScale = 1
+        layer.removeAnimation(forKey: "parkingHold")
         sizeScale = 1
+        layer.sublayerTransform = CATransform3DIdentity
         snapshotSignature = nil
         locksDragAppearance = false
         super.prepareForReuse()

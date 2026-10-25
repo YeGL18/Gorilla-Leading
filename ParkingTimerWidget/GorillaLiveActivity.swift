@@ -233,7 +233,7 @@ struct GorillaInfoRow: View {
         case .driving:
             // speed · road name (larger) · eta — all left aligned
             HStack(alignment: .firstTextBaseline, spacing: 20) {
-                valueUnit(state.speedKmh.map(String.init), "km/h")
+                valueUnit(state.speedDisplay, state.speedUnitSymbol)
                 Text(state.road ?? "-")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)
@@ -286,7 +286,7 @@ struct GorillaInfoRow: View {
         case .cycling:
             // speed + road name + eta — same as driving
             HStack(alignment: .firstTextBaseline, spacing: 20) {
-                valueUnit(state.speedKmh.map(String.init), "km/h")
+                valueUnit(state.speedDisplay, state.speedUnitSymbol)
                 Text(state.road ?? "-")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundStyle(.white)

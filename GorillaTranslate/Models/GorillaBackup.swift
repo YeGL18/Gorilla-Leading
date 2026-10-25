@@ -31,12 +31,13 @@ struct GorillaBackup: Codable, Sendable {
         "parking_photos_list", "HKLocationOverrides", "lastKnownLatitude", "lastKnownLongitude",
         "colorSchemeIndex", "appearanceMode", "capsuleAnimationStyle", "capsuleDarkGlassEnabled",
         "highFrequencyTracking", "mapTrackingAnimation", "speedBlurEnabled", "speedParallaxEnabled",
-        "speedNumberHidden", "orbMasterEnabled", "orbCapsule", "orbExpanded", "orbParkingMemory",
+        "speedNumberHidden", "speedUnit", "orbMasterEnabled", "orbCapsule", "orbExpanded", "orbParkingMemory",
         "orbBackgroundHome", "orbBackgroundSpeed", "orbColorPreset", "orbOverlapGlowEnabled", "orbCanvasDitherEnabled",
         "darkKnightMode", "colorGroupMode", "useTimeBasedOrb", "mapStyleIndex", "vlmRecognitionEnabled",
         "floorConvention", "kalmanSmoothingEnabled", "launchAnimationEnabled", "parkingTimerColorHex",
-        "bestRouteColorHex", "launchSoundVersion", "movementSoundVersion", "sfxAccelerationEnabled",
+        "bestRouteColorHex", "launchSoundVersion", "movementSoundVersion", "sfxAccelerationEnabled", "interactionHapticsEnabled",
         "parallaxMode", "outputAnimationStyle", "floorCurveCarIcon", "llm_shortcut_name",
+        "trip_replays_v1", "tripReplayEnabled", "tripReplayRetentionDays",
         "meterDetectionEnabled", "meterVehicle", "meterMapRadius", "meterDestinationRadius",
         "meterNearbyRadius", "meterStatusRefreshInterval", "testItemOrder", "testItemFavorites"
     ]
@@ -69,13 +70,13 @@ struct GorillaBackup: Codable, Sendable {
               photos.count <= 3 else { throw BackupFailure.tooLarge }
         let standard = try values(shared: false)
         let shared = try values(shared: true)
-        let blobs: Set<String> = ["saved_destinations", "selected_destination_id", "visit_records", "motion_segments",
+        let blobs: Set<String> = ["saved_destinations", "selected_destination_id", "visit_records", "motion_segments", "trip_replays_v1",
             "car_exit_events_v1", "seen_car_bluetooth_devices_v1", "my_car_bluetooth_device_v1",
             "trip_predict_place_catalog_v1", "trip_predict_patterns_v1", "trip_predict_recent_history_v1",
             "parking_photos_list", "testItemOrder", "testItemFavorites", "parking_floor_store_v1",
             "deleted_parking_points_v1", "deleted_places_v1", "parking_altitude_results_v1", "parkingPhotoContributions"]
         let strings: Set<String> = ["parkingTimerColorHex", "bestRouteColorHex", "floorCurveCarIcon",
-            "llm_shortcut_name", "meterVehicle", "parkingEntryLocation", "parallaxMode"]
+            "llm_shortcut_name", "meterVehicle", "parkingEntryLocation", "parallaxMode", "speedUnit"]
         let dates: Set<String> = ["parkingStartTime", "parkingEntryTime", "parkingDepartureTime", "lastKnownArrivalDate"]
         for values in [standard, shared] {
             for (key, value) in values {
@@ -136,8 +137,9 @@ struct GorillaBackup: Codable, Sendable {
 
     func count(_ key: String, shared: Bool = false) -> Int {
         guard let bytes = try? values(shared: shared)[key] as? Data,
-              let list = try? JSONSerialization.jsonObject(with: bytes) as? [Any] else { return 0 }
-        return list.count
+              let object = try? JSONSerialization.jsonObject(with: bytes) else { return 0 }
+        if key == "trip_replays_v1" { return ((object as? [String: Any])?["trips"] as? [Any])?.count ?? 0 }
+        return (object as? [Any])?.count ?? 0
     }
 }
 
@@ -148,6 +150,7 @@ struct BackupTransaction {
     let shared: UserDefaults
     let documents: URL
     let recoveryURL: URL
+    var replayURL: URL? = nil
 
     func apply(_ backup: GorillaBackup, afterFiles: () throws -> Void = {}) throws {
         _ = try backup.validated()
@@ -165,13 +168,20 @@ struct BackupTransaction {
         let groupValues = try backup.values(shared: true)
         let lots = groupValues["parking_floor_store_v1"] as? Data ?? Data("[]".utf8)
         try lots.write(to: documents.appendingPathComponent("parking_lots_backup.json"), options: .atomic)
+        let standardValues = try backup.values(shared: false)
+        if let replayURL {
+            try fm.createDirectory(at: replayURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            if let replay = standardValues["trip_replays_v1"] as? Data {
+                try replay.write(to: replayURL, options: .atomic)
+            } else if fm.fileExists(atPath: replayURL.path) { try fm.removeItem(at: replayURL) }
+        }
         try afterFiles()
         for (defaults, keys, values) in [
-            (standard, GorillaBackup.standardKeys, try backup.values(shared: false)),
+            (standard, GorillaBackup.standardKeys, standardValues),
             (shared, GorillaBackup.sharedKeys, groupValues)
         ] {
             for key in keys { defaults.removeObject(forKey: key) }
-            for (key, value) in values { defaults.set(value, forKey: key) }
+            for (key, value) in values where replayURL == nil || key != "trip_replays_v1" { defaults.set(value, forKey: key) }
             guard defaults.synchronize() else { throw BackupFailure.persistence }
         }
     }

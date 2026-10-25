@@ -3,7 +3,13 @@ import Foundation
 @main
 enum ColorGroupChecks {
     static func main() {
-        precondition(GorillaColorGroup.allCases.count == 3)
+        precondition(GorillaColorGroup.allCases.count == 4)
+        precondition(GorillaColorGroup.resolve(raw: 0, legacyDarkKnight: false, legacyTimeBased: true) == .timeBased)
+        precondition(GorillaColorGroup.resolve(raw: -1, legacyDarkKnight: false, legacyTimeBased: true) == .timeBased)
+        precondition(GorillaColorGroup.resolve(raw: 1, legacyDarkKnight: true, legacyTimeBased: true) == .darkKnight)
+        precondition(GorillaColorGroup.resolve(raw: 2, legacyDarkKnight: false, legacyTimeBased: true) == .m3Concept)
+        precondition(GorillaColorGroup.resolve(raw: 3, legacyDarkKnight: true) == .timeBased)
+        precondition(GorillaColorGroup.timeBased.showsOrbControls)
         precondition(M3ConceptPalette.all == ["EF363B", "DDD11B", "E6EFEA", "5C575D", "0D0B0E"])
         precondition(M3ConceptPalette.homeOrbs.map(\.hex) == [M3ConceptPalette.orange, M3ConceptPalette.yellow, "00172D"])
         precondition(M3ConceptPalette.homeOrbMixing)
@@ -45,6 +51,9 @@ enum ColorGroupChecks {
             precondition(GorillaColorGroup.load(defaults) == group)
             precondition(defaults.integer(forKey: "orbColorPreset") == 4)
         }
-        print("PASS: three exclusive groups; legacy preferences; normal dot presets; independent speed-based Dark Knight dots; fixed M3 dots; normal M3 map; preserved orb preferences")
+        defaults.set(0, forKey: "colorGroupMode")
+        defaults.set(true, forKey: "useTimeBasedOrb")
+        precondition(GorillaColorGroup.load(defaults) == .timeBased)
+        print("PASS: four visual themes; legacy timeline migration; normal dot presets; independent Dark Knight dots; fixed M3 dots; preserved orb preferences")
     }
 }

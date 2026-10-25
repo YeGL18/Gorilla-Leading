@@ -73,6 +73,7 @@ struct GorillaTranslateApp: App {
     var body: some Scene {
         WindowGroup {
             ProtectedStartupView(appDelegate: appDelegate)
+                .background(AppHapticObserver().allowsHitTesting(false))
         }
     }
 }

@@ -1,5 +1,29 @@
 # Gorilla Leading TestFlight
 
+## Build 5 Preparation (2026-10-25)
+
+Version `1.0 (5)` includes the current working-tree changes: trip replay and altitude charts, driving-event/G-force improvements, AC telemetry, updated appearance controls, the revised first-run tour, and the published support website. This is a TestFlight update, not a public App Store release.
+
+The app and widget share build number 5. The explicit Info.plist export-compliance flag matches the existing build setting (`ITSAppUsesNonExemptEncryption = NO`). This applies to the current AMap-free app, not historical build 2. Re-run `Tests/NoAMapChecks.rb` against the actual archive before upload.
+
+The archive passed `Tests/NoAMapChecks.rb` on the actual app bundle, including the export-compliance flag. The app and widget both report build 5. Upload completed successfully on 2026-10-26; Apple accepted the package for processing (`Upload succeeded`, `EXPORT SUCCEEDED`). The first attempt failed because Xcode had no signed-in Apple Account; it succeeded after the owner signed in.
+
+After the owner restored the separate App Store Connect browser login on 2026-10-26, build 5 was verified as processed without a missing-compliance warning. Its Traditional Chinese What to Test notes were saved from `distribution/TestFlight-1.0-5-notes.txt`. The build detail page confirms assignment to `Self Testing` (Internal, 3 testers) and `Friends Testing` (External, 2 testers). The external Submit for Review flow was completed with automatic tester notification enabled; the Friends Testing Builds page then visibly showed `1.0 (5)` as `Testing`, not Waiting for Review. No production App Store release was submitted, no testers were added, and public-link settings were not changed. Xcode and App Store Connect browser login sessions are independent.
+
+A local distribution export also succeeded: `output/TestFlight-1.0-5/GorillaTranslate.ipa`. Status proof was captured at `/private/tmp/gorilla-testflight-5-external.png` (temporary local file).
+
+## Manual Xcode Upload
+
+1. Open `GorillaTranslation.xcodeproj` in Xcode and select the `GorillaTranslate` scheme. Sign in under Xcode > Settings > Apple Accounts; an App Store Connect browser login alone is insufficient for Xcode upload.
+2. In Signing & Capabilities, retain automatic signing and team `JVL487RN2F`. Confirm the app and widget use the same version/build numbers. Choose a new build number greater than the latest uploaded number (after build 5, use 6 or higher).
+3. Select `Any iOS Device (arm64)` or the generic iOS device destination, not a simulator, then choose Product > Archive.
+4. In Window > Organizer > Archives, select the completed archive and choose Distribute App > App Store Connect / TestFlight & App Store > Upload. Do not choose TestFlight Internal Only if the build must also reach external testers.
+5. Complete signing/validation and upload. Wait for Apple processing; resolve any warnings based on their actual cause.
+6. In App Store Connect > Gorilla Leading > TestFlight, open the new build, enter What to Test, and assign the existing `Self Testing` and `Friends Testing` groups.
+7. Submit for external Beta App Review if requested. Internal availability, external review submission, approval, and notification are separate states. Do not claim external availability until Apple permits it.
+
+If export compliance is requested, assess the specific build including its bundled SDKs. The flag is not a general-purpose way to bypass encryption questions. Keep the old build 2 declaration unchanged unless its SDK encryption classification is resolved.
+
 ## Build 4 Preparation
 
 Build `1.0 (4)` was archived and uploaded successfully on 2026-10-13. The app and widget both carry build number 4, and the archive passed the no-AMap checks. It removes the Minecraft map-style picker from Settings and defaults new installations to Canvas Symbols + Dither, while preserving explicitly saved rendering preferences. It includes the local Shenzhen, prediction, parking-flow, paused-camera preview, stationary Live Activity alignment and colorful transparent-glass capture-button changes made after build 3.

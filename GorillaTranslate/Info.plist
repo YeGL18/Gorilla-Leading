@@ -2,25 +2,33 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>NSLocalNetworkUsageDescription</key>
-    <string>連接同一區域網絡內的 Windows 電腦，接收 Assetto Corsa 遊戲遙測。</string>
-    <key>ITSAppUsesNonExemptEncryption</key>
-    <false/>
-    <key>UIBackgroundModes</key>
-    <array><string>location</string></array>
-    <key>UTExportedTypeDeclarations</key>
-    <array>
-        <dict>
-            <key>UTTypeIdentifier</key><string>com.gorilla.leading.backup</string>
-            <key>UTTypeDescription</key><string>Gorilla Leading Backup</string>
-            <key>UTTypeConformsTo</key><array><string>public.data</string></array>
-            <key>UTTypeTagSpecification</key>
-            <dict><key>public.filename-extension</key><array><string>gorillabackup</string></array></dict>
-        </dict>
-    </array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>HKeMeterLaunchURL</key>
 	<string>hkemeter://</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Gorilla Leading Backup</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.gorilla.leading.backup</string>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>gorillabackup</string>
+				</array>
+			</dict>
+		</dict>
+	</array>
 </dict>
 </plist>

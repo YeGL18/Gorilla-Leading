@@ -1,6 +1,21 @@
 import XCTest
 
 final class MapGestureUITests: XCTestCase {
+    func testMarkerRequiresHoldBeforeDraggingAndRestoresScale() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
+        app.launchArguments = ["--hold"]
+        app.launch()
+        let marker = app.otherElements["holdMarker"]
+        let status = app.staticTexts["holdStatus"]
+        XCTAssertTrue(marker.waitForExistence(timeout: 10))
+        let destination = app.coordinate(withNormalizedOffset: CGVector(dx: 0.7, dy: 0.5))
+        marker.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.1, thenDragTo: destination)
+        XCTAssertTrue(status.label.contains("unlocks=0"), status.label)
+        XCTAssertTrue(status.label.contains("scale=1.00"), status.label)
+        marker.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).press(forDuration: 0.8, thenDragTo: destination)
+        XCTAssertTrue(status.label.contains("unlocks=1 releases=1 scale=1.00"), status.label)
+    }
+
     @MainActor
     func testParkingAndMeterBodiesRemainVisibleDuringNativePan() {
         let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")

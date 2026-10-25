@@ -12,6 +12,7 @@ struct ACCarSample {
     let bestLap: Int
     let throttle: Double
     let brake: Double
+    let gForce: SpeedGForce?
 
     var gearLabel: String { gear == 0 ? "R" : gear == 1 ? "N" : String(gear - 1) }
 }
@@ -36,7 +37,9 @@ enum ACPacket {
               (0...1).contains(throttle), (0...1).contains(brake) else { return nil }
         return ACCarSample(speed: speed, rpm: rpm, gear: gear, lap: times[3],
                            currentLap: times[0], lastLap: times[1], bestLap: times[2],
-                           throttle: throttle, brake: brake)
+                           throttle: throttle, brake: brake,
+                           gForce: SpeedGForce.validated(lateral: Double(Float(bitPattern: integer(data, 32))),
+                                                       longitudinal: Double(Float(bitPattern: integer(data, 36)))))
     }
 
     static func names(_ data: Data) -> (car: String, track: String, configuration: String)? {

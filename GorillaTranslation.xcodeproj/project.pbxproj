@@ -29,13 +29,15 @@
 		A10023 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L30001 /* Localizable.strings */; };
 		A10024 /* Localizable.strings in Resources */ = {isa = PBXBuildFile; fileRef = L30001 /* Localizable.strings */; };
 		A10025 /* InfoPlist.strings in Resources */ = {isa = PBXBuildFile; fileRef = L30002 /* InfoPlist.strings */; };
+		AC10001 /* ../Models/ACTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20001 /* ../Models/ACTelemetry.swift */; };
+		AC10002 /* ACDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20002 /* ACDashboardView.swift */; };
+		AC10003 /* ../Models/SpeedGForce.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20003 /* ../Models/SpeedGForce.swift */; };
+		AC10004 /* SpeedInstrumentCards.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20004 /* SpeedInstrumentCards.swift */; };
 		AM10007 /* CapsuleLightEffect.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20007 /* CapsuleLightEffect.swift */; };
 		AM10008 /* LightDistortion.metal in Sources */ = {isa = PBXBuildFile; fileRef = AM20008 /* LightDistortion.metal */; };
 		AM10009 /* PredictionTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AM20009 /* PredictionTestView.swift */; };
 		B10001 /* LocationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20001 /* LocationManager.swift */; };
 		B10002 /* SpeedView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B20002 /* SpeedView.swift */; };
-		AC10001 /* ACTelemetry.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20001 /* ACTelemetry.swift */; };
-		AC10002 /* ACDashboardView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC20002 /* ACDashboardView.swift */; };
 		BACC1001 /* GorillaBackup.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACC2001 /* GorillaBackup.swift */; };
 		BACC1002 /* DataToolsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACC2002 /* DataToolsView.swift */; };
 		BACC1003 /* FindCarShareView.swift in Sources */ = {isa = PBXBuildFile; fileRef = BACC2003 /* FindCarShareView.swift */; };
@@ -68,6 +70,8 @@
 		F3A0C021B2C3D4E5F6071829 /* sfx_enter_driving_v2.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A021B2C3D4E5F6071829 /* sfx_enter_driving_v2.mp3 */; };
 		F3A0C022B2C3D4E5F6071829 /* gorilla_launch2.mp3 in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A022B2C3D4E5F6071829 /* gorilla_launch2.mp3 */; };
 		F3A0C023B2C3D4E5F6071829 /* sfx_parking_time_notifi.caf in Resources */ = {isa = PBXBuildFile; fileRef = F3A0A023B2C3D4E5F6071829 /* sfx_parking_time_notifi.caf */; };
+		IP10001 /* ParkingReminderPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = IP20001 /* ParkingReminderPolicy.swift */; };
+		IP10002 /* AppHaptics.swift in Sources */ = {isa = PBXBuildFile; fileRef = IP20002 /* AppHaptics.swift */; };
 		LA10002 /* GorillaActivityManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20002 /* GorillaActivityManager.swift */; };
 		LA10003 /* LiveActivityPreviewTestView.swift in Sources */ = {isa = PBXBuildFile; fileRef = LA20003 /* LiveActivityPreviewTestView.swift */; };
 		MC10001 /* MapCameraMotion.swift in Sources */ = {isa = PBXBuildFile; fileRef = MC20001 /* MapCameraMotion.swift */; };
@@ -80,6 +84,11 @@
 		P10007 /* LaunchAnimationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = P10006 /* LaunchAnimationView.swift */; };
 		PA10001 /* ParkingAreaViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = PA20001 /* ParkingAreaViews.swift */; };
 		PR10001 /* ParkingRecordViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = PR20001 /* ParkingRecordViews.swift */; };
+		TR10001 /* TripReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = TR20001 /* TripReplay.swift */; };
+		TR10002 /* TripReplayStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = TR20002 /* TripReplayStore.swift */; };
+		TR10003 /* TripReplayView.swift in Sources */ = {isa = PBXBuildFile; fileRef = TR20003 /* TripReplayView.swift */; };
+		TR10004 /* TripReplayCapture.swift in Sources */ = {isa = PBXBuildFile; fileRef = TR20004 /* TripReplayCapture.swift */; };
+		VL10001 /* VLMActionPrompt.swift in Sources */ = {isa = PBXBuildFile; fileRef = VL20001 /* VLMActionPrompt.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXCopyFilesBuildPhase section */
@@ -120,13 +129,15 @@
 		A20020 /* DotMatrixView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotMatrixView.swift; sourceTree = "<group>"; };
 		A20021 /* AppLanguage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppLanguage.swift; sourceTree = "<group>"; };
 		A20022 /* LanguageManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LanguageManager.swift; sourceTree = "<group>"; };
+		AC20001 /* ../Models/ACTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Models/ACTelemetry.swift; sourceTree = "<group>"; };
+		AC20002 /* ACDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACDashboardView.swift; sourceTree = "<group>"; };
+		AC20003 /* ../Models/SpeedGForce.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Models/SpeedGForce.swift; sourceTree = "<group>"; };
+		AC20004 /* SpeedInstrumentCards.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedInstrumentCards.swift; sourceTree = "<group>"; };
 		AM20007 /* CapsuleLightEffect.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CapsuleLightEffect.swift; sourceTree = "<group>"; };
 		AM20008 /* LightDistortion.metal */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.metal; name = LightDistortion.metal; path = GorillaTranslate/Shaders/LightDistortion.metal; sourceTree = "<group>"; };
 		AM20009 /* PredictionTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PredictionTestView.swift; sourceTree = "<group>"; };
 		B20001 /* LocationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocationManager.swift; sourceTree = "<group>"; };
 		B20002 /* SpeedView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpeedView.swift; sourceTree = "<group>"; };
-		AC20001 /* ACTelemetry.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Models/ACTelemetry.swift; sourceTree = "<group>"; };
-		AC20002 /* ACDashboardView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ACDashboardView.swift; sourceTree = "<group>"; };
 		B4B4CE02D8308FF93B9D7328 /* RoseFourView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RoseFourView.swift; sourceTree = "<group>"; };
 		B6BA2CD0C790F50AB2267C1F /* TimePhase.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = TimePhase.swift; sourceTree = "<group>"; };
 		BACC2001 /* GorillaBackup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaBackup.swift; sourceTree = "<group>"; };
@@ -159,6 +170,8 @@
 		F3A0A021B2C3D4E5F6071829 /* sfx_enter_driving_v2.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = sfx_enter_driving_v2.mp3; sourceTree = "<group>"; };
 		F3A0A022B2C3D4E5F6071829 /* gorilla_launch2.mp3 */ = {isa = PBXFileReference; lastKnownFileType = audio.mp3; path = gorilla_launch2.mp3; sourceTree = "<group>"; };
 		F3A0A023B2C3D4E5F6071829 /* sfx_parking_time_notifi.caf */ = {isa = PBXFileReference; lastKnownFileType = file; path = sfx_parking_time_notifi.caf; sourceTree = "<group>"; };
+		IP20001 /* ParkingReminderPolicy.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingReminderPolicy.swift; sourceTree = "<group>"; };
+		IP20002 /* AppHaptics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppHaptics.swift; sourceTree = "<group>"; };
 		L10001 /* en */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = en; path = Localization/en.lproj/Localizable.strings; sourceTree = "<group>"; };
 		L10002 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "Localization/zh-Hant.lproj/Localizable.strings"; sourceTree = "<group>"; };
 		L10003 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "Localization/zh-Hans.lproj/Localizable.strings"; sourceTree = "<group>"; };
@@ -179,10 +192,15 @@
 		P10006 /* LaunchAnimationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LaunchAnimationView.swift; sourceTree = "<group>"; };
 		PA20001 /* ParkingAreaViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingAreaViews.swift; sourceTree = "<group>"; };
 		PR20001 /* ParkingRecordViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingRecordViews.swift; sourceTree = "<group>"; };
+		TR20001 /* TripReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReplay.swift; sourceTree = "<group>"; };
+		TR20002 /* TripReplayStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReplayStore.swift; sourceTree = "<group>"; };
+		TR20003 /* TripReplayView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReplayView.swift; sourceTree = "<group>"; };
+		TR20004 /* TripReplayCapture.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TripReplayCapture.swift; sourceTree = "<group>"; };
+		VL20001 /* VLMActionPrompt.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VLMActionPrompt.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */ = {
+		05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -192,29 +210,8 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				05B1C5EF301837BC00589328 /* Exceptions for "ParkingTimerWidget" folder in "ParkingTimerWidgetExtension" target */,
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = ParkingTimerWidget;
-			sourceTree = "<group>";
-		};
-		SH2001 /* Shared */ = {
-			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-			);
-			explicitFileTypes = {
-			};
-			explicitFolders = (
-			);
-			path = Shared;
-			sourceTree = "<group>";
-		};
+		05B1C5DE301837BB00589328 /* ParkingTimerWidget */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (05B1C5EF301837BC00589328 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ParkingTimerWidget; sourceTree = "<group>"; };
+		SH2001 /* Shared */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = Shared; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -289,6 +286,8 @@
 		A40003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				TR20001 /* TripReplay.swift */,
+				TR20002 /* TripReplayStore.swift */,
 				BACC2001 /* GorillaBackup.swift */,
 				ME20001 /* MeterData.swift */,
 				MC20001 /* MapCameraMotion.swift */,
@@ -297,6 +296,7 @@
 				A20022 /* LanguageManager.swift */,
 				A20019 /* AnimationClock.swift */,
 				B20001 /* LocationManager.swift */,
+				IP20001 /* ParkingReminderPolicy.swift */,
 				E1A2B3C4D5E6F70819203041 /* NumberRoller.swift */,
 				C2A001HK0001 /* HKTaxiExamLocations.swift */,
 				D20001 /* Destination.swift */,
@@ -314,6 +314,8 @@
 		A40004 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				TR20003 /* TripReplayView.swift */,
+				TR20004 /* TripReplayCapture.swift */,
 				BACC2002 /* DataToolsView.swift */,
 				BACC2003 /* FindCarShareView.swift */,
 				BACC2004 /* PerformanceSessionView.swift */,
@@ -323,11 +325,14 @@
 				ME20003 /* ParkingMeterViews.swift */,
 				A20014 /* AnimatedBackground.swift */,
 				A20016 /* SettingsView.swift */,
+				VL20001 /* VLMActionPrompt.swift */,
 				7E486A6446D8D03DB2415427 /* SpeedSimulationView.swift */,
 				A20020 /* DotMatrixView.swift */,
 				B20002 /* SpeedView.swift */,
-				AC20001 /* ACTelemetry.swift */,
+				AC20001 /* ../Models/ACTelemetry.swift */,
 				AC20002 /* ACDashboardView.swift */,
+				AC20003 /* ../Models/SpeedGForce.swift */,
+				AC20004 /* SpeedInstrumentCards.swift */,
 				C20001 /* MapView.swift */,
 				PR20001 /* ParkingRecordViews.swift */,
 				PA20001 /* ParkingAreaViews.swift */,
@@ -356,6 +361,7 @@
 			isa = PBXGroup;
 			children = (
 				A20011 /* ColorExtension.swift */,
+				IP20002 /* AppHaptics.swift */,
 				F3A0A005B2C3D4E5F6071829 /* BorderBeam.swift */,
 			);
 			path = Extensions;
@@ -561,8 +567,11 @@
 				A10021 /* AppLanguage.swift in Sources */,
 				A10022 /* LanguageManager.swift in Sources */,
 				A10011 /* ColorExtension.swift in Sources */,
+				IP10001 /* ParkingReminderPolicy.swift in Sources */,
+				IP10002 /* AppHaptics.swift in Sources */,
 				A10014 /* AnimatedBackground.swift in Sources */,
 				A10016 /* SettingsView.swift in Sources */,
+				VL10001 /* VLMActionPrompt.swift in Sources */,
 				0B1000010B1000010B100001 /* GorillaOnboardingView.swift in Sources */,
 				0B1000020B1000020B100002 /* GorillaPageView.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
@@ -571,8 +580,14 @@
 				C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,
 				B10002 /* SpeedView.swift in Sources */,
-				AC10001 /* ACTelemetry.swift in Sources */,
+				AC10001 /* ../Models/ACTelemetry.swift in Sources */,
 				AC10002 /* ACDashboardView.swift in Sources */,
+				AC10003 /* ../Models/SpeedGForce.swift in Sources */,
+				AC10004 /* SpeedInstrumentCards.swift in Sources */,
+				TR10001 /* TripReplay.swift in Sources */,
+				TR10002 /* TripReplayStore.swift in Sources */,
+				TR10003 /* TripReplayView.swift in Sources */,
+				TR10004 /* TripReplayCapture.swift in Sources */,
 				C10001 /* MapView.swift in Sources */,
 				PR10001 /* ParkingRecordViews.swift in Sources */,
 				PA10001 /* ParkingAreaViews.swift in Sources */,
@@ -639,7 +654,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = ParkingTimerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ParkingTimerWidget/Info.plist;
@@ -673,7 +688,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = ParkingTimerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ParkingTimerWidget/Info.plist;
@@ -826,14 +841,16 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GorillaTranslate/GorillaTranslate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GorillaTranslate/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gorilla Leading";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "連接同一區域網絡內的 Windows 電腦，接收 Assetto Corsa 遊戲遙測。";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice input.";
@@ -871,14 +888,16 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GorillaTranslate/GorillaTranslate.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 4;
+				CURRENT_PROJECT_VERSION = 5;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GorillaTranslate/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Gorilla Leading";
+				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "連接同一區域網絡內的 Windows 電腦，接收 Assetto Corsa 遊戲遙測。";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "This app needs microphone access for voice input.";

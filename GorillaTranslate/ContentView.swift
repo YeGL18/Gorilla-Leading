@@ -96,7 +96,7 @@ private struct GorillaCapsuleGlass: ViewModifier {
     }
 }
 
-private struct GorillaMapControlAppearance: ViewModifier {
+struct GorillaMapControlAppearance: ViewModifier {
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
     @Environment(\.colorScheme) private var colorScheme
     private var usesDarkGlass: Bool {
@@ -792,6 +792,7 @@ struct ContentView: View {
     @State private var lastKnownArrivalDate: Date?
     @State private var timerRunning = false
     @State private var parkingReminderTimer: Timer?
+    @State private var parkingReminderAnchor: CLLocationCoordinate2D?
     @State private var lastReminderMinute: Int = -1  // 追蹤上次通知的分鐘數
     @State private var frozenParkingElapsed: TimeInterval? = nil  // 拖動時凍結的計時值
     @State private var frozenCompactStatus: String? = nil  // 拖動時凍結的緊湊態文字
@@ -871,6 +872,7 @@ struct ContentView: View {
     @State private var headingToastTimer: Timer?
     @State private var hkDetailMode = false        // 香港地圖細覽模式
     @State private var gpsTapCount = 0             // GPS 膠囊點擊計數
+    @State private var showingTripReplay = false
     @State private var gpsTapResetTimer: Timer?    // 重置計數的 timer
     @State private var stationaryTrackingTrigger = 0
     @State private var northOverrideTrackingToken = 0
@@ -1006,7 +1008,7 @@ struct ContentView: View {
     @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
     @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     private var colorGroup: GorillaColorGroup {
-        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode, legacyTimeBased: useTimeBasedOrb)
     }
     private var darkKnightMode: Bool { colorGroup.usesSpecialMap }
     /// 黑武士模式地圖圓角（橫屏更大）
@@ -1019,6 +1021,8 @@ struct ContentView: View {
     // Trip Predictor UI state
     @State private var showDemoAnimation = false
     @State private var showingTripConfirm = false
+    @AppStorage(SpeedUnit.preferenceKey) private var speedUnitRaw = SpeedUnit.kilometresPerHour.rawValue
+    private var speedUnit: SpeedUnit { .resolve(speedUnitRaw) }
     @State private var tripConfirmPrediction: PendingTripPrediction? = nil
     @State private var tripPredictionActionsReady = false
     @State private var tripToastPrediction: PendingTripPrediction? = nil
@@ -1125,7 +1129,10 @@ struct ContentView: View {
             NavigationStack {
                 SpeedView(
                     acTelemetry: acTelemetry,
+                    drivingState: visitStatus == "已開車",
                     showMap: showMap || showSatellite,
+                    showSatellite: showSatellite,
+                    cycleMapPresentation: cycleMapPresentation,
                     animationClock: animationClock,
                     mapCamera: $mapCamera,
                     isDuoDevice: isDuoDevice,
@@ -1299,6 +1306,9 @@ struct ContentView: View {
         .onChange(of: usesDarkGlass) { _, _ in
             updateTabBarAppearance()
         }
+        .onChange(of: speedUnitRaw) { _, _ in
+            syncLiveActivity(forceRefresh: true)
+        }
     }
 
     var body: some View {
@@ -1366,7 +1376,7 @@ struct ContentView: View {
             meterManager.prepare()
             meterManager.setActive(true)
             if meterManager.isEnabled && meterManager.vehicle == .unset { meterManager.needsVehicleSelection = true }
-            if !showMap && !showSatellite && orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb {
+            if !showMap && !showSatellite && orbMasterEnabled && orbBackgroundHome && colorGroup == .timeBased {
                 // 立即啟動入場動畫（同 blur 淡入同步進行）
                 timePhaseManager.startWithEntranceAnimation()
             }
@@ -1435,6 +1445,7 @@ struct ContentView: View {
             }
         }
         .background { floorCaptureEvents }
+        .background { TripReplayCapture(telemetry: acTelemetry) }
         .onChange(of: acAutoConnectEnabled) { _, enabled in
             if enabled && scenePhase == .active { acTelemetry.ensureConnected(host: acComputerHost) }
             else { acTelemetry.disconnect() }
@@ -1477,6 +1488,17 @@ struct ContentView: View {
             }
         }
         .onReceive(locationManager.$visits, perform: handleVisitUpdates)
+        .onChange(of: isNonAutomotiveArrival && !hasParkingSpotData) { _, isStay in
+            guard isStay else { return }
+            showLLMActionPrompt = false
+            llmPollTimer?.invalidate()
+            llmPollTimer = nil
+            llmSoundStopTimer?.invalidate()
+            llmSoundStopTimer = nil
+            sfxPlayer.stopVLMLoadingImmediately()
+            stopOrbRecognitionBoost(triggerSixColor: false)
+            isRecognizing = false
+        }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
             if expanded {
                 // Bug 2 修復：防禦性檢查，確保狀態穩定後再啟動相機
@@ -1797,13 +1819,14 @@ struct ContentView: View {
     private var gorillaTitleView: some View {
         let titleText = Text(String(localized: "🦍 Gorilla")).font(.largeTitle.bold())
         let goldColor = Color(uiColor: GorillaBrand.darkKnightGold)
+        let titleWidth: CGFloat = !isDuoDevice && !isLandscape ? 170 : 220
         return ZStack {
             if colorGroup == .m3Concept {
                 titleText.foregroundStyle(Color(hex: M3ConceptPalette.yellow))
-                    .frame(width: 220, height: 50)
+                    .frame(width: titleWidth, height: 50)
             } else {
             (darkKnightMode ? goldColor.opacity(0.15) : Color.white.opacity(0.01))
-                .frame(width: 220, height: 50)
+                .frame(width: titleWidth, height: 50)
                 .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 12))
                 .mask(titleText)
             titleText
@@ -1846,8 +1869,8 @@ struct ContentView: View {
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.5)) { showDemoAnimation = true }
         }
-        // 視覺微調：標題整體左移 16pt（用戶覺得文字視覺重心偏右）
-        .offset(x: -16)
+        // 留返回看入口嘅空間，同時將標題重心移返右少少。
+        .offset(x: -6)
     }
 
     /// 標題掃過光帶（用嚟做 mask）：柔邊光帶沿對角線（左下→右上）由字外掃入、穿過字形、再掃出。
@@ -2056,7 +2079,7 @@ struct ContentView: View {
                     .ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundHome, useTimeBasedOrb: orbMasterEnabled && orbBackgroundHome && colorGroup == .timeBased, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
                     .transition(.opacity.animation(.easeInOut(duration: 0.5)))
             }
@@ -2088,7 +2111,7 @@ struct ContentView: View {
                                 .offset(y: 4)
                             HStack {
                                 Spacer()
-                                gpsStatusBadge
+                                homeStatusControls
                                     .overlay(alignment: .bottomTrailing) {
                                         if showMap || showSatellite {
                                             MapCompassToolbarView(bridge: mapCompassBridge)
@@ -2108,7 +2131,7 @@ struct ContentView: View {
                         HStack(alignment: .center) {
                             gorillaTitleView
                             Spacer()
-                            gpsStatusBadge
+                            homeStatusControls
                         }
                         .padding(.horizontal, isDuoDevice ? 20 : 16)
                         .padding(.top, isDuoDevice ? (duoSafeTopBase + 16) : (isLandscape ? 43 : 30))
@@ -2123,8 +2146,8 @@ struct ContentView: View {
                     Spacer(minLength: 0)
 
                     let buttonOffset = mapToolbarVerticalOffset
-                    let centersPhoneControls = isLandscape && UIDevice.current.userInterfaceIdiom == .phone && !isDuoDevice
-                    let landscapeButtonOffset: CGFloat = (!centersPhoneControls && isLandscape && (showMap || showSatellite)) ? 20 : 0
+                    let centersLandscapeControls = isLandscape && !isDuoDevice
+                    let landscapeButtonOffset: CGFloat = (!centersLandscapeControls && isLandscape && (showMap || showSatellite)) ? 20 : 0
                     HStack {
                         if !hkDetailMode && !usesDuoToolbar {
                             VStack(spacing: 10) {
@@ -2207,8 +2230,8 @@ struct ContentView: View {
                                 .modifier(GorillaMapControlAppearance())
                             }
                             .padding(.leading, 16)
-                            .padding(.bottom, centersPhoneControls ? 0 : 72)
-                            .offset(y: buttonOffset + landscapeButtonOffset)
+                            .padding(.bottom, centersLandscapeControls ? 0 : 72)
+                            .offset(y: centersLandscapeControls ? (appWindowBounds.isEmpty ? 0 : appWindowBounds.midY - globalFrame.midY) : buttonOffset + landscapeButtonOffset)
                             .animation(.timingCurve(0.4, 0.0, 0.2, 1.0, duration: 0.5), value: buttonOffset)
                             .animation(.spring(response: 0.6, dampingFraction: 0.78), value: boundaryDrawLot?.id)
                             .animation(.smooth(duration: 0.25), value: boundaryToolbarHeight)
@@ -2216,7 +2239,7 @@ struct ContentView: View {
 
                         Spacer()
                     }
-                    .frame(height: centersPhoneControls ? geo.size.height : nil)
+                    .frame(height: centersLandscapeControls ? geo.size.height : nil)
                 }
             }
 
@@ -2422,6 +2445,12 @@ struct ContentView: View {
                 withAnimation(.smooth) { selectedParkingPointID = pointID }
             }
         }
+        .sheet(isPresented: $showingTripReplay) {
+            NavigationStack {
+                TripReplayLibraryView(onClose: { showingTripReplay = false })
+            }
+            .environment(\.colorScheme, effectiveColorScheme)
+        }
         .sheet(isPresented: $showingAddDestination) {
             AddDestinationView()
                 .environmentObject(destinationManager)
@@ -2626,19 +2655,15 @@ struct ContentView: View {
             .buttonStyle(.plain)
         }
         .padding(26)
+        .fixedSize(horizontal: false, vertical: true)
         .background(
             RoundedRectangle(cornerRadius: 30)
                 .fill(Color.black.opacity(0.58))
         )
         .glassEffect(.regular, in: .rect(cornerRadius: 30))
         .clipShape(.rect(cornerRadius: 30))
-        .borderBeam(
-            size: .large,
-            palette: .ocean,
-            cornerRadius: 30,
-            enableRotate: false,
-            enablePulse: true
-        )
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tripPredictionCard")
     }
 
     // MARK: - Floor Confirmation Card
@@ -3279,7 +3304,7 @@ struct ContentView: View {
 
             // 速度 + 地址 + 剩餘時間（同擴展態佈局）
             HStack(alignment: .lastTextBaseline) {
-                Text("\(Int(locationManager.smoothedSpeed)) km/h")
+                Text("\(Int(speedUnit.value(fromKmh: locationManager.smoothedSpeed))) \(speedUnit.symbol)")
                     .font(.body.bold())
                     .foregroundStyle(capsuleTextColor(opacity: 0.6))
                     .contentTransition(.numericText())
@@ -3983,18 +4008,14 @@ struct ContentView: View {
     private var addressCapsuleParkingMemory: some View {
         parkingMemoryContent
             .transition(.opacity)
-            .alert(String(localized: "請啟動動作按鈕"), isPresented: $showLLMActionPrompt) {
-                Button(String(localized: "已準備好")) { startLLMPollingAfterAction() }
-                Button(String(localized: "取消"), role: .cancel) {
+            .modifier(VLMActionPrompt(isPresented: $showLLMActionPrompt, shortcutName: llmShortcutName,
+                onReady: { startLLMPollingAfterAction() }, onCancel: {
                     llmSoundStopTimer?.invalidate()
                     llmSoundStopTimer = nil
                     sfxPlayer.stopVLMLoadingImmediately()
                     stopOrbRecognitionBoost(triggerSixColor: false)
                     isRecognizing = false
-                }
-            } message: {
-                Text(String(format: String(localized: "圖片已複製到剪貼簿。\n請按動作按鈕執行「%@」快捷指令。"), llmShortcutName))
-            }
+                }))
             .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
                 Button(String(localized: "編輯")) {
                     openSpotEditor()
@@ -4056,7 +4077,7 @@ struct ContentView: View {
                     .transition(.blurReplace())
                 } else if compactSlot == .speed {
                     HStack(spacing: 16) {
-                        Text("\(Int(locationManager.smoothedSpeed)) km/h")
+                        Text("\(Int(speedUnit.value(fromKmh: locationManager.smoothedSpeed))) \(speedUnit.symbol)")
                             .font(.body.bold())
                             .foregroundStyle(capsuleTextColor())
                             .contentTransition(.numericText())
@@ -4334,7 +4355,9 @@ struct ContentView: View {
                     }) {
                         Label((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶按鈕") : String(localized: "泊車記憶按鈕"), systemImage: (isNonAutomotiveArrival && !hasParkingSpotData) ? "mappin.and.ellipse" : "car.fill")
                             .font(.body.weight(.medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle((Color(hex: parkingTimerColorHex) ?? Color(hex: "46ADB8"))
+                                .contrastingLabel(over: usesDarkGlass || effectiveColorScheme == .dark ? .black : .white,
+                                                  opacity: buttonBgOpacity(isActive: timerRunning), scheme: effectiveColorScheme))
                             .frame(width: 126, height: 54)
                             .glassEffect(.regular, in: .capsule)
                             .background(
@@ -4422,7 +4445,9 @@ struct ContentView: View {
                     }) {
                         Label(String(localized: "最優路線按鈕"), systemImage: "map")
                             .font(.body.weight(.medium))
-                            .foregroundStyle(.white)
+                            .foregroundStyle((Color(hex: bestRouteColorHex) ?? Color(hex: "BCBA1E"))
+                                .contrastingLabel(over: usesDarkGlass || effectiveColorScheme == .dark ? .black : .white,
+                                                  opacity: buttonBgOpacity(isActive: showingRoute), scheme: effectiveColorScheme))
                             .frame(width: 126, height: 54)
                             .glassEffect(.regular, in: .capsule)
                             .background(
@@ -4448,7 +4473,7 @@ struct ContentView: View {
 
             HStack {
                 HStack(spacing: 4) {
-                    Text("\(Int(locationManager.smoothedSpeed))")
+                    Text("\(Int(speedUnit.value(fromKmh: locationManager.smoothedSpeed)))")
                         .font(.body.bold())
                         .foregroundStyle(capsuleTextColor(opacity: 0.6))
                         .contentTransition(.numericText())
@@ -4456,7 +4481,7 @@ struct ContentView: View {
                         .monospacedDigit()
                         .blur(radius: capsuleDragState.active ? 6 : 0)
                         .animation(.easeInOut(duration: 0.25), value: capsuleDragState.active)
-                    Text("km/h")
+                    Text(speedUnit.symbol)
                         .font(.body.bold())
                         .foregroundStyle(capsuleTextColor(opacity: 0.6))
                 }
@@ -5334,10 +5359,16 @@ struct ContentView: View {
 
     // MARK: - 泊車時間提醒
     /// 每30分鐘整點前5分鐘發送通知（25min, 55min, 1h25m...），超過3小時停止
-    /// 如果該地點習慣長時間停泊（>=3小時），則跳過提醒
+    /// Completed parking history averaging at least 3.5 hours suppresses reminders here.
     private func startParkingReminder() {
         stopParkingReminder()
         lastReminderMinute = -1
+        if let visit = locationManager.visits.first(where: { abs($0.arrivalDate.timeIntervalSince(parkingStartTime)) < 60 }) {
+            parkingReminderAnchor = CLLocationCoordinate2D(latitude: visit.latitude, longitude: visit.longitude)
+        } else {
+            parkingReminderAnchor = parkingFloorStore.lastStationaryCoordinate ?? locationManager.lastLocation?.coordinate
+        }
+        guard !isLongParkingHabit() else { return }
 
         // 用 UNTimeIntervalNotificationTrigger 預先排程通知（後台都能觸發）
         scheduleParkingNotifications()
@@ -5352,13 +5383,12 @@ struct ContentView: View {
                     self.stopParkingReminder()
                     return
                 }
-                if self.isLongParkingHabit() { return }
+                if self.isLongParkingHabit() { self.stopParkingReminder(); return }
                 let nextHalfHour = ((minutes / 30) + 1) * 30
                 let minutesBefore = nextHalfHour - minutes
-                if minutesBefore <= 5 && minutesBefore > 0 && minutes != self.lastReminderMinute {
+                if minutesBefore == 5 && minutes != self.lastReminderMinute {
                     self.lastReminderMinute = minutes
-                    // 前台時直接發通知
-                    self.sendParkingReminder(minutes: minutes)
+                    // Scheduled notifications own delivery, avoiding a second timer-generated alert.
                 }
             }
         }
@@ -5372,15 +5402,11 @@ struct ContentView: View {
             ["parking-reminder-scheduled"] + stride(from: 30, through: 180, by: 30).map {
                 "parking-reminder-scheduled-\($0)"
             })
-
         let entryTime = parkingEntryTime
 
         // 計算未來3小時內嘅提醒時間（每30分鐘整點前5分鐘）
-        var identifiers: [String] = []
-        for halfHour in stride(from: 30, through: 180, by: 30) {
-            let reminderMinute = halfHour - 5  // 整點前5分鐘
-            let secondsFromNow = entryTime.addingTimeInterval(Double(reminderMinute) * 60).timeIntervalSinceNow
-            guard secondsFromNow > 10 else { continue }  // 至少10秒後
+        for reminder in ParkingReminderPolicy.schedule(entry: entryTime, now: .now, suppress: isLongParkingHabit()) {
+            let reminderMinute = reminder.minute
 
             let content = UNMutableNotificationContent()
             let hours = reminderMinute / 60
@@ -5392,9 +5418,8 @@ struct ContentView: View {
             content.body = String(format: String(localized: "你已經泊車%@"), timeStr)
             content.sound = UNNotificationSound(named: UNNotificationSoundName(SFXPreferences.parkingReminderFile))
 
-            let id = "parking-reminder-scheduled-\(halfHour)"
-            identifiers.append(id)
-            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: secondsFromNow, repeats: false)
+            let id = "parking-reminder-scheduled-\(reminderMinute + 5)"
+            let trigger = UNTimeIntervalNotificationTrigger(timeInterval: reminder.delay, repeats: false)
             let request = UNNotificationRequest(identifier: id, content: content, trigger: trigger)
             center.add(request)
         }
@@ -5405,6 +5430,7 @@ struct ContentView: View {
         parkingReminderTimer = nil
         // 取消排程通知
         UNUserNotificationCenter.current().removePendingNotificationRequests(withIdentifiers: [
+            "parking-reminder-scheduled",
             "parking-reminder-scheduled-30",
             "parking-reminder-scheduled-60",
             "parking-reminder-scheduled-90",
@@ -5414,28 +5440,19 @@ struct ContentView: View {
         ])
     }
 
-    /// 檢查當前停車地點是否習慣長時間停泊（>=3小時）
     private func isLongParkingHabit() -> Bool {
-        guard let currentCoord = locationManager.lastLocation?.coordinate else { return false }
-        // 找最近的停車場
-        guard let lotIdx = parkingFloorStore.findLotIndex(near: currentCoord, radiusMeters: 200) else { return false }
-        let lot = parkingFloorStore.lots[lotIdx]
-        // 計算該地點的平均泊車時長
-        let durations = lot.points.compactMap { point -> TimeInterval? in
-            // 用 createdAt 作為到達時間，如果有多個記錄可以計算平均
-            return nil  // 暫時用簡單邏輯
-        }
-        // 如果有手動設定的長時間標記
-        if lot.points.contains(where: { $0.predictedFloorIndex != nil }) {
-            // 有樓層記錄的地點通常是有結構的停車場，可能是長時間
-            return false  // 暫時不跳過，後續可根據歷史數據判斷
-        }
-        return false
+        guard let coordinate = parkingReminderAnchor else { return false }
+        return ParkingReminderPolicy.isLongStayPlace(at: coordinate, before: parkingStartTime,
+            sessions: locationManager.visits.map {
+                ParkingReminderPolicy.Session(arrival: $0.arrivalDate, departure: $0.departureDate,
+                    coordinate: CLLocationCoordinate2D(latitude: $0.latitude, longitude: $0.longitude),
+                    automotive: $0.isAutomotive && $0.transportType == "Driving")
+            })
     }
 
     private func sendParkingReminder(minutes: Int) {
         // 只喺 App 喺後台時先發通知，前台唔發
-        guard !isInForeground else { return }
+        guard !isInForeground, !isLongParkingHabit(), !hasDeparted, !isNonAutomotiveArrival else { return }
 
         let content = UNMutableNotificationContent()
         let hours = minutes / 60
@@ -5454,9 +5471,9 @@ struct ContentView: View {
         stopCapsuleUpdateTimer()
         let timer = Timer(timeInterval: 2.0, repeats: true) { _ in
             DispatchQueue.main.async {
-                // 時速頁（selectedTab == 0）時跳過主頁專用嘅重計算，減少主線程阻塞
+                // Driving-state gating must stay current on the speed page too.
+                updateVisitStatus()
                 if selectedTab == 1 {
-                    updateVisitStatus()
                     if locationManager.speed >= 5 {
                         refreshETA()
                     }
@@ -5888,7 +5905,7 @@ struct ContentView: View {
             .padding(.horizontal, 18)
             .padding(.vertical, 16)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
-            .tint(usesDarkGlass || effectiveColorScheme == .dark ? Color.white : Color.accentColor)
+            .tint(effectiveColorScheme == .dark ? Color.white : Color.accentColor)
             .padding(.horizontal, 28)
             // 橫屏（手機＋平板）：現身位置靜靜雞右移 12pt（offset 係靜態視覺偏移，
             // 一出世就喺最終位，唔會有右滑動畫）。直向維持水平正中。
@@ -6292,7 +6309,7 @@ struct ContentView: View {
         }
 
         // Trigger LLM recognition via shortcut (if enabled)
-        if vlmRecognitionEnabled {
+        if vlmRecognitionEnabled && !(isNonAutomotiveArrival && !hasParkingSpotData) {
             recognizeParkingWithLLM(image: photo, photoID: tempID)
         }
     }
@@ -6304,6 +6321,7 @@ struct ContentView: View {
     }
 
     private func recognizeParkingWithLLM(image: UIImage, photoID: UUID) {
+        guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
         currentRecognizingPhotoID = photoID
         UIPasteboard.general.image = image
         llmRawResult = nil
@@ -6313,6 +6331,10 @@ struct ContentView: View {
     }
 
     private func startLLMPollingAfterAction() {
+        guard !(isNonAutomotiveArrival && !hasParkingSpotData) else {
+            showLLMActionPrompt = false
+            return
+        }
         isRecognizing = true
         showLLMActionPrompt = false
         sfxPlayer.playVLMLoading()
@@ -7014,6 +7036,9 @@ struct ContentView: View {
         var content = GorillaActivityAttributes.ContentState(
             state: activityState, startDate: anchor
         )
+        if activityState == .driving || activityState == .cycling {
+            content.speedKmhExact = locationManager.speed
+        }
 
         switch activityState {
         case .driving:
@@ -7161,7 +7186,10 @@ struct ContentView: View {
                 .allowsHitTesting(cameraButtonBlurIn && !showingExpandedPhotos && photoStorage.photos.count < PhotoStorage.maxPhotos)
 
             // VLM 車位識別開關（照片預覽框左下角細玻璃鈕）
-            ParkingRecognitionToggle(enabled: $vlmRecognitionEnabled)
+            ParkingRecognitionToggle(enabled: Binding(
+                get: { vlmRecognitionEnabled && !(isNonAutomotiveArrival && !hasParkingSpotData) },
+                set: { vlmRecognitionEnabled = $0 }))
+            .disabled(isNonAutomotiveArrival && !hasParkingSpotData)
             .position(x: 26, y: camH - 26)
 
             // Delete button on selected photo (positioned at photo's top-left corner)
@@ -7511,6 +7539,22 @@ struct ContentView: View {
     }
 
     // MARK: - GPS Status Badge
+    private var homeStatusControls: some View {
+        HStack(spacing: 8) {
+            Button { showingTripReplay = true } label: {
+                Image(systemName: "clock.arrow.circlepath")
+                    .font(.system(size: 17, weight: .semibold))
+                    .frame(width: 44, height: 44)
+                    .contentShape(Circle())
+            }
+            .buttonStyle(.plain)
+            .modifier(GorillaCapsuleGlass(cornerRadius: 22))
+            .accessibilityLabel(String(localized: "Trip Replay"))
+            .accessibilityIdentifier("homeTripReplay")
+            gpsStatusBadge
+        }
+    }
+
     @State private var gpsGlowPhase: CGFloat = 0  // 0 = 脈動起點（出現），1 = 擴散到最外圍
 
     private var gpsStatusBadge: some View {

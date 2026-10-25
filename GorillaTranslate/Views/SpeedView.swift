@@ -2,27 +2,13 @@ import SwiftUI
 import MapKit
 import CoreMotion
 
-@available(iOS 27.1, *)
-private struct SpeedToolbarEdgeReader: View {
-    @Environment(\.toolbarVerticalEdge) private var edge
-    @Binding var isOnLeadingEdge: Bool
-
-    var body: some View {
-        Color.clear
-            .onAppear { isOnLeadingEdge = edge == .leading }
-            .onChange(of: edge) { _, value in
-                isOnLeadingEdge = value == .leading
-            }
-    }
-}
-
 struct SpeedView: View {
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var scenePhase
     @State private var timePhaseManager = TimePhaseManager()
     @StateObject private var sfxPlayer = SFXPlayer()
     @StateObject private var tiltMotion = TiltParallaxMotion()
-    @StateObject private var gForceMotion = GForceParallaxMotion()
+    @StateObject private var gForceMotion = GForceParallaxMotion.shared
     @AppStorage("parallaxMode") private var parallaxMode: ParallaxMode = .tilt
     @State private var showParallaxToggle = false
     @AppStorage("sfxAccelerationEnabled") private var sfxAccelerationEnabled: Bool = false
@@ -32,14 +18,19 @@ struct SpeedView: View {
     @AppStorage("speedParallaxEnabled") private var speedParallaxEnabled: Bool = true
     /// 隱藏時速數字（數字原位隱形，其他照舊）
     @AppStorage("speedNumberHidden") private var speedNumberHidden: Bool = false
+    @AppStorage(SpeedUnit.preferenceKey) private var speedUnitRaw = SpeedUnit.kilometresPerHour.rawValue
+    private var speedUnit: SpeedUnit { .resolve(speedUnitRaw) }
     /// 卡爾曼濾波：開啟時時速數字逐格滾動插值
     @AppStorage("kalmanSmoothingEnabled") private var kalmanSmoothingEnabled: Bool = true
 
     /// 時速數字逐格滾動插值器（120Hz，獨立物件令只有數字 Text 重繪）
     @StateObject private var speedRoller = NumberRoller()
     @ObservedObject var acTelemetry: ACTelemetry
+    var drivingState = false
     @AppStorage("acAutoConnectEnabled") private var acEnabled = false
     @State private var showSpeedSource = false
+    @State private var showGameDetails = false
+    @State private var instrumentsHidden = false
     @AppStorage("acComputerHost") private var acComputerHost = ""
     private var displaySpeed: Double {
         acTelemetry.isReceiving ? (acTelemetry.sample?.speed ?? 0) : locationManager.speed
@@ -47,11 +38,17 @@ struct SpeedView: View {
 
     /// 當前視差 X 值（-1…1），根據模式切換來源
     private var parallaxX: Double {
-        parallaxMode == .gforce ? gForceMotion.gForceX : tiltMotion.tiltX
+        if parallaxMode == .gforce, let force = acTelemetry.sample?.gForce, acTelemetry.isReceiving {
+            return max(-1, min(1, force.lateral * 2))
+        }
+        return parallaxMode == .gforce ? gForceMotion.gForceX : tiltMotion.tiltX
     }
     /// 當前視差 Y 值（-1…1），根據模式切換來源
     private var parallaxY: Double {
-        parallaxMode == .gforce ? gForceMotion.gForceY : tiltMotion.tiltY
+        if parallaxMode == .gforce, let force = acTelemetry.sample?.gForce, acTelemetry.isReceiving {
+            return max(-1, min(1, -force.longitudinal * 2))
+        }
+        return parallaxMode == .gforce ? gForceMotion.gForceY : tiltMotion.tiltY
     }
 
     /// G 值模式下視差效果倍數（比傾斜模式更強）
@@ -78,7 +75,7 @@ struct SpeedView: View {
     @AppStorage("darkKnightMode") private var legacyDarkKnightMode = false
     @AppStorage("colorGroupMode") private var colorGroupRaw = -1
     private var colorGroup: GorillaColorGroup {
-        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode)
+        .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode, legacyTimeBased: useTimeBasedOrb)
     }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @Environment(\.colorScheme) private var colorScheme
@@ -99,6 +96,8 @@ struct SpeedView: View {
     @State private var gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
     let showMap: Bool
+    var showSatellite: Bool = false
+    var cycleMapPresentation: () -> Void = {}
     let animationClock: AnimationClock
     @Binding var mapCamera: MKMapCamera?
     let isDuoDevice: Bool
@@ -106,12 +105,6 @@ struct SpeedView: View {
     let isDuoPartiallyOpen: Bool
 
     @State private var isLandscapeLayout = false
-    @State private var safeAreaOnLeft = false
-    @State private var toolbarIsOnLeadingEdge = false
-
-    private var computerButtonInToolbar: Bool {
-        isDuoDevice && !isLandscapeLayout && toolbarIsOnLeadingEdge
-    }
 
     var body: some View {
         ZStack {
@@ -119,7 +112,7 @@ struct SpeedView: View {
                 ZStack {
                     GeometryReader { geo in
                         let useUpperHalf = isDuoPartiallyOpen && geo.size.width <= geo.size.height
-                        ReadOnlyMapView(camera: highAltitudeCamera, mapStyleIndex: mapStyleIndex)
+                        ReadOnlyMapView(camera: highAltitudeCamera, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite)
                             .frame(
                                 width: geo.size.width,
                                 height: useUpperHalf ? geo.size.height * 1.5 : geo.size.height
@@ -129,7 +122,7 @@ struct SpeedView: View {
                     .ignoresSafeArea()
 
                     // Minecraft green tint overlay
-                    if mapStyleIndex == 1 {
+                    if mapStyleIndex == 1 && !showSatellite {
                         Color(red: 0.29, green: 0.48, blue: 0.18)
                             .opacity(0.3)
                             .blendMode(.multiply)
@@ -165,7 +158,7 @@ struct SpeedView: View {
                     customOrbColors: M3ConceptPalette.homeOrbs, backgroundColorHex: M3ConceptPalette.black)
                     .ignoresSafeArea()
             } else {
-                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && useTimeBasedOrb, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
+                AnimatedBackground(clock: animationClock, colorSchemeIndex: colorSchemeIndex, isVoiceRecording: false, orbEnabled: orbMasterEnabled && orbBackgroundSpeed, useTimeBasedOrb: orbMasterEnabled && orbBackgroundSpeed && colorGroup == .timeBased, phaseManager: timePhaseManager, orbSizeMultiplier: isDuoDevice ? 2.0 : 1.0, orbColorPreset: orbColorPreset, overlapGlowEnabled: orbOverlapGlowEnabled)
                     .ignoresSafeArea()
             }
 
@@ -183,6 +176,8 @@ struct SpeedView: View {
                 .offset(y: useUpperHalf ? -dotGeo.size.height / 4 : 0)
             }
             .ignoresSafeArea(edges: .all)
+            .opacity(0.35)
+            .allowsHitTesting(false)
             // 陀螺儀視差（深層）：圓點平面朝傾斜反方向擺動並做 3D 透視旋轉，
             // 同前景文字形成前後深度。G 值模式效果更強。
             .modifier(SpeedParallaxModifier(
@@ -192,93 +187,44 @@ struct SpeedView: View {
                 multiplier: parallaxMultiplier
             ))
 
-            GeometryReader { geo in
-                let landscape = geo.size.width > geo.size.height
-                let useUpperHalf = isDuoPartiallyOpen && !landscape
-                let physicalCenterShift: CGFloat = isDuoDevice
-                    ? (geo.safeAreaInsets.trailing - geo.safeAreaInsets.leading) / 2
-                    : 0
-                let textColor: Color = colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.paper)
-                    : (colorScheme == .dark || colorGroup == .darkKnight ? .white : .black)
-                let speedOpacity: Double = gpsLostAnim ? 0.3 : 1.0
-                ZStack {
-                    // 模糊光晕层（3层，越远越淡）— 陀螺儀視差中景：跟隨傾斜擺動，幅度少於清晰層
-                    // 膠囊彈出時模糊陰影更強
-                    if speedBlurEnabled {
-                        ForEach([20, 10, 4], id: \.self) { blurRadius in
-                            let baseOpacity = blurRadius == 20 ? 0.08 : blurRadius == 10 ? 0.12 : 0.2
-                            let opacity = baseOpacity * blurShadowMultiplier
-                            let adjustedBlur = CGFloat(blurRadius) * blurShadowMultiplier
-                            VStack(spacing: 4) {
-                                Spacer()
-                                SpeedDigitsText(
-                                    roller: speedRoller,
-                                    rolling: kalmanSmoothingEnabled,
-                                    fallback: lastKnownSpeed,
-                                    color: textColor.opacity(opacity * speedOpacity),
-                                    hidden: speedNumberHidden
-                                )
-                                Text("km/h")
-                                    .font(.title3)
-                                    .foregroundColor(textColor.opacity(opacity * 0.6 * speedOpacity))
-                                    .opacity(speedNumberHidden ? 0 : 1)
-                                Spacer()
-                            }
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .blur(radius: adjustedBlur)
-                            .accessibilityHidden(true)
-                            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showParallaxToggle)
-                            .offset(x: parallaxX * 14 * parallaxMultiplier, y: parallaxY * 14 * parallaxMultiplier + (showParallaxToggle ? -10 : 0))
-                            .transaction { $0.animation = nil }
-                        }
-                    }
-                    // 清晰文字层 — 陀螺儀視差前景：2D 位移，幅度最大。G 值模式效果更強。
-                    VStack(spacing: 4) {
-                        Spacer()
-                        SpeedDigitsText(
-                            roller: speedRoller,
-                            rolling: kalmanSmoothingEnabled,
-                            fallback: lastKnownSpeed,
-                            color: textColor.opacity(0.6 * speedOpacity),
-                            hidden: speedNumberHidden
-                        )
-                        .accessibilityIdentifier("speedDigits")
-                        Text("km/h")
-                            .font(.title3)
-                            .foregroundColor(textColor.opacity(0.6 * speedOpacity))
-                            .opacity(speedNumberHidden ? 0 : 1)
-                        // 視差模式切換膠囊
-                        if showParallaxToggle {
-                            parallaxToggleCapsule
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                        }
-                        Spacer()
-                    }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.85), value: showParallaxToggle)
-                    .offset(
-                        x: speedParallaxEnabled ? parallaxX * 24 * parallaxMultiplier : 0,
-                        y: speedParallaxEnabled ? parallaxY * 24 * parallaxMultiplier : 0
-                    )
-                    // CoreMotion already smooths these samples; never inherit a repeating UI animation.
-                    .transaction { $0.animation = nil }
-                    // 雙擊時速數字：彈出視差模式切換膠囊
-                    .onTapGesture(count: 2) {
-                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                            showParallaxToggle.toggle()
-                        }
-                    }
+            Color.clear.contentShape(Rectangle())
+                .onTapGesture(perform: toggleInstruments)
+                .accessibilityIdentifier("speedBlankSpace")
+
+            if instrumentsHidden {
+                GeometryReader { geo in
+                    let layout = SpeedCardLayout(width: geo.size.width, height: geo.size.height, partiallyOpen: isDuoPartiallyOpen)
+                    speedCardDisplay(compact: false)
+                        .foregroundStyle(instrumentForeground)
+                        .frame(width: layout.width, height: layout.height)
+                        .allowsHitTesting(false)
                 }
-                .offset(y: useUpperHalf ? -geo.size.height / 4 : (landscape ? 20 : 0))
-                .offset(x: physicalCenterShift)
+            } else {
+                SpeedInstrumentCards(motion: gForceMotion, telemetry: acTelemetry,
+                partiallyOpen: isDuoPartiallyOpen, foreground: instrumentForeground,
+                accent: Color(hex: dotMatrixColorHex),
+                source: acTelemetry.isReceiving ? "AC" : "GPS",
+                drivingState: drivingState,
+                onBlankTap: toggleInstruments) { compact in
+                speedCardDisplay(compact: compact)
+                }
+                .environment(\.colorScheme, showMap || colorGroup == .m3Concept || colorGroup == .darkKnight ? .dark : colorScheme)
             }
         }
-        .overlay {
-            if acEnabled {
-                ACTelemetryOverlay(telemetry: acTelemetry,
-                    foreground: colorGroup == .m3Concept || colorScheme == .dark || colorGroup == .darkKnight ? .white : .black)
-                    .allowsHitTesting(false)
+        .sheet(isPresented: $showGameDetails) {
+            NavigationStack {
+                ACTelemetryOverlay(telemetry: acTelemetry, detailsOnly: true)
+                    .background(Color.black.ignoresSafeArea())
+                    .navigationTitle("遊戲遙測")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("關閉", systemImage: "xmark") { showGameDetails = false }
+                        }
+                    }
             }
+            .preferredColorScheme(.dark)
+            .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showSpeedSource) {
             ACConnectionSheet(host: $acComputerHost, gameMode: acEnabled, connect: {
@@ -300,50 +246,20 @@ struct SpeedView: View {
             if let sample { lastKnownSpeed = sample.speed }
         }
         .overlay {
-            if !computerButtonInToolbar {
+            if !instrumentsHidden {
                 GeometryReader { geo in
                     let landscape = geo.size.width > geo.size.height
-                    let outerLandscapeWithLeadingBar = isDuoDevice && !isDuoInnerDisplay
-                        && landscape && (toolbarIsOnLeadingEdge || safeAreaOnLeft)
-                    let shouldAlignToPhysicalEdges = isDuoDevice && (
-                        (isDuoInnerDisplay && landscape)
-                        || (!isDuoInnerDisplay && !landscape)
-                        || (!isDuoInnerDisplay && landscape && geo.safeAreaInsets.trailing > geo.safeAreaInsets.leading)
-                    )
-                    let physicalLeftGap = geo.safeAreaInsets.leading + 16
-                    let physicalBottomGap = geo.safeAreaInsets.bottom + 12
-                    let downwardCorrection = shouldAlignToPhysicalEdges
-                        ? max(4, physicalBottomGap - physicalLeftGap)
-                        : 0
-
-                    if outerLandscapeWithLeadingBar {
-                        computerControl
-                            .padding(.trailing, 16)
-                            .padding(.bottom, 12)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    } else {
-                        computerButton
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomLeading)
-                            .offset(y: downwardCorrection)
-                    }
-                }
-            }
-        }
-        .toolbar {
-            if computerButtonInToolbar {
-                if #available(iOS 27.1, *) {
-                    ToolbarItem(placement: .bottomBar) {
-                        computerControl
-                    }
-                    .axisBehavior(.verticalPreferred)
-                } else {
-                    ToolbarItem(placement: .bottomBar) {
-                        computerControl
-                    }
+                    let activeWidth = isDuoPartiallyOpen && landscape ? geo.size.width / 2 : geo.size.width
+                    let activeHeight = isDuoPartiallyOpen && !landscape ? geo.size.height / 2 : geo.size.height
+                    instrumentControls
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 12)
+                        .frame(width: activeWidth, height: activeHeight, alignment: .bottomLeading)
                 }
             }
         }
         .statusBarHidden(true)
+        .toolbar(instrumentsHidden ? .hidden : .automatic, for: .tabBar)
         // 偵測螢幕方向變化，同步視差旋轉補償
         .background {
             GeometryReader { geo in
@@ -351,35 +267,18 @@ struct SpeedView: View {
                 // 橫屏時把 gravity 向量旋轉 ±90°，令視差方向跟螢幕一致
                 Color.clear
                     .onAppear {
-                        let angle: Double = isLandscape ? .pi / 2 : 0
-                        tiltMotion.setScreenRotation(angle)
-                        gForceMotion.setScreenRotation(angle)
+                        syncScreenRotation(landscape: isLandscape)
                         isLandscapeLayout = isLandscape
-                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
                     }
                     .onChange(of: isLandscape) { _, newValue in
-                        let angle: Double = newValue ? .pi / 2 : 0
-                        tiltMotion.setScreenRotation(angle)
-                        gForceMotion.setScreenRotation(angle)
+                        syncScreenRotation(landscape: newValue)
                         isLandscapeLayout = newValue
-                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
                     }
-                    .onChange(of: geo.safeAreaInsets.leading) { _, _ in
-                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
-                    }
-                    .onChange(of: geo.safeAreaInsets.trailing) { _, _ in
-                        safeAreaOnLeft = geo.safeAreaInsets.leading > geo.safeAreaInsets.trailing
-                    }
-            }
-            if #available(iOS 27.1, *) {
-                SpeedToolbarEdgeReader(isOnLeadingEdge: $toolbarIsOnLeadingEdge)
             }
         }
         .onAppear {
-            if speedParallaxEnabled {
-                startActiveParallax()
-                syncParallaxFrameRate()
-            }
+            startActiveParallax()
+            syncParallaxFrameRate()
             // 時速數字逐格滾動：卡爾曼開關開啟時以螢幕最高刷新率插值
             lastKnownSpeed = acTelemetry.isReceiving ? (acTelemetry.sample?.speed ?? 0) : max(0, locationManager.smoothedSpeed)
             speedRoller.setDisplay(lastKnownSpeed)
@@ -407,14 +306,12 @@ struct SpeedView: View {
             }
         }
         .onChange(of: parallaxMode) { _, _ in startActiveParallax() }
+        .onReceive(NotificationCenter.default.publisher(for: UIDevice.orientationDidChangeNotification)) { _ in
+            syncScreenRotation(landscape: isLandscapeLayout)
+        }
         .onChange(of: speedParallaxEnabled) { _, enabled in
-            if enabled {
-                startActiveParallax()
-                syncParallaxFrameRate()
-            } else {
-                tiltMotion.stop()
-                gForceMotion.stop()
-            }
+            startActiveParallax()
+            syncParallaxFrameRate()
         }
         .onChange(of: locationManager.smoothedSpeed) { _, newSpeed in
             // GPS 正常時持續更新最後已知時速（用 Double 驅動平滑漸變）；
@@ -453,10 +350,8 @@ struct SpeedView: View {
             if kalmanSmoothingEnabled {
                 speedRoller.restart()
             }
-            if speedParallaxEnabled {
-                startActiveParallax()
-                syncParallaxFrameRate()
-            }
+            startActiveParallax()
+            syncParallaxFrameRate()
         }
         .onReceive(locationManager.$speed) { newSpeed in
             guard sfxAccelerationEnabled, !acTelemetry.isReceiving else { return }
@@ -491,37 +386,108 @@ struct SpeedView: View {
 
     private var computerControl: some View {
         let tint: Color = !acEnabled ? .green : acTelemetry.isReceiving ? .purple : .yellow
-        return Image(systemName: "desktopcomputer")
-            .font(.system(size: 20, weight: .medium))
-            .foregroundStyle(tint)
-            .frame(width: 44, height: 44)
-            .glassEffect(.regular.interactive(), in: Circle())
-            .contentShape(Circle())
-            .gesture(
+        return Button(action: toggleComputerConnection) {
+            Image(systemName: "desktopcomputer")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundStyle(tint)
+                .frame(width: 44, height: 44)
+        }
+            .buttonStyle(.glass)
+            .modifier(GorillaMapControlAppearance())
+            .simultaneousGesture(
                 LongPressGesture(minimumDuration: 0.4)
-                    .exclusively(before: TapGesture())
-                    .onEnded { gesture in
-                        switch gesture {
-                        case .first: showSpeedSource = true
-                        case .second:
-                            if !acEnabled && acComputerHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                showSpeedSource = true
-                            } else {
-                                acEnabled.toggle()
-                            }
-                        }
-                    }
+                    .onEnded { _ in showSpeedSource = true }
             )
             .accessibilityIdentifier("computerTelemetrySwitch")
             .accessibilityLabel(String(localized: "電腦遙測"))
             .accessibilityValue(acEnabled ? acTelemetry.status : String(localized: "未連線"))
             .accessibilityAddTraits(.isButton)
-            .accessibilityAction { acEnabled.toggle() }
+            .accessibilityAction { toggleComputerConnection() }
             .accessibilityAction(named: Text("連線設定")) { showSpeedSource = true }
     }
 
-    private var computerButton: some View {
-        computerControl.padding(.leading, 16).padding(.bottom, 12)
+    private func toggleComputerConnection() {
+        // A long press opens settings; releasing it must not also toggle connection.
+        guard !showSpeedSource else { return }
+        if !acEnabled && acComputerHost.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            showSpeedSource = true
+        } else {
+            acEnabled.toggle()
+        }
+    }
+
+    private var instrumentControls: some View {
+        HStack(spacing: 10) {
+            Button(action: cycleMapPresentation) {
+                Image(systemName: showSatellite ? "binoculars.fill" : showMap ? "map.fill" : "map")
+                    .font(.system(size: 20, weight: .medium))
+                    .frame(width: 44, height: 44)
+            }
+            .buttonStyle(.glass)
+            .modifier(GorillaMapControlAppearance())
+            .accessibilityLabel("地圖")
+            .accessibilityIdentifier("speedMapPresentationSwitch")
+            computerControl
+            if acEnabled {
+                Button { showGameDetails = true } label: {
+                    Image(systemName: "chart.bar.xaxis")
+                        .frame(width: 44, height: 44)
+                }
+                .buttonStyle(.glass)
+                .accessibilityLabel("遊戲遙測")
+                .accessibilityIdentifier("acTelemetryDetails")
+            }
+        }
+        .foregroundStyle(instrumentForeground)
+    }
+
+    private var instrumentForeground: Color {
+        if showMap && !acTelemetry.isReceiving { return .white }
+        return colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.paper)
+            : colorScheme == .dark || colorGroup == .darkKnight ? .white : .black
+    }
+
+    private func speedCardDisplay(compact: Bool) -> some View {
+        GeometryReader { geo in
+        let motionPadding: CGFloat = speedParallaxEnabled ? 12 : 0
+        let font: Font = .system(size: min(compact ? 72 : 96, max(20, (geo.size.height - 30 - 2 * motionPadding) / 1.25)), weight: .heavy, design: .rounded)
+        return VStack(spacing: 2) {
+            Spacer(minLength: 0)
+            ZStack {
+                if speedBlurEnabled {
+                    ForEach([20, 10, 4], id: \.self) { radius in
+                        SpeedDigitsText(roller: speedRoller, rolling: kalmanSmoothingEnabled,
+                            fallback: lastKnownSpeed, unit: speedUnit, font: font,
+                            color: instrumentForeground.opacity(0.12), hidden: speedNumberHidden)
+                            .blur(radius: CGFloat(radius)).accessibilityHidden(true)
+                    }
+                }
+                SpeedDigitsText(roller: speedRoller, rolling: kalmanSmoothingEnabled,
+                    fallback: lastKnownSpeed, unit: speedUnit, font: font,
+                    color: instrumentForeground.opacity(gpsLostAnim ? 0.3 : 1), hidden: speedNumberHidden)
+                    .accessibilityIdentifier("speedDigits")
+            }
+            .modifier(SpeedParallaxModifier(
+                enabled: speedParallaxEnabled,
+                parallaxX: -parallaxX, parallaxY: -parallaxY,
+                multiplier: parallaxMultiplier * (compact ? 0.75 : 1), verticalTravel: 6
+            ))
+            .padding(.vertical, motionPadding)
+            Text(speedUnit.symbol).font(.system(size: geo.size.height < 100 ? 12 : 20)).opacity(speedNumberHidden ? 0 : 0.65)
+                .accessibilityIdentifier("speedUnit")
+            Spacer(minLength: 0)
+            if showParallaxToggle && !instrumentsHidden { parallaxToggleCapsule }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .onTapGesture(count: 2) { showParallaxToggle.toggle() }
+        }
+    }
+
+    private func toggleInstruments() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            instrumentsHidden.toggle()
+            showParallaxToggle = false
+        }
     }
 
     // MARK: - 視差模式切換膠囊
@@ -597,19 +563,30 @@ struct SpeedView: View {
     private func syncParallaxFrameRate() {
         let fps = 60.0
         tiltMotion.setUpdateRate(fps)
-        gForceMotion.setUpdateRate(fps)
+        gForceMotion.setUpdateRate(30)
+    }
+
+    private func syncScreenRotation(landscape: Bool) {
+        let orientation = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+            .first(where: { $0.activationState == .foregroundActive })?.interfaceOrientation
+        let angle: Double
+        switch orientation {
+        case .landscapeLeft: angle = .pi / 2
+        case .landscapeRight: angle = -.pi / 2
+        case .portraitUpsideDown: angle = .pi
+        default: angle = landscape ? .pi / 2 : 0
+        }
+        tiltMotion.setScreenRotation(angle)
+        gForceMotion.setScreenRotation(angle)
     }
 
     /// 根據當前模式啟動對應嘅 motion manager
     private func startActiveParallax() {
-        guard speedParallaxEnabled, scenePhase == .active else { return }
-        if parallaxMode == .gforce {
-            tiltMotion.stop()
-            gForceMotion.start()
-        } else {
-            gForceMotion.stop()
-            tiltMotion.start()
-        }
+        guard scenePhase == .active else { return }
+        if acTelemetry.isReceiving { gForceMotion.stop() }
+        else { gForceMotion.start() }
+        if speedParallaxEnabled && parallaxMode == .tilt { tiltMotion.start() }
+        else { tiltMotion.stop() }
     }
 
     private var highAltitudeCamera: MKMapCamera? {
@@ -766,52 +743,60 @@ final class TiltParallaxMotion: ObservableObject {
 ///   - 左轉 → gForceX 負（畫面向左傾）
 ///   - 右轉 → gForceX 正（畫面向右傾）
 final class GForceParallaxMotion: ObservableObject {
+    static let shared = GForceParallaxMotion()
+    @Published private(set) var reading: SpeedGForce?
     /// -1…1：+ = 右轉 G-force
     @Published private(set) var gForceX: Double = 0
     /// -1…1：+ = 煞車 G-force（向前）
     @Published private(set) var gForceY: Double = 0
 
     private let motion = CMMotionManager()
-    private var updateRate: Double = 60
+    private var updateRate: Double = 30
     private var screenRotation: Double = 0
 
     /// 靈敏度：約 0.5g = 滿幅（激烈煞車／急轉彎）
     private let gain: Double = 2.0
     /// 每幀 lerp 比例（以 60Hz 為基準）
     private let smoothing: Double = 0.08
-    /// 死區：低於此值嘅微小震動忽略
-    private let deadband: Double = 0.06
+    private var forceFilter = SpeedGForceFilter()
+    private var lastPublishedTime: TimeInterval?
+    private var consumers: Set<String> = []
 
-    func start() {
-        guard motion.isDeviceMotionAvailable else { return }
-        motion.deviceMotionUpdateInterval = 1.0 / updateRate
+    func start(consumer: String = "speed") {
+        consumers.insert(consumer)
+        guard motion.isDeviceMotionAvailable, !motion.isDeviceMotionActive else { return }
+        // Filter before publishing at the UI rate to avoid aliasing engine vibration.
+        motion.deviceMotionUpdateInterval = 1.0 / 120
         motion.startDeviceMotionUpdates(using: .xArbitraryZVertical, to: .main) { [weak self] dm, _ in
-            guard let self, let dm else { return }
+            guard let self else { return }
+            guard let dm else { self.resetReadings(); return }
             let ua = dm.userAcceleration
-
-            // 將裝置坐標系嘅加速度旋轉到螢幕坐標系
-            let cosR = cos(self.screenRotation)
-            let sinR = sin(self.screenRotation)
-            let ax = ua.x * cosR - ua.y * sinR   // 螢幕左右
-            let ay = ua.x * sinR + ua.y * cosR   // 螢幕上下
-
-            // 死區過濾
-            let filteredX = abs(ax) < self.deadband ? 0 : ax
-            let filteredY = abs(ay) < self.deadband ? 0 : ay
-
-            // 增益 + 限制
-            let targetX = Self.clamp(filteredX * self.gain)
-            let targetY = Self.clamp(filteredY * self.gain)
-
-            // 幀率補償 lerp
-            let alpha = 1 - pow(1 - self.smoothing, 60.0 / self.updateRate)
+            let projected = SpeedGForce.project(acceleration: SIMD3(ua.x, ua.y, ua.z),
+                gravity: SIMD3(dm.gravity.x, dm.gravity.y, dm.gravity.z), rotation: self.screenRotation)
+            let filtered = self.forceFilter.update(projected, at: dm.timestamp)
+            let elapsed = self.lastPublishedTime.map { dm.timestamp - $0 } ?? (1 / self.updateRate)
+            guard elapsed >= 1 / self.updateRate - 0.001 else { return }
+            self.lastPublishedTime = dm.timestamp
+            self.reading = filtered
+            let targetX = Self.clamp((filtered?.lateral ?? 0) * self.gain)
+            let targetY = Self.clamp(-(filtered?.longitudinal ?? 0) * self.gain)
+            let alpha = 1 - pow(1 - self.smoothing, 60 * elapsed)
             self.gForceX += (targetX - self.gForceX) * alpha
             self.gForceY += (targetY - self.gForceY) * alpha
         }
     }
 
-    func stop() {
+    func stop(consumer: String = "speed") {
+        consumers.remove(consumer)
+        guard consumers.isEmpty else { return }
         motion.stopDeviceMotionUpdates()
+        resetReadings()
+    }
+
+    private func resetReadings() {
+        forceFilter = SpeedGForceFilter()
+        lastPublishedTime = nil
+        reading = nil
         gForceX = 0
         gForceY = 0
     }
@@ -819,12 +804,10 @@ final class GForceParallaxMotion: ObservableObject {
     func setUpdateRate(_ fps: Double) {
         guard fps > 0, fps != updateRate else { return }
         updateRate = fps
-        if motion.isDeviceMotionActive {
-            motion.deviceMotionUpdateInterval = 1.0 / fps
-        }
     }
 
     func setScreenRotation(_ radians: Double) {
+        if radians != screenRotation { resetReadings() }
         screenRotation = radians
     }
 
@@ -856,16 +839,18 @@ private struct SpeedDigitsText: View {
     let rolling: Bool
     /// 滾動關閉時顯示嘅值
     let fallback: Double
+    let unit: SpeedUnit
     var font: Font = .system(size: 96, weight: .heavy, design: .rounded)
     let color: Color
     /// 隱藏時速數字（原位隱形，佈局照舊）
     let hidden: Bool
 
-    private var value: Int { Int(rolling ? roller.display : fallback) }
+    private var value: Int { Int(unit.value(fromKmh: rolling ? roller.display : fallback)) }
 
     var body: some View {
         Text("\(value)")
             .font(font.monospacedDigit())
+            .lineLimit(1).minimumScaleFactor(0.45)
             .foregroundColor(color)
             .opacity(hidden ? 0 : 1)
     }
@@ -879,13 +864,14 @@ private struct SpeedParallaxModifier: ViewModifier {
     let parallaxX: Double
     let parallaxY: Double
     let multiplier: Double
+    var verticalTravel: Double = 20
 
     func body(content: Content) -> some View {
         if enabled {
             content
                 .rotation3DEffect(.degrees(parallaxX * 12 * multiplier), axis: (x: 0, y: 1, z: 0), perspective: 0.35)
                 .rotation3DEffect(.degrees(parallaxY * 12 * multiplier), axis: (x: 1, y: 0, z: 0), perspective: 0.35)
-                .offset(x: parallaxX * -20 * multiplier, y: parallaxY * -20 * multiplier)
+                .offset(x: parallaxX * -20 * multiplier, y: parallaxY * -verticalTravel * multiplier)
                 .transaction { $0.animation = nil }
         } else {
             content

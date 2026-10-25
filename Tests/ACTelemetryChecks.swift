@@ -16,9 +16,12 @@ struct ACTelemetryChecks {
         put(2, at: 52, into: &data)
         put(Float(0.65).bitPattern, at: 56, into: &data)
         put(Float(0.2).bitPattern, at: 60, into: &data)
+        put(Float(-0.29).bitPattern, at: 32, into: &data)
+        put(Float(0.4).bitPattern, at: 36, into: &data)
         let sample = ACPacket.car(data)!
         precondition(sample.speed == 123.5 && sample.rpm == 6500)
         precondition(sample.gearLabel == "3" && sample.lap == 2)
+        precondition(abs(sample.gForce!.lateral + 0.29) < 0.0001 && abs(sample.gForce!.longitudinal - 0.4) < 0.0001)
         precondition(abs(sample.throttle - 0.65) < 0.0001 && abs(sample.brake - 0.2) < 0.0001)
         precondition(ACPacket.lapTime(sample.currentLap) == "1:23.456")
         precondition(ACPacket.lapTime(0) == "—")
@@ -28,6 +31,10 @@ struct ACTelemetryChecks {
         }
         precondition(ACPacket.car(Data(data.prefix(80))) == nil)
         var invalid = data
+        put(Float.nan.bitPattern, at: 32, into: &invalid)
+        precondition(ACPacket.car(invalid)?.gForce == nil)
+        precondition(ACPacket.car(invalid)?.speed == 123.5)
+        invalid = data
         put(Float.nan.bitPattern, at: 8, into: &invalid)
         precondition(ACPacket.car(invalid) == nil)
         invalid = data

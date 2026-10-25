@@ -3,8 +3,20 @@ import SwiftUI
 struct ACTelemetryOverlay: View {
     @ObservedObject var telemetry: ACTelemetry
     var foreground: Color = .white
+    var detailsOnly = false
 
     var body: some View {
+        Group {
+            if detailsOnly {
+                ScrollView {
+                    VStack(spacing: 24) {
+                        header
+                        HStack(alignment: .bottom, spacing: 32) { drivetrain; pedals }
+                        lapMetrics
+                    }
+                    .padding(24).frame(maxWidth: 640).frame(maxWidth: .infinity)
+                }
+            } else {
         GeometryReader { geo in
             let landscape = geo.size.width > geo.size.height
             VStack(spacing: 8) {
@@ -38,6 +50,8 @@ struct ACTelemetryOverlay: View {
             .padding(.top, 12)
             .padding(.bottom, 64)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        }
+            }
         }
         .foregroundStyle(foreground)
     }

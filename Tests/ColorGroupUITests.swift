@@ -1,6 +1,29 @@
 import XCTest
 
 final class ColorGroupUITests: XCTestCase {
+    func testTimelineIsAFirstClassVisualTheme() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-resetColorGroup", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+        app.launch()
+        let picker = app.buttons["colorGroupMode"]
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        picker.tap()
+        app.buttons["Timeline"].tap()
+        app.buttons["orbEffectsSettings"].tap()
+        XCTAssertTrue(app.staticTexts["Preview Time"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.buttons["Background Effect"].exists)
+        XCTAssertFalse(app.buttons["orbCanvasDitherEnabled"].exists)
+        app.terminate()
+        app.launchArguments.removeAll { $0 == "-resetColorGroup" }
+        app.launch()
+        XCTAssertTrue(picker.waitForExistence(timeout: 10))
+        XCTAssertTrue(picker.label.contains("Timeline"))
+        picker.tap()
+        app.buttons["Orbs"].tap()
+        app.buttons["orbEffectsSettings"].tap()
+        XCTAssertTrue(app.buttons["orbCanvasDitherEnabled"].waitForExistence(timeout: 5))
+    }
+
     func testM3OrbControlsAreUserControlled() {
         let app = XCUIApplication()
         app.launchArguments = ["-resetColorGroup", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

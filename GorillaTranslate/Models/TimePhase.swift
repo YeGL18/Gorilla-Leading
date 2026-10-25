@@ -3,15 +3,17 @@ import CoreLocation
 import Combine
 
 enum GorillaColorGroup: Int, CaseIterable {
-    case normal = 0, darkKnight = 1, m3Concept = 2
+    case normal = 0, darkKnight = 1, m3Concept = 2, timeBased = 3
 
-    static func resolve(raw: Int, legacyDarkKnight: Bool) -> Self {
-        Self(rawValue: raw) ?? (legacyDarkKnight ? .darkKnight : .normal)
+    static func resolve(raw: Int, legacyDarkKnight: Bool, legacyTimeBased: Bool = false) -> Self {
+        let group = Self(rawValue: raw) ?? (legacyDarkKnight ? .darkKnight : .normal)
+        return group == .normal && legacyTimeBased ? .timeBased : group
     }
 
     static func load(_ defaults: UserDefaults = .standard) -> Self {
         resolve(raw: defaults.object(forKey: "colorGroupMode") as? Int ?? -1,
-                legacyDarkKnight: defaults.bool(forKey: "darkKnightMode"))
+                legacyDarkKnight: defaults.bool(forKey: "darkKnightMode"),
+                legacyTimeBased: defaults.bool(forKey: "useTimeBasedOrb"))
     }
 
     var titleKey: String {
@@ -19,6 +21,7 @@ enum GorillaColorGroup: Int, CaseIterable {
         case .normal: return "Normal Mode"
         case .darkKnight: return "黑武士模式"
         case .m3Concept: return "M3 Concept"
+        case .timeBased: return "時程"
         }
     }
 

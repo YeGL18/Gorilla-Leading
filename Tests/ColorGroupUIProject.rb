@@ -23,7 +23,7 @@ fixture = <<~SWIFT
     let phaseManager: TimePhaseManager
     let clock: AnimationClock
     let orbEnabled: Bool
-    let orbSizeMultiplier: CGFloat
+    var orbSizeMultiplier: CGFloat = 1
     var body: some View { Color.clear }
   }
   struct HomeFixture: View {
@@ -58,7 +58,7 @@ fixture = <<~SWIFT
     @State private var isAutoPlaying = false
     @StateObject private var previewClock = AnimationClock()
     private let previewPhaseManager = TimePhaseManager()
-    private var group: GorillaColorGroup { .resolve(raw: raw, legacyDarkKnight: legacy) }
+    private var group: GorillaColorGroup { .resolve(raw: raw, legacyDarkKnight: legacy, legacyTimeBased: useTimeBasedOrb) }
     private var colorGroup: GorillaColorGroup { group }
     private func toggleAutoPlay() {}
     private func stopAutoPlay() {}
@@ -89,6 +89,7 @@ fixture = <<~SWIFT
       if ProcessInfo.processInfo.arguments.contains("-resetColorGroup") {
         UserDefaults.standard.removeObject(forKey: "colorGroupMode")
         UserDefaults.standard.removeObject(forKey: "darkKnightMode")
+        UserDefaults.standard.removeObject(forKey: "useTimeBasedOrb")
         UserDefaults.standard.set(true, forKey: "orbMasterEnabled")
         UserDefaults.standard.set(true, forKey: "orbBackgroundHome")
         UserDefaults.standard.set(true, forKey: "orbBackgroundSpeed")

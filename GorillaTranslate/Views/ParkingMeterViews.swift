@@ -212,15 +212,13 @@ private enum MeterPopupStyle {
 }
 
 private struct MeterPopupAppearance: ViewModifier {
-    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
     @Environment(\.colorScheme) private var colorScheme
 
     func body(content: Content) -> some View {
-        let dark = GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled) || colorScheme == .dark
+        let dark = colorScheme == .dark
         content
             .foregroundStyle(dark ? Color.white : Color.primary)
             .tint(dark ? .white : MeterPopupStyle.paymentTint)
-            .environment(\.colorScheme, dark ? .dark : .light)
     }
 }
 

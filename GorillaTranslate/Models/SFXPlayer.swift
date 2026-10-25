@@ -1,5 +1,7 @@
 import Foundation
 import AVFoundation
+import CoreHaptics
+import UIKit
 
 @preconcurrency import AVFoundation
 
@@ -23,6 +25,14 @@ enum SFXPreferences {
     }
 }
 
+enum AudioHapticEnvelope {
+    static func intensity(decibels: Float, volume: Float) -> Float {
+        guard decibels.isFinite, volume.isFinite else { return 0 }
+        let amplitude = max(0, pow(10, min(0, decibels) / 20) - 0.004)
+        return min(0.65, sqrt(amplitude) * 0.65 * min(1, max(0, volume)))
+    }
+}
+
 @MainActor
 final class SFXPlayer: ObservableObject {
     private var stationaryPlayer: AVAudioPlayer?
@@ -40,6 +50,9 @@ final class SFXPlayer: ObservableObject {
 
     private var vlmLoadingPlayer: AVAudioPlayer?
     private var vlmDonePlayer: AVAudioPlayer?
+    private let vlmHaptics = AudioEnvelopeHaptics()
+    private var vlmFadeTimer: Timer?
+    private var vlmDoneWork: DispatchWorkItem?
     private var vlmLoadingDelegate: VLMLoadingDelegate?
     /// true = 播完當前循環後停止（唔再循環）
     private var vlmLoadingStopAfterCurrent = false
@@ -302,6 +315,8 @@ final class SFXPlayer: ObservableObject {
 
     /// 開始循環播放 loading 音效
     func playVLMLoading() {
+        cancelVLMTransition()
+        vlmDonePlayer?.stop()
         configureAudioSession()
         vlmLoadingStopAfterCurrent = false
         if vlmLoadingPlayer == nil {
@@ -327,10 +342,12 @@ final class SFXPlayer: ObservableObject {
         p.volume = baseVolume
         p.prepareToPlay()
         p.play()
+        vlmHaptics.follow(p)
     }
 
     /// 停止 loading 音效：淡出 0.3 秒後停止
     func stopVLMLoadingGracefully() {
+        cancelVLMTransition()
         vlmLoadingStopAfterCurrent = true
         guard let p = vlmLoadingPlayer, p.isPlaying else { return }
         let startVolume = p.volume
@@ -348,11 +365,14 @@ final class SFXPlayer: ObservableObject {
                 p.numberOfLoops = -1  // 重置為循環（下次用）
             }
         }
+        vlmFadeTimer = fadeTimer
         RunLoop.main.add(fadeTimer, forMode: .common)
     }
 
     /// 立即停止 loading 音效
     func stopVLMLoadingImmediately() {
+        cancelVLMTransition()
+        vlmHaptics.stop()
         vlmLoadingStopAfterCurrent = false
         vlmLoadingPlayer?.stop()
         vlmLoadingPlayer?.currentTime = 0
@@ -360,6 +380,7 @@ final class SFXPlayer: ObservableObject {
 
     /// 播放一次 done 音效（loading 淡出 0.2s，done 延遲 0.2s）
     func playVLMDone() {
+        cancelVLMTransition()
         // loading 淡出 0.2 秒
         let loadingPlayer = vlmLoadingPlayer
         let startVolume = loadingPlayer?.volume ?? 0
@@ -377,10 +398,11 @@ final class SFXPlayer: ObservableObject {
                 loadingPlayer?.volume = startVolume
             }
         }
+        vlmFadeTimer = fadeTimer
         RunLoop.main.add(fadeTimer, forMode: .common)
 
         // done 音效延遲 0.2 秒播放
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+        let work = DispatchWorkItem { [weak self] in
             guard let self else { return }
             self.configureAudioSession()
             if self.vlmDonePlayer == nil {
@@ -392,8 +414,82 @@ final class SFXPlayer: ObservableObject {
             p.volume = self.baseVolume
             p.prepareToPlay()
             p.play()
+            self.vlmHaptics.follow(p)
         }
+        vlmDoneWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2, execute: work)
     }
+
+    private func cancelVLMTransition() {
+        vlmFadeTimer?.invalidate()
+        vlmFadeTimer = nil
+        vlmDoneWork?.cancel()
+        vlmDoneWork = nil
+    }
+}
+
+/// Reads the playing sound's envelope, including loops and fades, rather than inventing a pulse rhythm.
+@MainActor
+private final class AudioEnvelopeHaptics {
+    private var engine: CHHapticEngine?
+    private var player: CHHapticAdvancedPatternPlayer?
+    private var meter: Timer?
+
+    func follow(_ audio: AVAudioPlayer) {
+        stop()
+        guard AppHaptics.enabled(), CHHapticEngine.capabilitiesForHardware().supportsHaptics,
+              UIApplication.shared.applicationState == .active else { return }
+        do {
+            if engine == nil {
+                let engine = try CHHapticEngine()
+                engine.isAutoShutdownEnabled = true
+                engine.resetHandler = { [weak self] in Task { @MainActor in self?.stop(); self?.engine = nil } }
+                engine.stoppedHandler = { [weak self] _ in Task { @MainActor in self?.stop() } }
+                self.engine = engine
+            }
+            guard let engine else { return }
+            try engine.start()
+            let duration = min(30, max(0.1, audio.duration))
+            let event = CHHapticEvent(eventType: .hapticContinuous, parameters: [
+                CHHapticEventParameter(parameterID: .hapticIntensity, value: 1),
+                CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.35)
+            ], relativeTime: 0, duration: duration)
+            let pattern = try CHHapticPattern(events: [event], parameters: [])
+            let player = try engine.makeAdvancedPlayer(with: pattern)
+            player.loopEnabled = true
+            player.loopEnd = duration
+            self.player = player
+            audio.isMeteringEnabled = true
+            try player.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
+                                                                value: 0, relativeTime: 0)], atTime: 0)
+            try player.start(atTime: CHHapticTimeImmediate)
+            let timer = Timer(timeInterval: 1.0 / 50, repeats: true) { [weak self, weak audio] _ in
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    guard let audio, audio.isPlaying, AppHaptics.enabled(),
+                          UIApplication.shared.applicationState == .active else { self.stop(); return }
+                    audio.updateMeters()
+                    let db = (0..<max(1, audio.numberOfChannels)).map { audio.averagePower(forChannel: $0) }.max() ?? -160
+                    let intensity = AudioHapticEnvelope.intensity(decibels: db, volume: audio.volume)
+                    do {
+                        try self.player?.sendParameters([CHHapticDynamicParameter(parameterID: .hapticIntensityControl,
+                            value: intensity, relativeTime: 0)], atTime: CHHapticTimeImmediate)
+                    } catch { self.stop() }
+                }
+            }
+            meter = timer
+            RunLoop.main.add(timer, forMode: .common)
+        } catch { stop() }
+    }
+
+    func stop() {
+        meter?.invalidate()
+        meter = nil
+        try? player?.stop(atTime: CHHapticTimeImmediate)
+        player = nil
+    }
+
+    deinit { meter?.invalidate() }
 }
 
 // MARK: - Loading 音效播完回調
