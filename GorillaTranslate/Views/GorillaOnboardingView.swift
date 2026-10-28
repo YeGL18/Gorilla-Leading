@@ -589,6 +589,11 @@ struct AboutGorillaLeadingView: View {
             Section {
                 GorillaSupportLinks()
             }
+            Section {
+                NavigationLink { TrafficDataSourcesView() } label: {
+                    Label("資料來源與使用條款", systemImage: "doc.text")
+                }
+            }
         }
         .navigationTitle("關於 Gorilla Leading")
         .navigationBarTitleDisplayMode(.inline)

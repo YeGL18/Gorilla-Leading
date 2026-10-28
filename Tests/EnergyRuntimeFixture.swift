@@ -16,7 +16,48 @@ extension CLLocationCoordinate2D {
 
 @main
 struct EnergyRuntimeFixture: App {
-    var body: some Scene { WindowGroup { EdgeFixture() } }
+    var body: some Scene {
+        WindowGroup {
+            if ProcessInfo.processInfo.arguments.contains("--time-entrance") { TimeEntranceFixture() }
+            else { EdgeFixture() }
+        }
+    }
+}
+
+private struct TimeEntranceFixture: View {
+    @StateObject private var manager = TimePhaseManager(weatherService: WeatherService())
+    @StateObject private var clock = AnimationClock()
+
+    private var targetHour: Double {
+        let start = manager.schedule.startHours[TimePhase.morning.rawValue]
+        let end = manager.schedule.startHours[TimePhase.afternoon.rawValue]
+        return start + (end - start) * 0.88
+    }
+
+    var body: some View {
+        TimeBasedOrbView(phaseManager: manager, clock: clock)
+            .overlay(alignment: .bottom) {
+                VStack {
+                    Text(String(format: "%.3f", manager.phaseTransitionProgress))
+                        .accessibilityIdentifier("phaseProgress")
+                    HStack {
+                        Button("Start") { showFrame(0) }
+                        Button("Middle") { showFrame(0.5) }
+                        Button("End") { showFrame(1) }
+                        Button("Replay") {
+                            manager.setPreviewHour(targetHour)
+                            manager.startWithEntranceAnimation(duration: 2)
+                        }
+                    }
+                }.padding(24).foregroundStyle(.black)
+            }
+            .onAppear { showFrame(0) }
+    }
+
+    private func showFrame(_ progress: Double) {
+        let entrance = TimePhaseEntrance(targetHour: targetHour, schedule: manager.schedule)
+        manager.setPreviewHour(entrance.frame(progress: progress, targetHour: targetHour).hour)
+    }
 }
 
 private struct EdgeFixture: View {

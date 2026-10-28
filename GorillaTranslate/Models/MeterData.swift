@@ -236,6 +236,26 @@ enum MeterCSV {
     }
 }
 
+enum MeterOverviewGrouping {
+    static func groups(_ meters: [ParkingMeter], latitude: Double, longitude: Double,
+                       latitudeDelta: Double, longitudeDelta: Double) -> [String: [ParkingMeter]] {
+        guard latitudeDelta > 0, longitudeDelta > 0 else { return [:] }
+        let visible = meters.filter {
+            !$0.isTest && abs($0.latitude - latitude) <= latitudeDelta * 0.6
+                && abs($0.longitude - longitude) <= longitudeDelta * 0.6
+        }
+        if visible.count <= 450 {
+            return Dictionary(uniqueKeysWithValues: visible.map { ("meter:\($0.id)", [$0]) })
+        }
+        // Bound MapKit's annotation workload, retaining every bay inside its group.
+        let latCell = max(latitudeDelta / 12, 0.00001)
+        let lonCell = max(longitudeDelta / 12, 0.00001)
+        return Dictionary(grouping: visible) {
+            "\(Int(floor($0.latitude / latCell))):\(Int(floor($0.longitude / lonCell))):\($0.bayType.rawValue)"
+        }
+    }
+}
+
 struct MeterSpatialIndex {
     private var cells: [String: [ParkingMeter]] = [:]
     init(_ meters: [ParkingMeter]) {

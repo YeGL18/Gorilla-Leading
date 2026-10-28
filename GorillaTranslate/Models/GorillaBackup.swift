@@ -39,7 +39,9 @@ struct GorillaBackup: Codable, Sendable {
         "parallaxMode", "outputAnimationStyle", "floorCurveCarIcon", "llm_shortcut_name",
         "trip_replays_v1", "tripReplayEnabled", "tripReplayRetentionDays",
         "meterDetectionEnabled", "meterVehicle", "meterMapRadius", "meterDestinationRadius",
-        "meterNearbyRadius", "meterStatusRefreshInterval", "testItemOrder", "testItemFavorites"
+        "meterNearbyRadius", "meterStatusRefreshInterval", "testItemOrder", "testItemFavorites",
+        "trafficCameraEnabled", "trafficCameraSound", "trafficCameraSpeechFormat",
+        "trafficCameraSlowDown", "trafficCameraRedLightSpeech"
     ]
     static let sharedKeys: Set<String> = [
         "parking_floor_store_v1", "deleted_parking_points_v1", "deleted_places_v1",

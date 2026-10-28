@@ -15,6 +15,7 @@ ui_tests = project.new_target(:ui_test_bundle, 'EnergyVisualTests', :ios, '18.0'
 group = project.main_group.new_group('Sources')
 %w[GorillaTranslate/Models/Destination.swift GorillaTranslate/Models/AnimationClock.swift
    GorillaTranslate/Models/TimePhase.swift GorillaTranslate/Models/WeatherService.swift
+   GorillaTranslate/Views/TimeBasedOrbView.swift
    GorillaTranslate/Extensions/ColorExtension.swift
    Tests/EnergyRuntimeFixture.swift].each do |path|
   app.source_build_phase.add_file_reference(group.new_file("#{repo}/#{path}"))

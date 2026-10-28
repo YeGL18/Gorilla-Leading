@@ -111,7 +111,7 @@ struct TimeBasedOrbView: View {
                     .opacity(orbEnabled ? 0.6 : 0)
 
                 // 太阳光球
-                if orbEnabled && sun.visible && colors.sunIndex >= 0 {
+                if orbEnabled && sun.visible && colors.sunOpacity > 0 {
                     // 太阳光晕（大，高模糊）
                     Circle()
                         .fill(colors.sunColor)
@@ -124,7 +124,7 @@ struct TimeBasedOrbView: View {
                             x: (sun.x - 0.5) * w * 1.2,
                             y: (sun.y - 0.5) * h * 1.2
                         )
-                        .opacity(0.4)
+                        .opacity(0.4 * colors.sunOpacity)
 
                     // 太阳本体（中等模糊）
                     Circle()
@@ -138,7 +138,7 @@ struct TimeBasedOrbView: View {
                             x: (sun.x - 0.5) * w * 1.2 + CGFloat(sin(elapsed * 0.8)) * 8,
                             y: (sun.y - 0.5) * h * 1.2 + CGFloat(cos(elapsed * 0.6)) * 6
                         )
-                        .opacity(0.7)
+                        .opacity(0.7 * colors.sunOpacity)
 
                     // 太阳核心（小，低模糊，高亮度）
                     Circle()
@@ -152,7 +152,7 @@ struct TimeBasedOrbView: View {
                             x: (sun.x - 0.5) * w * 1.2 + CGFloat(sin(elapsed * 1.0)) * 12,
                             y: (sun.y - 0.5) * h * 1.2 + CGFloat(cos(elapsed * 0.8)) * 10
                         )
-                        .opacity(0.9)
+                        .opacity(0.9 * colors.sunOpacity)
                 }
             }
             }

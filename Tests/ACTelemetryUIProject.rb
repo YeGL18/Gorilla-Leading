@@ -142,6 +142,12 @@ fixture = <<~SWIFT
       put(Float(6500).bitPattern, 68, &data); put(4, 76, &data)
       put(Float(0.65).bitPattern, 56, &data); put(Float(0.2).bitPattern, 60, &data)
       var force = SpeedGForce(lateral: -0.29, longitudinal: 0.4)
+      if ProcessInfo.processInfo.arguments.contains("--recent-peak-trace") {
+        let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+        if elapsed < 2 { force = SpeedGForce(lateral: 0.3, longitudinal: 0.4) }
+        else if elapsed < 4 { force = SpeedGForce(lateral: -0.2, longitudinal: 0) }
+        else { force = SpeedGForce(lateral: 0.01, longitudinal: 0) }
+      }
       if ProcessInfo.processInfo.arguments.contains("--trail-trace") {
         let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
         force = SpeedGForce(lateral: 0.7 * cos(elapsed * 2), longitudinal: 0.7 * sin(elapsed * 2))
@@ -226,6 +232,7 @@ fixture = <<~SWIFT
       UserDefaults.standard.set(ProcessInfo.processInfo.arguments.contains("--gforce"), forKey: "speedParallaxEnabled")
       UserDefaults.standard.set("gforce", forKey: "parallaxMode")
       UserDefaults.standard.set(false, forKey: "orbMasterEnabled")
+      UserDefaults.standard.set(!ProcessInfo.processInfo.arguments.contains("--transparent"), forKey: "capsuleDarkGlassEnabled")
       if !ProcessInfo.processInfo.arguments.contains("--preserve-units") {
         UserDefaults.standard.set("kmh", forKey: SpeedUnit.preferenceKey)
       }

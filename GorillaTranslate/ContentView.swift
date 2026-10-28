@@ -396,6 +396,155 @@ private struct ParkingStopConfirmationView: View {
     }
 }
 
+struct ParkingPointEditControl: View {
+    let canRenameFloor: Bool
+    let canReset: Bool
+    let onRename: () -> Void
+    let onRenameFloor: () -> Void
+    let onBoundary: () -> Void
+    let onMerge: () -> Void
+    let onReset: () -> Void
+    @State private var showingOptions = false
+    @State private var confirmingReset = false
+    @State private var pendingReset = false
+    @State private var resetPresentationTask: Task<Void, Never>?
+
+    var body: some View {
+        Button {
+            confirmingReset = false
+            pendingReset = false
+            showingOptions = true
+        } label: {
+            Image(systemName: "pencil")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(.secondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(String(localized: "編輯地點"))
+        .accessibilityIdentifier("parkingPointEdit")
+        .popover(isPresented: $showingOptions, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            Group {
+            if !confirmingReset {
+            VStack(alignment: .leading, spacing: 8) {
+                action("地點改名", symbol: "pencil", perform: onRename)
+                if canRenameFloor { action("命名此樓層", symbol: "square.3.layers.3d", perform: onRenameFloor) }
+                Divider()
+                action("調整停車場範圍", symbol: "point.topleft.down.to.point.bottomright.curvepath", perform: onBoundary)
+                if canReset {
+                    Button {
+                        pendingReset = true
+                        showingOptions = false
+                    } label: {
+                        Label("恢復自動圓形範圍", systemImage: "arrow.counterclockwise")
+                            .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+                    }
+                }
+                action("合併停車場", symbol: "arrow.triangle.merge", perform: onMerge)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(.primary)
+            .padding(20).frame(width: 280, alignment: .leading)
+            } else {
+            VStack(spacing: 8) {
+                Text("恢復自動圓形範圍").font(.headline).padding(.bottom, 8)
+                Button(role: .destructive) {
+                    showingOptions = false
+                    onReset()
+                } label: {
+                    Text("恢復").foregroundStyle(.white)
+                        .padding(.horizontal, 20).padding(.vertical, 10)
+                        .background(Color(red: 1, green: 0, blue: 0), in: Capsule())
+                }
+                .buttonStyle(.plain)
+                Button(String(localized: "取消")) { showingOptions = false }
+                    .foregroundStyle(.primary).padding(.top, 4)
+            }
+            .frame(maxWidth: .infinity)
+            .accessibilityIdentifier("parkingResetConfirmation")
+            .multilineTextAlignment(.center)
+            .padding(20).frame(width: 220)
+            }
+            }
+            .presentationCompactAdaptation(.popover)
+            .onDisappear {
+                guard pendingReset else { return }
+                // Reopen only after the options popover has actually disappeared.
+                resetPresentationTask = Task { @MainActor in
+                    do { try await Task.sleep(for: .milliseconds(160)) } catch { return }
+                    guard pendingReset else { return }
+                    pendingReset = false
+                    confirmingReset = true
+                    showingOptions = true
+                }
+            }
+        }
+        .onDisappear {
+            resetPresentationTask?.cancel()
+            pendingReset = false
+        }
+    }
+
+    private func action(_ title: LocalizedStringKey, symbol: String, perform: @escaping () -> Void) -> some View {
+        Button {
+            showingOptions = false
+            perform()
+        } label: {
+            Label(title, systemImage: symbol)
+                .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+        }
+    }
+}
+
+struct AddressCapsuleDragGeometry {
+    static func height(expanded: Bool, direction: Int, offset: CGFloat) -> CGFloat {
+        let distance = max(0, offset)
+        if direction == -1 {
+            return expanded ? 182 + min(distance, 120) * 0.18 : 44 + min(distance, 138)
+        }
+        if expanded && direction == 1 { return 182 - min(distance, 138) }
+        return expanded ? 182 : 44
+    }
+}
+
+struct ParkingPreviewBreathingPhase {
+    static let period = 3.0
+    static func progress(at elapsed: TimeInterval) -> Double {
+        (1 - cos(elapsed * 2 * .pi / period)) / 2
+    }
+    static func scale(at elapsed: TimeInterval) -> Double { 1.28 + 0.22 * progress(at: elapsed) }
+    static func opacity(at elapsed: TimeInterval) -> Double { 0.45 + 0.25 * progress(at: elapsed) }
+}
+
+private struct ParkingPreviewBreathingIcon: View {
+    let isBreathing: Bool
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var epoch = Date()
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 60,
+                                paused: !isBreathing || reduceMotion || scenePhase != .active)) { context in
+            let elapsed = isBreathing && !reduceMotion ? context.date.timeIntervalSince(epoch) : 0
+            ZStack {
+                Image(systemName: "viewfinder")
+                    .font(.system(size: 36, weight: .light))
+                    .scaleEffect(ParkingPreviewBreathingPhase.scale(at: elapsed))
+                Image(systemName: "camera")
+                    .font(.system(size: 22, weight: .regular))
+            }
+            .foregroundStyle(.white.opacity(0.6))
+            .opacity(ParkingPreviewBreathingPhase.opacity(at: elapsed))
+            .frame(width: 76, height: 68)
+        }
+        .transaction { $0.animation = nil }
+        .onChange(of: isBreathing) { _, active in
+            if active { epoch = Date() }
+        }
+    }
+}
+
 private struct FloorCaptureConfirmationView: View {
     let confirmed: Bool
     let onChange: (Int) -> Void
@@ -870,10 +1019,10 @@ struct ContentView: View {
     @State private var mapHeadingMode: MapHeadingMode = .continuousFollow
     @State private var headingToastText: String?
     @State private var headingToastTimer: Timer?
-    @State private var hkDetailMode = false        // 香港地圖細覽模式
-    @State private var gpsTapCount = 0             // GPS 膠囊點擊計數
+    @ObservedObject private var markerOverview = MapMarkerOverviewState.shared
+    private var hkDetailMode: Bool { markerOverview.mode != .nearby }
+    @State private var showingMarkerOverviewChoices = false
     @State private var showingTripReplay = false
-    @State private var gpsTapResetTimer: Timer?    // 重置計數的 timer
     @State private var stationaryTrackingTrigger = 0
     @State private var northOverrideTrackingToken = 0
     // 緊湊態三格輪播：速度+ETA → 地址 → 狀態 循環
@@ -981,9 +1130,6 @@ struct ContentView: View {
     @State private var boundaryDrawLot: ParkingLotRecord?
     @State private var boundaryDrawVertices: [ParkingBoundaryVertex] = []
     @StateObject private var boundaryDrawBridge = BoundaryDrawMapBridge()
-    /// 「恢復自動圓形範圍」確認
-    @State private var resettingBoundaryLot: ParkingLotRecord?
-    @State private var showResetBoundaryConfirm = false
     @State private var mergingParkingLot: ParkingLotRecord?
     @State private var changingParkingLotPointID: UUID?
     @State private var parkingLotExpansionStage = 0
@@ -1402,7 +1548,7 @@ struct ContentView: View {
             if BackupController.shared.restoring {
                 [addressAlternatingTimer, parkingTimer, departureTimer, departureElapsedTimer,
                  stationaryTimer, activitySyncTimer, parkingReminderTimer, cameraInactivityTimer,
-                 headingToastTimer, gpsTapResetTimer, compactSlotTimer, llmPollTimer,
+                 headingToastTimer, compactSlotTimer, llmPollTimer,
                  llmSoundStopTimer, parkingInfoSwitchTimer, floorCurveGateTimer,
                  floorCurveDismissTimer, orbGradualStopTimer].forEach { $0?.invalidate() }
                 [capsuleSettleWorkItem, lightEffectDismissWorkItem, tripToastAutoDismiss,
@@ -2425,16 +2571,6 @@ struct ContentView: View {
         .sheet(item: $editingParkingBoundary) { lot in
             ParkingBoundaryEditor(store: parkingFloorStore, lot: lot)
         }
-        .confirmationDialog(String(localized: "恢復自動圓形範圍"), isPresented: $showResetBoundaryConfirm,
-                            titleVisibility: .visible) {
-            Button(String(localized: "恢復"), role: .destructive) {
-                if let lot = resettingBoundaryLot {
-                    _ = parkingFloorStore.setBoundary(lotID: lot.id, vertices: nil)
-                }
-                resettingBoundaryLot = nil
-            }
-            Button(String(localized: "取消"), role: .cancel) { resettingBoundaryLot = nil }
-        }
         .sheet(item: $mergingParkingLot) { lot in
             ParkingLotMergeView(store: parkingFloorStore, sourceID: lot.id)
         }
@@ -2967,9 +3103,10 @@ struct ContentView: View {
         floorCurveDismissTimer = nil
     }
 
-    private func triggerFloorCurvePopup() {
+    @discardableResult
+    private func triggerFloorCurvePopup() -> Bool {
         let barometer = parkingFloorStore.barometer
-        guard let id = barometer.captureID else { return }
+        guard let id = barometer.captureID else { return false }
         floorCurveDismissTimer?.invalidate()
         floorCurveCaptureID = id
         floorCurveLastSampleDate = nil
@@ -2985,6 +3122,7 @@ struct ContentView: View {
             isFloorCurveInCapsule = true
         }
         sfxPlayer.playFloorCurveAppear()
+        return true
     }
 
     private func appendFloorCurveSample(_ sample: BarometerSample) {
@@ -3585,7 +3723,8 @@ struct ContentView: View {
                     raw = smoothDragHeight
                 } else {
                     if capsuleDragState.mode == -1 {
-                        raw = 44 + min(capsuleDragState.offset, 138)
+                        raw = AddressCapsuleDragGeometry.height(expanded: isCapsuleExpanded, direction: -1,
+                                                               offset: capsuleDragState.offset)
                     } else if capsuleDragState.mode == 1 {
                         raw = 182 - min(capsuleDragState.offset, 138)
                     } else {
@@ -3763,17 +3902,19 @@ struct ContentView: View {
                         // 展開態上滑：進入樓層探測（只有一開始就是上滑方向才觸發）
                         if isCapsuleExpanded && lastGestureMode == -1 && (dy < -threshold || velocity < -threshold * 0.5) {
                             // 先觸發樓層探測（設 isFloorCurveInCapsule = true），再收縮
-                            triggerFloorCurvePopup()
-                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                                isCapsuleExpanded = false
+                            if triggerFloorCurvePopup() {
+                                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                    isCapsuleExpanded = false
+                                }
+                                resetLiftScaleDrag()
+                                return
                             }
-                            resetLiftScaleDrag()
-                            return
                         }
 
                         // 判斷展開/收縮：距離或速度，其中一個夠就觸發
                         let shouldExpand = !isCapsuleExpanded && (dy < -threshold || velocity < -threshold * 0.5)
-                        let shouldCollapse = isCapsuleExpanded && (dy > threshold || velocity > threshold * 0.5)
+                        let shouldCollapse = isCapsuleExpanded && lastGestureMode == 1 && dy > 0
+                            && (dy > threshold || velocity > threshold * 0.5)
                         let targetExpanded = shouldExpand ? true : (shouldCollapse ? false : isCapsuleExpanded)
 
                         // 計算鬆手時的高度，用於平滑過渡
@@ -3846,21 +3987,24 @@ struct ContentView: View {
 
                     // 展開態上滑：進入樓層探測態
                     if isCapsuleExpanded && (dy < -threshold || predictedDY < -threshold) {
-                        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                            isCapsuleExpanded = false
+                        if triggerFloorCurvePopup() {
+                            withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                                isCapsuleExpanded = false
+                            }
+                            return
                         }
-                        triggerFloorCurvePopup()
-                        return
                     }
 
                     let shouldExpand = (!isCapsuleExpanded) && (dy < -threshold || predictedDY < -threshold)
-                    let shouldCollapse = isCapsuleExpanded && (dy > threshold || predictedDY > threshold)
+                    let shouldCollapse = isCapsuleExpanded && lastGestureMode == 1 && dy > 0
+                        && (dy > threshold || predictedDY > threshold)
                     let targetExpanded: Bool = shouldExpand ? true : (shouldCollapse ? false : isCapsuleExpanded)
                     let releasedHeight: CGFloat = {
                         if !isCapsuleExpanded {
                             return 44 + min(max(0, -dy), 138)
                         } else {
-                            return 182 - min(max(0, dy), 138)
+                            return AddressCapsuleDragGeometry.height(expanded: true, direction: dy < 0 ? -1 : 1,
+                                                                     offset: abs(dy))
                         }
                     }()
                     capsuleSettleWorkItem?.cancel()
@@ -3887,6 +4031,7 @@ struct ContentView: View {
         )
         .onTapGesture {
             guard boundaryDrawLot == nil, !isCapsuleExpanded, !capsuleDragState.active, capsuleSettleHeight == nil else { return }
+            advanceCompactSlot()
             // 微微放大提示「這是可拖曳的」
             withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
                 capsuleDragScale = 1.08
@@ -5524,16 +5669,20 @@ struct ContentView: View {
         compactSlotTimer = Timer.scheduledTimer(withTimeInterval: duration, repeats: false) { _ in
             DispatchQueue.main.async {
                 guard self.compactSlotGeneration == gen else { return }
-                withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
-                    self.compactSlot = self.nextCompactSlot()
-                }
-                if self.compactSlot == .address {
-                    // 地址格 = POI↔街道由循環開頭顯示一輪
-                    self.startAddressAlternatingIfNeeded(force: true)
-                }
-                self.scheduleCompactSlot()
+                self.advanceCompactSlot()
             }
         }
+    }
+
+    private func advanceCompactSlot() {
+        guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
+        withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
+            compactSlot = nextCompactSlot()
+        }
+        if compactSlot == .address {
+            startAddressAlternatingIfNeeded(force: true)
+        }
+        scheduleCompactSlot()
     }
 
     private func nextCompactSlot() -> CompactSlot {
@@ -5691,44 +5840,30 @@ struct ContentView: View {
                             .lineLimit(2)
                             .multilineTextAlignment(.center)
                             .frame(maxWidth: .infinity)
-                        Menu {
-                            Button(String(localized: "地點改名")) {
+                        ParkingPointEditControl(
+                            canRenameFloor: parkingFloorStore.floorMode == .perVisit && floorIndex != nil,
+                            canReset: currentLot?.boundaryVertices != nil,
+                            onRename: {
                                 renamingPointFloor = nil
                                 renamingPointName = currentLot?.name ?? ""
                                 showRenamePointAlert = true
-                            }
-                            if parkingFloorStore.floorMode == .perVisit, let floorIndex {
-                                Button(String(localized: "命名此樓層")) {
+                            }, onRenameFloor: {
+                                if let floorIndex {
                                     renamingPointFloor = floorIndex
                                     renamingPointName = currentLot?.floorNames?[String(currentFloor)] ?? ""
                                     showRenamePointAlert = true
                                 }
-                            }
-                            if let currentLot {
-                                Divider()
-                                Button { beginBoundaryDraw(currentLot) } label: {
-                                    Label(String(localized: "調整停車場範圍"), systemImage: "point.topleft.down.to.point.bottomright.curvepath")
-                                }
-                                if currentLot.boundaryVertices != nil {
-                                    Button {
-                                        resettingBoundaryLot = currentLot
-                                        showResetBoundaryConfirm = true
-                                    } label: {
-                                        Label(String(localized: "恢復自動圓形範圍"), systemImage: "arrow.counterclockwise")
+                            }, onBoundary: {
+                                if let currentLot { beginBoundaryDraw(currentLot) }
+                            }, onMerge: { mergingParkingLot = currentLot },
+                            onReset: {
+                                if let currentLot {
+                                    withAnimation(.smooth(duration: 0.6)) {
+                                        _ = parkingFloorStore.setBoundary(lotID: currentLot.id, vertices: nil)
                                     }
                                 }
-                                Button { mergingParkingLot = currentLot } label: {
-                                    Label(String(localized: "合併停車場"), systemImage: "arrow.triangle.merge")
-                                }
-                            }
-                        } label: {
-                            Image(systemName: "pencil")
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 28, height: 28)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
+                            })
+                        .id(point.id)
                         .disabled(currentLot == nil)
                     }
 
@@ -5874,7 +6009,8 @@ struct ContentView: View {
                         revealParkingLotOptions(for: point.id)
                     }
                 } label: {
-                    Label("更改停車場", systemImage: "building.2.crop.circle")
+                    Label(point.isAutomotive ? String(localized: "更改停車場") : String(localized: "更改地點"),
+                          systemImage: point.isAutomotive ? "building.2.crop.circle" : "mappin.circle")
                         .font(.system(size: 12, weight: .semibold))
                 }
                 .buttonStyle(.glass)
@@ -7148,23 +7284,7 @@ struct ContentView: View {
                 )
                 .overlay(
                     VStack(spacing: 10) {
-                        ZStack {
-                            // 底層：整個 symbol（含四角框框）
-                            Image(systemName: "camera.viewfinder")
-                                .font(.system(size: 36))
-                                .foregroundStyle(.white.opacity(0.6))
-                            // 頂層：中央 icon 裁切掉邊框區域
-                            Image(systemName: "camera.viewfinder")
-                                .font(.system(size: 36))
-                                .foregroundStyle(.white.opacity(0.6))
-                                .mask(
-                                    RoundedRectangle(cornerRadius: 6)
-                                        .frame(width: 20, height: 18)
-                                )
-                        }
-                        // 統一呼吸動畫
-                        .opacity(viewfinderBreathe ? 0.45 : 0.7)
-                        .animation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true), value: viewfinderBreathe)
+                        ParkingPreviewBreathingIcon(isBreathing: viewfinderBreathe && cameraFadeOpacity > 0.5 && !isCameraActive)
                         Text(String(localized: "輕觸以開啟相機"))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundStyle(.white.opacity(0.5))
@@ -7544,6 +7664,7 @@ struct ContentView: View {
             Button { showingTripReplay = true } label: {
                 Image(systemName: "clock.arrow.circlepath")
                     .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.secondary)
                     .frame(width: 44, height: 44)
                     .contentShape(Circle())
             }
@@ -7556,10 +7677,16 @@ struct ContentView: View {
     }
 
     @State private var gpsGlowPhase: CGFloat = 0  // 0 = 脈動起點（出現），1 = 擴散到最外圍
+    @State private var gpsShowsMapDetails = false
 
     private var gpsStatusBadge: some View {
         HStack(spacing: 6) {
-            Circle()
+            ZStack {
+                if gpsShowsMapDetails {
+                    Image(systemName: "map").font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.secondary).transition(.opacity)
+                } else {
+                    Circle()
                 .fill(gpsColor)
                 .frame(width: 8, height: 8)
                 .animation(.easeInOut(duration: 0.5), value: gpsColor)
@@ -7569,15 +7696,20 @@ struct ContentView: View {
                 } animation: { _ in
                     .easeInOut(duration: 1.2).repeatForever(autoreverses: true)
                 }
+                }
+            }.frame(width: 12, height: 12)
 
             ZStack {
-                Text("VADY").hidden()
-                    .font(.system(size: 12, weight: .medium))
-                Text(gpsLabel)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .animation(.easeInOut(duration: 0.5), value: gpsLabel)
+                Text("地圖詳情").hidden()
+                Text(gpsLabel).hidden()
+                if gpsShowsMapDetails {
+                    Text("地圖詳情").transition(.opacity)
+                } else {
+                    Text(gpsLabel).transition(.opacity)
+                        .animation(.easeInOut(duration: 0.5), value: gpsLabel)
+                }
             }
+            .font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 14)
@@ -7600,6 +7732,7 @@ struct ContentView: View {
         }
         .clipShape(.rect(cornerRadius: 22))
         .modifier(GorillaCapsuleGlass(cornerRadius: 22))
+        .contentShape(Capsule())
         .onChange(of: locationManager.gpsQuality) { _, _ in
             // GPS 狀態變化觸發光暈脈動：出現 → 擴散 → 淡出
             withAnimation(.easeOut(duration: 1.8)) {
@@ -7610,20 +7743,41 @@ struct ContentView: View {
                 gpsGlowPhase = 0
             }
         }
-        .onTapGesture {
-            gpsTapCount += 1
-            gpsTapResetTimer?.invalidate()
-            if gpsTapCount >= 5 {
-                gpsTapCount = 0
-                withAnimation(.easeInOut(duration: 0.3)) {
-                    hkDetailMode.toggle()
-                }
+        .accessibilityIdentifier("gpsMarkerOverview")
+        .popover(isPresented: $showingMarkerOverviewChoices, attachmentAnchor: .rect(.bounds), arrowEdge: .top) {
+            MapMarkerOverviewMenu { mode in
+                showingMarkerOverviewChoices = false
+                enterMarkerOverview(mode)
+            }
+        }
+        .gesture(TapGesture(count: gpsShowsMapDetails ? 1 : 2).onEnded {
+            if gpsShowsMapDetails {
+                showingMarkerOverviewChoices = true
+            } else if hkDetailMode {
+                TrafficCameraStore.shared.selected = nil
+                ParkingMeterManager.shared.selectedMeter = nil
+                markerOverview.mode = .nearby
             } else {
-                gpsTapResetTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { _ in
-                    gpsTapCount = 0
+                showingMarkerOverviewChoices = true
+            }
+        })
+        .task {
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(10)) } catch { return }
+                guard !Task.isCancelled else { return }
+                if !showingMarkerOverviewChoices {
+                    withAnimation(.easeInOut(duration: 0.4)) { gpsShowsMapDetails.toggle() }
                 }
             }
         }
+    }
+
+    private func enterMarkerOverview(_ mode: MapMarkerOverviewMode) {
+        selectedParkingPointID = nil
+        ParkingMeterManager.shared.selectedMeter = nil
+        TrafficCameraStore.shared.selected = nil
+        markerOverview.mode = mode
+        if !showMap && !showSatellite { showMap = true }
     }
 
     private var gpsColor: Color {

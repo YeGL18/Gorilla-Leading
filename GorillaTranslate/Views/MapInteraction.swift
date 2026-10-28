@@ -337,6 +337,110 @@ final class ParkingHoldGestureRecognizer: UILongPressGestureRecognizer {
     }
 }
 
+final class ParkingRecordMarkerView: MKAnnotationView {
+    private let content = UIView(frame: CGRect(x: 0, y: 0, width: 40, height: 44))
+    private let shape = CAShapeLayer()
+    private let glyph = UILabel(frame: CGRect(x: 0, y: 0, width: 40, height: 36))
+    private let titleLabel = UILabel()
+    private let subtitleLabel = UILabel()
+    private var holding = false
+    var isHolding: Bool { holding }
+    var sizeScale: CGFloat = 1 {
+        didSet { if sizeScale != oldValue { applyScale(animated: false) } }
+    }
+    var locksDragAppearance = false
+
+    override init(annotation: MKAnnotation?, reuseIdentifier: String?) {
+        super.init(annotation: annotation, reuseIdentifier: reuseIdentifier)
+        bounds = CGRect(x: 0, y: 0, width: 40, height: 44)
+        clipsToBounds = false
+        content.isUserInteractionEnabled = false
+        content.layer.anchorPoint = CGPoint(x: 0.5, y: 1)
+        content.layer.position = CGPoint(x: 20, y: 44)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: 20, y: 43))
+        path.addCurve(to: CGPoint(x: 2, y: 19), controlPoint1: CGPoint(x: 13, y: 33), controlPoint2: CGPoint(x: 2, y: 30))
+        path.addCurve(to: CGPoint(x: 20, y: 1), controlPoint1: CGPoint(x: 2, y: 9), controlPoint2: CGPoint(x: 10, y: 1))
+        path.addCurve(to: CGPoint(x: 38, y: 19), controlPoint1: CGPoint(x: 30, y: 1), controlPoint2: CGPoint(x: 38, y: 9))
+        path.addCurve(to: CGPoint(x: 20, y: 43), controlPoint1: CGPoint(x: 38, y: 30), controlPoint2: CGPoint(x: 27, y: 33))
+        path.close()
+        shape.path = path.cgPath
+        shape.strokeColor = UIColor.white.cgColor
+        shape.lineWidth = 2
+        content.layer.addSublayer(shape)
+        glyph.font = .systemFont(ofSize: 22, weight: .bold)
+        glyph.textAlignment = .center
+        glyph.textColor = .white
+        content.addSubview(glyph)
+        addSubview(content)
+        for label in [titleLabel, subtitleLabel] {
+            label.textAlignment = .center
+            label.lineBreakMode = .byTruncatingMiddle
+            label.textColor = UIColor { traits in
+                traits.userInterfaceStyle == .dark ? .white
+                    : UIColor(red: 0.40, green: 0.43, blue: 0.46, alpha: 1)
+            }
+            label.layer.shadowOpacity = 0
+            addSubview(label)
+        }
+        titleLabel.font = .systemFont(ofSize: 13, weight: .semibold)
+        subtitleLabel.font = .systemFont(ofSize: 11)
+        isAccessibilityElement = true
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func configure(tint: UIColor, glyph text: String, title: String?, subtitle: String?, scale: CGFloat) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        shape.fillColor = tint.cgColor
+        CATransaction.commit()
+        glyph.text = text
+        titleLabel.text = title
+        subtitleLabel.text = subtitle
+        let titleWidth = min(280, max(40, titleLabel.intrinsicContentSize.width + 8))
+        let subtitleWidth = min(280, max(40, subtitleLabel.intrinsicContentSize.width + 8))
+        titleLabel.frame = CGRect(x: 20 - titleWidth / 2, y: 48, width: titleWidth, height: 19)
+        subtitleLabel.frame = CGRect(x: 20 - subtitleWidth / 2, y: 68, width: subtitleWidth, height: 16)
+        accessibilityLabel = [title, subtitle].compactMap { $0 }.joined(separator: ", ")
+        sizeScale = scale
+    }
+
+    func containsVisibleContent(_ point: CGPoint) -> Bool {
+        !isHidden && alpha > 0 && (bounds.contains(point) ||
+            (titleLabel.text?.isEmpty == false && titleLabel.frame.contains(point)) ||
+            (subtitleLabel.text?.isEmpty == false && subtitleLabel.frame.contains(point)))
+    }
+
+    func animateHold(_ pressed: Bool) {
+        guard holding != pressed else { return }
+        holding = pressed
+        displayPriority = pressed ? .required : (sizeScale > 1 ? .required : .defaultHigh)
+        zPriority = pressed ? .max : .defaultUnselected
+        applyScale(animated: true)
+    }
+
+    private func applyScale(animated: Bool) {
+        let target = CGAffineTransform(scaleX: sizeScale * (holding ? 1.2 : 1),
+                                       y: sizeScale * (holding ? 1.2 : 1))
+        guard animated else { content.transform = target; return }
+        UIView.animate(withDuration: holding ? ParkingHoldGestureRecognizer.holdDuration : 0.24,
+                       delay: 0, options: [.beginFromCurrentState, .allowUserInteraction, .curveEaseInOut]) {
+            self.content.transform = target
+        }
+    }
+
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        holding = false
+        locksDragAppearance = false
+        content.layer.removeAllAnimations()
+        sizeScale = 1
+        titleLabel.text = nil
+        subtitleLabel.text = nil
+    }
+}
+
 /// Keep content scaling separate from MapKit's native view transform.
 final class ScaledMarkerAnnotationView: FadingMarkerAnnotationView {
     private var holdScale: CGFloat = 1
@@ -421,6 +525,14 @@ class NonAdjustingMapView: MKMapView {
     func beginAnnotationDrag() {
         isAnnotationDragActive = true
         suppressSelectionUntilNextTouch = true
+    }
+
+    func beginAnnotationHold() {
+        suppressSelectionUntilNextTouch = true
+    }
+
+    func allowAnnotationTap() {
+        if !isAnnotationDragActive { suppressSelectionUntilNextTouch = false }
     }
 
     func endAnnotationDrag() {

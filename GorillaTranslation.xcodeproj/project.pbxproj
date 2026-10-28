@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		TC10001 /* TrafficCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = TC20001; };
+		TC10002 /* traffic_cameras.json in Resources */ = {isa = PBXBuildFile; fileRef = TC20002; };
+		TC10003 /* camera_alert.wav in Resources */ = {isa = PBXBuildFile; fileRef = TC20003; };
 		05B1C5DB301837BB00589328 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05B1C5DA301837BB00589328 /* WidgetKit.framework */; };
 		05B1C5DD301837BB00589328 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 05B1C5DC301837BB00589328 /* SwiftUI.framework */; };
 		05B1C5EE301837BC00589328 /* ParkingTimerWidgetExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -106,6 +109,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		TC20001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficCamera.swift; sourceTree = "<group>"; };
+		TC20002 = {isa = PBXFileReference; lastKnownFileType = text.json; path = traffic_cameras.json; sourceTree = "<group>"; };
+		TC20003 = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = camera_alert.wav; sourceTree = "<group>"; };
 		05B1C5D33018374D00589328 /* GorillaTranslate.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = GorillaTranslate.entitlements; sourceTree = "<group>"; };
 		05B1C5D8301837BA00589328 /* ParkingTimerWidgetExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ParkingTimerWidgetExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		05B1C5DA301837BB00589328 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -286,6 +292,7 @@
 		A40003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				TC20001,
 				TR20001 /* TripReplay.swift */,
 				TR20002 /* TripReplayStore.swift */,
 				BACC2001 /* GorillaBackup.swift */,
@@ -378,6 +385,8 @@
 		F3A0B001B2C3D4E5F6071829 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
+				TC20002,
+				TC20003,
 				F3A0B002B2C3D4E5F6071829 /* Audio */,
 				L30001 /* Localizable.strings */,
 				L30002 /* InfoPlist.strings */,
@@ -521,6 +530,8 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				TC10002,
+				TC10003,
 				F11A10000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 				F3A0C022B2C3D4E5F6071829 /* gorilla_launch2.mp3 in Resources */,
 				F3A0C023B2C3D4E5F6071829 /* sfx_parking_time_notifi.caf in Resources */,
@@ -576,6 +587,7 @@
 				0B1000020B1000020B100002 /* GorillaPageView.swift in Sources */,
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
+				TC10001,
 				E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */,
 				C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,

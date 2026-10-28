@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SpeedUnitPicker: View {
     @AppStorage(SpeedUnit.preferenceKey) private var selection = SpeedUnit.kilometresPerHour.rawValue
@@ -21,6 +22,7 @@ struct SpeedInstrumentCards<SpeedContent: View>: View {
     let partiallyOpen: Bool
     let foreground: Color
     let accent: Color
+    var textColorOverride: Color? = nil
     let source: String
     var drivingState = false
     var onBlankTap: () -> Void = {}
@@ -62,14 +64,14 @@ struct SpeedInstrumentCards<SpeedContent: View>: View {
     }
 
     private var currentAction: some View {
-        SpeedCurrentActionPanel(motion: motion, telemetry: telemetry, accent: accent,
+        SpeedCurrentActionPanel(motion: motion, telemetry: telemetry, accent: accent, textColorOverride: textColorOverride,
                                 canRecognize: drivingState || telemetry.isReceiving)
             .instrumentGlass()
             .accessibilityIdentifier("currentActionCard")
     }
 
     private var forceCircle: some View {
-        SpeedGForceCirclePanel(motion: motion, telemetry: telemetry, accent: accent)
+        SpeedGForceCirclePanel(motion: motion, telemetry: telemetry, accent: accent, textColorOverride: textColorOverride)
             .instrumentGlass()
             .accessibilityIdentifier("gForceCircleCard")
     }
@@ -79,7 +81,7 @@ struct SpeedInstrumentCards<SpeedContent: View>: View {
             HStack {
                 Text("Speed").font(.headline)
                 Spacer(minLength: 4)
-                Text(source).font(.caption.weight(.semibold)).foregroundStyle(accent)
+                Text(source).font(.caption.weight(.semibold)).foregroundStyle(textColorOverride ?? accent)
             }
             .padding(.horizontal, 16).padding(.top, 14)
             speed(compact).frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -90,11 +92,60 @@ struct SpeedInstrumentCards<SpeedContent: View>: View {
     }
 }
 
+private struct InstrumentBackdropBlur: UIViewRepresentable {
+    let dark: Bool
+    final class Coordinator {
+        var dark: Bool?
+        var animator: UIViewPropertyAnimator?
+
+        func apply(to view: UIVisualEffectView, dark: Bool) {
+            guard self.dark != dark else { return }
+            self.dark = dark
+            animator?.stopAnimation(true)
+            view.effect = nil
+            let effect = UIBlurEffect(style: dark ? .systemUltraThinMaterialDark : .systemUltraThinMaterialLight)
+            let animator = UIViewPropertyAnimator(duration: 1, curve: .linear) { [weak view] in
+                view?.effect = effect
+            }
+            animator.startAnimation()
+            animator.pauseAnimation()
+            animator.fractionComplete = dark ? 0.35 : 0.08
+            self.animator = animator
+        }
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIVisualEffectView {
+        let view = UIVisualEffectView()
+        view.isUserInteractionEnabled = false
+        context.coordinator.apply(to: view, dark: dark)
+        return view
+    }
+
+    func updateUIView(_ view: UIVisualEffectView, context: Context) {
+        context.coordinator.apply(to: view, dark: dark)
+    }
+
+    static func dismantleUIView(_ view: UIVisualEffectView, coordinator: Coordinator) {
+        coordinator.animator?.stopAnimation(true)
+        coordinator.animator = nil
+        view.effect = nil
+    }
+}
+
 private struct InstrumentGlass: ViewModifier {
+    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
+
     func body(content: Content) -> some View {
         content
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .background {
+                InstrumentBackdropBlur(dark: darkGlassEnabled)
+                    .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    .glassEffect(.clear.tint(darkGlassEnabled ? .black.opacity(0.03) : .clear),
+                                 in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            }
             .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
             .accessibilityElement(children: .contain)
             .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
@@ -103,7 +154,9 @@ private struct InstrumentGlass: ViewModifier {
 }
 
 private extension View {
-    func instrumentGlass() -> some View { modifier(InstrumentGlass()) }
+    func instrumentGlass() -> some View {
+        modifier(InstrumentGlass())
+    }
 }
 
 private struct SpeedCurrentActionPanel: View {
@@ -111,6 +164,7 @@ private struct SpeedCurrentActionPanel: View {
     @ObservedObject var motion: GForceParallaxMotion
     @ObservedObject var telemetry: ACTelemetry
     let accent: Color
+    let textColorOverride: Color?
     let canRecognize: Bool
     @State private var tracker = SpeedActionTracker()
 
@@ -160,7 +214,7 @@ private struct SpeedCurrentActionPanel: View {
                             .contentTransition(.opacity)
                             .accessibilityIdentifier("currentActionStatus")
                     }
-                    .font(.caption2.weight(.semibold)).foregroundStyle(statusColor)
+                    .font(.caption2.weight(.semibold)).foregroundStyle(textColorOverride ?? statusColor)
                     .lineLimit(1).minimumScaleFactor(0.65)
                     .transition(.opacity)
                 }
@@ -186,7 +240,7 @@ private struct SpeedCurrentActionPanel: View {
                             .contentTransition(.numericText())
                             .monospacedDigit().accessibilityIdentifier("currentActionDuration")
                     }
-                    .font(.caption2).foregroundStyle(.secondary)
+                    .font(.caption2).foregroundStyle(textColorOverride ?? .secondary)
                     .lineLimit(1).minimumScaleFactor(0.65)
                 }
                 Spacer(minLength: 0)
@@ -200,14 +254,14 @@ private struct SpeedCurrentActionPanel: View {
             }
             if let result {
                 HStack(spacing: 6) {
-                    Text("評分").font(.caption2).foregroundStyle(.secondary)
+                    Text("評分").font(.caption2).foregroundStyle(textColorOverride ?? .secondary)
                         .accessibilityIdentifier("currentActionScoreTitle")
                     Text("\(result.score)")
                         .font(.system(size: compact ? 16 : 22, weight: .semibold, design: .rounded))
-                        .foregroundStyle(accent).monospacedDigit()
+                        .foregroundStyle(textColorOverride ?? accent).monospacedDigit()
                         .accessibilityIdentifier("currentActionScore")
                     Spacer(minLength: 0)
-                    Text(LocalizedStringKey(result.feedback)).font(.caption2).foregroundStyle(.secondary)
+                    Text(LocalizedStringKey(result.feedback)).font(.caption2).foregroundStyle(textColorOverride ?? .secondary)
                         .lineLimit(compact ? 1 : 2).minimumScaleFactor(0.65)
                 }
                 .accessibilityElement(children: .contain)
@@ -222,11 +276,11 @@ private struct SpeedCurrentActionPanel: View {
 
     private func forceValue(_ title: String, value: Double?, identifier: String, compact: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(.secondary)
+            Text(LocalizedStringKey(title)).font(.caption2).foregroundStyle(textColorOverride ?? .secondary)
             Text(value.map { String(format: "%.2f", $0) } ?? "—")
                 .font(.system(size: compact ? 14 : 22, weight: .semibold, design: .rounded))
                 .monospacedDigit().accessibilityIdentifier(identifier)
-            Text("G").font(.caption2).foregroundStyle(.secondary)
+            Text("G").font(.caption2).foregroundStyle(textColorOverride ?? .secondary)
         }
         .lineLimit(1).minimumScaleFactor(0.6)
     }
@@ -236,6 +290,9 @@ private struct SpeedGForceCirclePanel: View {
     @ObservedObject var motion: GForceParallaxMotion
     @ObservedObject var telemetry: ACTelemetry
     let accent: Color
+    let textColorOverride: Color?
+    @Environment(\.scenePhase) private var scenePhase
+    @State private var recentPeak = SpeedGForceRecentPeak()
 
     private var reading: SpeedGForce? {
         telemetry.isReceiving ? telemetry.sample?.gForce : motion.reading
@@ -246,15 +303,32 @@ private struct SpeedGForceCirclePanel: View {
             HStack {
                 Text("G-force").font(.headline)
                 Spacer(minLength: 4)
-                Text(reading.map { String(format: "%.2f G", $0.magnitude) } ?? "— G")
-                    .font(.system(.caption, design: .monospaced)).foregroundStyle(accent)
-                    .accessibilityIdentifier("gForceMagnitude")
+                HStack(spacing: 8) {
+                    Text(reading.map { String(format: "%.2f G", $0.magnitude) } ?? "— G")
+                        .foregroundStyle(textColorOverride ?? accent)
+                        .accessibilityIdentifier("gForceMagnitude")
+                    Text("峰值").foregroundStyle(textColorOverride ?? .secondary)
+                    Text(reading == nil ? "— G" : String(format: "%.2f G", recentPeak.peak))
+                        .foregroundStyle(textColorOverride ?? accent)
+                        .accessibilityIdentifier("gForceRecentPeak")
+                }
+                .font(.system(.caption, design: .monospaced))
+                .monospacedDigit().lineLimit(1).minimumScaleFactor(0.7)
             }
             SpeedGForcePlot(reading: reading, accent: accent)
                 .id(telemetry.isReceiving)
         }
         .padding(16)
         .transaction { $0.animation = nil }
+        .onAppear { recentPeak.update(reading, at: ProcessInfo.processInfo.systemUptime) }
+        .onReceive(motion.$reading) { value in
+            if !telemetry.isReceiving { recentPeak.update(value, at: ProcessInfo.processInfo.systemUptime) }
+        }
+        .onReceive(telemetry.$sample) { sample in
+            if telemetry.isReceiving { recentPeak.update(sample?.gForce, at: ProcessInfo.processInfo.systemUptime) }
+        }
+        .onChange(of: telemetry.isReceiving) { _, _ in recentPeak = SpeedGForceRecentPeak() }
+        .onChange(of: scenePhase) { _, _ in recentPeak = SpeedGForceRecentPeak() }
     }
 }
 

@@ -236,6 +236,21 @@ struct TimePhaseSchedule: Equatable {
         let remainder = hour.truncatingRemainder(dividingBy: 24)
         return remainder < 0 ? remainder + 24 : remainder
     }
+
+    fileprivate func interpolated(to other: Self, progress: Double) -> Self {
+        let p = min(1, max(0, progress))
+        if p == 0 { return self }
+        if p == 1 { return other }
+        return Self(startHours: zip(startHours, other.startHours).map { $0 + ($1 - $0) * p },
+                    sunrise: sunriseHour + (other.sunriseHour - sunriseHour) * p,
+                    sunset: sunsetHour + (other.sunsetHour - sunsetHour) * p)
+    }
+
+    private init(startHours: [Double], sunrise: Double, sunset: Double) {
+        self.startHours = startHours
+        sunriseHour = sunrise
+        sunsetHour = sunset
+    }
 }
 
 // MARK: - Blended Colors
@@ -321,6 +336,65 @@ struct SunPosition: Equatable {
     }
 }
 
+// Both normal updates and entrance frames sample the same timeline.
+struct TimePhaseVisualState: Equatable {
+    let hour: Double
+    let phase: TimePhase
+    let progress: Double
+    let colors: BlendedPhaseColors
+    let sun: SunPosition
+
+    init(hour: Double, schedule: TimePhaseSchedule) {
+        self.hour = TimePhaseSchedule.hourInDay(hour)
+        let state = schedule.state(at: self.hour)
+        phase = state.phase
+        progress = state.progress
+        colors = .blend(from: state.phase.colors, to: state.next.colors, progress: state.progress)
+        sun = .calculate(hour: self.hour, sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour)
+    }
+}
+
+struct TimePhaseEntrance {
+    let startHour: Double
+    private let initialTargetHour: Double
+    private var sourceSchedule: TimePhaseSchedule
+    private(set) var targetSchedule: TimePhaseSchedule
+    private var scheduleChangeProgress = 0.0
+
+    init(targetHour: Double, schedule: TimePhaseSchedule) {
+        let target = TimePhaseSchedule.hourInDay(targetHour)
+        initialTargetHour = target
+        let phase = schedule.state(at: target).phase
+        let previousIndex = (phase.rawValue - 1 + TimePhase.allCases.count) % TimePhase.allCases.count
+        let previousStart = schedule.startHours[previousIndex]
+        startHour = previousStart > target ? previousStart - 24 : previousStart
+        sourceSchedule = schedule
+        targetSchedule = schedule
+    }
+
+    mutating func updateSchedule(_ schedule: TimePhaseSchedule, at progress: Double) {
+        guard targetSchedule != schedule else { return }
+        // Late sun-time responses blend into the remaining entrance, without a jump.
+        sourceSchedule = scheduleAt(progress)
+        targetSchedule = schedule
+        scheduleChangeProgress = progress
+    }
+
+    func frame(progress: Double, targetHour: Double) -> TimePhaseVisualState {
+        let p = min(1, max(0, progress))
+        let normalized = TimePhaseSchedule.hourInDay(targetHour)
+        let target = normalized + ((initialTargetHour - normalized) / 24).rounded() * 24
+        let hour = p == 1 ? target : startHour + (target - startHour) * p
+        return TimePhaseVisualState(hour: hour, schedule: scheduleAt(p))
+    }
+
+    private func scheduleAt(_ progress: Double) -> TimePhaseSchedule {
+        let remaining = 1 - scheduleChangeProgress
+        let p = remaining > 0 ? (progress - scheduleChangeProgress) / remaining : 1
+        return sourceSchedule.interpolated(to: targetSchedule, progress: p)
+    }
+}
+
 // MARK: - Time Phase Manager
 
 class TimePhaseManager: ObservableObject {
@@ -328,6 +402,7 @@ class TimePhaseManager: ObservableObject {
     @Published var phaseTransitionProgress: Double = 0
     @Published var blendedColors: BlendedPhaseColors
     @Published var sunPosition: SunPosition = SunPosition(x: 0.5, y: 0.5, visible: false, scale: 0.5, blur: 80)
+    @Published private(set) var currentHour: Double = 0
     
     private var updateTimer: Timer?
     private var previewHour: Double? = nil  // 预览模式
@@ -337,7 +412,6 @@ class TimePhaseManager: ObservableObject {
     
     // 动态阶段起始时间（基于真实日出日落）
     @Published private(set) var schedule: TimePhaseSchedule
-    private var dynamicStartHours: [Double] { schedule.startHours }
     
     init(weatherService: WeatherService = .shared) {
         self.weatherService = weatherService
@@ -372,6 +446,7 @@ class TimePhaseManager: ObservableObject {
             if !self.hasActualSunTimes { self.hasActualSunTimes = true }
             self.update()
         }
+        update()
     }
     
     @objc private func handlePreviewChanged(_ notification: Notification) {
@@ -390,78 +465,42 @@ class TimePhaseManager: ObservableObject {
         updateTimer = timer
     }
 
-    /// 啟動時先顯示上一個階段，再用非線性動畫轉變到當前階段（顏色 + 太陽位置）
-    func startWithEntranceAnimation() {
+    /// Advance a virtual clock along the normal palette and sun trajectory.
+    func startWithEntranceAnimation(duration: TimeInterval = 5) {
         stop()
-        // 先正常計算當前目標（唔啟動定期更新）
-        let savedPreview = previewHour
-        update()
-        let targetColors = blendedColors
-        let targetPhase = currentPhase
-        let targetProgress = phaseTransitionProgress
-        let targetSun = sunPosition
-        previewHour = savedPreview
-
-        // 計算上一個階段嘅顏色同太陽位置
-        let phases = TimePhase.allCases
-        let prevIndex = (targetPhase.rawValue - 1 + phases.count) % phases.count
-        let prevPhase = phases[prevIndex]
-        // 上一個階段嘅太陽位置：用上一個階段嘅起始小時計算
-        let prevSunHour = dynamicStartHours.isEmpty ? prevPhase.startHour : dynamicStartHours[prevIndex]
-        let prevSun = SunPosition.calculate(hour: prevSunHour, sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour)
-
-        // 瞬間切到上一個階段
+        updateDynamicTimes()
+        guard duration.isFinite, duration > 0 else { start(); return }
+        var entrance = TimePhaseEntrance(targetHour: targetHour, schedule: schedule)
         isEntranceAnimating = true
-        blendedColors = BlendedPhaseColors(
-            background1: prevPhase.colors.background1,
-            background2: prevPhase.colors.background2,
-            background3: prevPhase.colors.background3,
-            sunColor: prevPhase.colors.sunColor,
-            sunOpacity: prevPhase.colors.sunIndex >= 0 ? 1 : 0,
-            sunIndex: prevPhase.colors.sunIndex
-        )
-        sunPosition = prevSun
-
-        // 用非線性動畫（easeOut cubic）過渡到當前階段
-        // 時長 5 秒：前 4 秒被 blur 蓋住，最後 1 秒 blur 淡入時見到漸變尾段
-        let duration: TimeInterval = 5.0
-        let startTime = Date()
-
-        entranceTimer?.invalidate()
-        entranceTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+        apply(entrance.frame(progress: 0, targetHour: targetHour))
+        var segmentStartTime = ProcessInfo.processInfo.systemUptime
+        var segmentDuration = duration
+        var segmentStartProgress = 0.0
+        var previousProgress = 0.0
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
             guard let self else { timer.invalidate(); return }
-            let elapsed = Date().timeIntervalSince(startTime)
-            let rawT = min(elapsed / duration, 1.0)
-            // easeOut cubic: 1 - (1 - t)^3
-            let t = 1.0 - pow(1.0 - rawT, 3.0)
-
-            // 顏色漸變
-            let fromColors = prevPhase.colors
-            let toColors = targetPhase.colors
-            self.blendedColors = BlendedPhaseColors.blend(from: fromColors, to: toColors, progress: t)
-
-            // 太陽位置漸變（x, y, scale, blur）
-            self.sunPosition = SunPosition(
-                x: prevSun.x + (targetSun.x - prevSun.x) * t,
-                y: prevSun.y + (targetSun.y - prevSun.y) * t,
-                visible: prevSun.visible || targetSun.visible,
-                scale: prevSun.scale + (targetSun.scale - prevSun.scale) * t,
-                blur: prevSun.blur + (targetSun.blur - prevSun.blur) * t
-            )
-
+            let now = ProcessInfo.processInfo.systemUptime
+            if entrance.targetSchedule != self.schedule {
+                entrance.updateSchedule(self.schedule, at: previousProgress)
+                // Even a response in the final frame gets a short, visible fade.
+                segmentDuration = max(0.4, segmentDuration - (now - segmentStartTime))
+                segmentStartTime = now
+                segmentStartProgress = previousProgress
+            }
+            let rawT = min((now - segmentStartTime) / segmentDuration, 1.0)
+            let t = rawT == 1 ? 1 : segmentStartProgress
+                + (1 - segmentStartProgress) * (1.0 - pow(1.0 - rawT, 3.0))
+            self.apply(entrance.frame(progress: t, targetHour: self.targetHour))
+            previousProgress = t
             if rawT >= 1.0 {
                 timer.invalidate()
                 self.entranceTimer = nil
                 self.isEntranceAnimating = false
-                self.blendedColors = targetColors
-                self.sunPosition = targetSun
-                self.currentPhase = targetPhase
-                self.phaseTransitionProgress = targetProgress
-                // 入場動畫完成後恢復每秒更新日夜資料
                 self.start()
             }
         }
-        RunLoop.main.add(entranceTimer!, forMode: .common)
+        entranceTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private var entranceTimer: Timer?
@@ -483,23 +522,29 @@ class TimePhaseManager: ObservableObject {
     }
     
     func setPreviewHour(_ hour: Double) {
-        previewHour = hour
-        update()
+        changePreview(to: hour)
     }
     
     func clearPreview() {
-        previewHour = nil
-        update()
+        changePreview(to: nil)
     }
 
-    /// 當前小時（預覽模式用預覽值，否則用真實時間）
-    var currentHour: Double {
+    private func changePreview(to hour: Double?) {
+        let wasAnimating = isEntranceAnimating
+        if wasAnimating { stop() }
+        previewHour = hour
+        update()
+        if wasAnimating { start() }
+    }
+
+    private var targetHour: Double {
         if let preview = previewHour {
             return preview
         }
         let calendar = Calendar.current
-        let components = calendar.dateComponents([.hour, .minute], from: Date())
-        return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60.0
+        let components = calendar.dateComponents([.hour, .minute, .second, .nanosecond], from: Date())
+        return Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60
+            + Double(components.second ?? 0) / 3600 + Double(components.nanosecond ?? 0) / 3_600_000_000_000
     }
     
     // 根据日出日落时间计算动态阶段起始时间
@@ -512,35 +557,15 @@ class TimePhaseManager: ObservableObject {
     }
     
     private func update() {
-        // 入場動畫期間唔更新，避免覆蓋漸變
         guard !isEntranceAnimating else { return }
-        let hour: Double
-        if let preview = previewHour {
-            hour = preview
-        } else {
-            let calendar = Calendar.current
-            let components = calendar.dateComponents([.hour, .minute, .second], from: Date())
-            hour = Double(components.hour ?? 0) + Double(components.minute ?? 0) / 60.0 + Double(components.second ?? 0) / 3600.0
-        }
-        
-        let state = schedule.state(at: hour)
-        let fromPhase = state.phase
-        let toPhase = state.next
-        let progress = state.progress
-        
-        // 平滑混合颜色
-        let colors = BlendedPhaseColors.blend(
-            from: fromPhase.colors,
-            to: toPhase.colors,
-            progress: progress
-        )
-        
-        // 更新太阳位置
-        let normalizedHour = TimePhaseSchedule.hourInDay(hour)
-        let sun = SunPosition.calculate(hour: normalizedHour, sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour)
-        if blendedColors != colors { blendedColors = colors }
-        if sunPosition != sun { sunPosition = sun }
-        if currentPhase != fromPhase { currentPhase = fromPhase }
-        if phaseTransitionProgress != progress { phaseTransitionProgress = progress }
+        apply(TimePhaseVisualState(hour: targetHour, schedule: schedule))
+    }
+
+    private func apply(_ state: TimePhaseVisualState) {
+        if blendedColors != state.colors { blendedColors = state.colors }
+        if sunPosition != state.sun { sunPosition = state.sun }
+        if currentPhase != state.phase { currentPhase = state.phase }
+        if phaseTransitionProgress != state.progress { phaseTransitionProgress = state.progress }
+        if currentHour != state.hour { currentHour = state.hour }
     }
 }

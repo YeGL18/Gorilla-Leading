@@ -187,21 +187,23 @@ private struct GorillaRootView: View {
                     .opacity(splashDone ? 1 : 0.6)
                     .animation(.easeOut(duration: 1.5), value: splashDone)
 
-                LaunchAnimationView(
-                    onFadeOutStart: {
-                        // 大猩猩開始淡出時，背景模糊同步漸降到 0
-                        splashDone = true
-                    },
-                    onFinish: {
-                        // 圖標淡出完成 → splash 漸隱
-                        withAnimation(.easeOut(duration: 0.8)) {
-                            showSplash = false
+                if showSplash && (UserDefaults.standard.object(forKey: "launchAnimationEnabled") as? Bool ?? true) {
+                    LaunchAnimationView(
+                        onFadeOutStart: {
+                            // 大猩猩開始淡出時，背景模糊同步漸降到 0
+                            splashDone = true
+                        },
+                        onFinish: {
+                            // 圖標淡出完成 → splash 漸隱
+                            withAnimation(.easeOut(duration: 0.8)) {
+                                showSplash = false
+                            }
                         }
-                    }
-                )
-                .opacity(showSplash ? 1 : 0)
-                .zIndex(1)
-                .allowsHitTesting(showSplash)
+                    )
+                    .opacity(showSplash ? 1 : 0)
+                    .zIndex(1)
+                    .allowsHitTesting(showSplash)
+                }
 
                 if !showSplash && shouldShowOnboarding {
                     GorillaOnboardingView(initialPage: debugOnboardingPage) {
@@ -215,6 +217,8 @@ private struct GorillaRootView: View {
                     .zIndex(2)
                 }
             }
+            .overlay(alignment: .top) { TrafficCameraWarningView().padding(.top, 70) }
+            .overlay { TrafficCameraDetailOverlay() }
             .alert("Backup & Restore", isPresented: Binding(get: { backupController.restoreMessage != nil },
                 set: { if !$0 { backupController.restoreMessage = nil } })) {
                     Button("確定", role: .cancel) { backupController.restoreMessage = nil }

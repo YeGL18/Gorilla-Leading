@@ -1,6 +1,29 @@
 import XCTest
 
 final class EnergyVisualTests: XCTestCase {
+    func testTimelineEntranceFramesAndActualBlendedEndpoint() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--time-entrance"]
+        app.launch()
+        XCTAssertTrue(app.buttons["Start"].waitForExistence(timeout: 10))
+        for name in ["Start", "Middle", "End"] {
+            app.buttons[name].tap()
+            let frame = XCTAttachment(screenshot: app.screenshot())
+            frame.name = "Timeline entrance \(name)"
+            frame.lifetime = .keepAlways
+            add(frame)
+        }
+        XCTAssertEqual(app.staticTexts["phaseProgress"].label, "0.600")
+        app.buttons["Replay"].tap()
+        let arrived = XCTNSPredicateExpectation(predicate: NSPredicate(format: "label == '0.600'"),
+                                                object: app.staticTexts["phaseProgress"])
+        XCTAssertEqual(XCTWaiter.wait(for: [arrived], timeout: 5), .completed)
+        let final = XCTAttachment(screenshot: app.screenshot())
+        final.name = "Timeline entrance completed without palette snap"
+        final.lifetime = .keepAlways
+        add(final)
+    }
+
     func testSoftenedEdgesAndToggle() {
         let app = XCUIApplication()
         app.launch()

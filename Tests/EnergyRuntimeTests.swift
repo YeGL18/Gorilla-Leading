@@ -1,4 +1,5 @@
 import XCTest
+import SwiftUI
 import Combine
 import MapKit
 @testable import GorillaEnergyChecks
@@ -212,6 +213,142 @@ final class EnergyRuntimeTests: XCTestCase {
         XCTAssertEqual(phase.blendedColors, frozen)
         phase.start()
         phase.stop()
+    }
+
+    func testEntranceEndsAtTheActualPartialPaletteWithoutAFinalSnap() {
+        let schedule = TimePhaseSchedule(civilDawn: 5.8, sunrise: 6.2, sunset: 18.1)
+        let morning = schedule.startHours[TimePhase.morning.rawValue]
+        let afternoon = schedule.startHours[TimePhase.afternoon.rawValue]
+        let hour = morning + (afternoon - morning) * (0.7 + 0.3 * 0.6)
+        let target = TimePhaseVisualState(hour: hour, schedule: schedule)
+        XCTAssertEqual(target.progress, 0.6, accuracy: 0.000001)
+        let entrance = TimePhaseEntrance(targetHour: hour, schedule: schedule)
+        let end = entrance.frame(progress: 1, targetHour: hour)
+        XCTAssertEqual(end, target)
+        let beforeEnd = entrance.frame(progress: 0.99999, targetHour: hour)
+        XCTAssertEqual(beforeEnd.progress, target.progress, accuracy: 0.0001)
+        assertColorsClose(beforeEnd.colors, target.colors, accuracy: 0.0001)
+        XCTAssertNotEqual(end.colors, .blend(from: TimePhase.morning.colors,
+                                            to: TimePhase.morning.colors, progress: 0))
+    }
+
+    func testEntranceSunFollowsTheNormalArcRatherThanTheEndpointChord() {
+        let schedule = TimePhaseSchedule(civilDawn: 5.8, sunrise: 6.2, sunset: 18.1)
+        let hour = 14.0
+        let entrance = TimePhaseEntrance(targetHour: hour, schedule: schedule)
+        for index in 0...300 {
+            let frame = entrance.frame(progress: Double(index) / 300, targetHour: hour)
+            XCTAssertEqual(frame.sun, .calculate(hour: frame.hour,
+                sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour))
+            XCTAssertEqual(frame, TimePhaseVisualState(hour: frame.hour, schedule: schedule))
+        }
+        let midpoint = entrance.frame(progress: 0.5, targetHour: hour)
+        let start = SunPosition.calculate(hour: entrance.startHour,
+            sunrise: schedule.sunriseHour, sunset: schedule.sunsetHour)
+        let end = entrance.frame(progress: 1, targetHour: hour).sun
+        XCTAssertGreaterThan(abs(midpoint.sun.y - (start.y + end.y) / 2), 0.1)
+    }
+
+    func testEntranceRemainsForwardAcrossMidnightAndSeasonalSchedules() {
+        for sunset in [17.6, 18.1, 19.1] {
+            let schedule = TimePhaseSchedule(civilDawn: 5.8, sunrise: 6.2, sunset: sunset)
+            for hour in [0.0, 2, 5.9, 6.3, 12, 14.7, 17.8, 23.99] {
+                let entrance = TimePhaseEntrance(targetHour: hour, schedule: schedule)
+                XCTAssertLessThanOrEqual(entrance.startHour, hour)
+                XCTAssertLessThan(hour - entrance.startHour, 24)
+                XCTAssertEqual(entrance.frame(progress: 1, targetHour: hour),
+                    TimePhaseVisualState(hour: hour, schedule: schedule))
+                let before = entrance.frame(progress: 0.999999, targetHour: hour)
+                assertColorsClose(before.colors, entrance.frame(progress: 1, targetHour: hour).colors,
+                                  accuracy: 0.0001)
+            }
+        }
+        let schedule = TimePhaseSchedule(civilDawn: 5.8, sunrise: 6.2, sunset: 18.1)
+        let midnight = TimePhaseEntrance(targetHour: 23.9999, schedule: schedule)
+        XCTAssertEqual(midnight.frame(progress: 1, targetHour: 0.0001).hour, 0.0001, accuracy: 0.000001)
+    }
+
+    func testLateSunTimesBlendIntoTheRemainingEntrance() {
+        let old = TimePhaseSchedule(civilDawn: 5.8, sunrise: 6.2, sunset: 18.1)
+        let new = TimePhaseSchedule(civilDawn: 5.3, sunrise: 5.7, sunset: 19.1)
+        var entrance = TimePhaseEntrance(targetHour: 14.5, schedule: old)
+        let beforeResponse = entrance.frame(progress: 0.55, targetHour: 14.5)
+        entrance.updateSchedule(new, at: 0.55)
+        XCTAssertEqual(entrance.frame(progress: 0.55, targetHour: 14.5), beforeResponse)
+        let end = entrance.frame(progress: 1, targetHour: 14.5)
+        XCTAssertEqual(end, TimePhaseVisualState(hour: 14.5, schedule: new))
+        assertColorsClose(entrance.frame(progress: 0.999999, targetHour: 14.5).colors,
+                          end.colors, accuracy: 0.0001)
+        entrance.updateSchedule(old, at: 0.75)
+        XCTAssertEqual(entrance.frame(progress: 1, targetHour: 14.5),
+                       TimePhaseVisualState(hour: 14.5, schedule: old))
+    }
+
+    func testEntranceCompletesAtTheSameStateWithLaunchAnimationOnOrOff() async throws {
+        let defaults = UserDefaults.standard
+        let saved = defaults.object(forKey: "launchAnimationEnabled")
+        defer { defaults.set(saved, forKey: "launchAnimationEnabled") }
+        for enabled in [true, false] {
+            defaults.set(enabled, forKey: "launchAnimationEnabled")
+            let manager = TimePhaseManager(weatherService: WeatherService())
+            manager.setPreviewHour(14.5)
+            let expected = TimePhaseVisualState(hour: 14.5, schedule: manager.schedule)
+            manager.startWithEntranceAnimation(duration: 0.15)
+            try await Task.sleep(nanoseconds: 300_000_000)
+            XCTAssertEqual(manager.blendedColors, expected.colors)
+            XCTAssertEqual(manager.sunPosition, expected.sun)
+            XCTAssertEqual(manager.currentHour, expected.hour)
+            XCTAssertEqual(manager.phaseTransitionProgress, expected.progress)
+            manager.stop()
+        }
+    }
+
+    func testChangingPreviewDuringEntranceCannotBeOverwrittenLater() async throws {
+        let manager = TimePhaseManager(weatherService: WeatherService())
+        manager.setPreviewHour(14.5)
+        manager.startWithEntranceAnimation(duration: 0.15)
+        manager.setPreviewHour(20)
+        let expected = TimePhaseVisualState(hour: 20, schedule: manager.schedule)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        XCTAssertEqual(manager.blendedColors, expected.colors)
+        XCTAssertEqual(manager.currentHour, expected.hour)
+        manager.stop()
+    }
+
+    func testSunResponseNearTheEndStillGetsTimeToFade() async throws {
+        let service = WeatherService()
+        let manager = TimePhaseManager(weatherService: service)
+        manager.setPreviewHour(14.5)
+        manager.startWithEntranceAnimation(duration: 0.3)
+        try await Task.sleep(nanoseconds: 250_000_000)
+        let before = manager.blendedColors
+        func date(_ hour: Int, _ minute: Int) -> Date {
+            Calendar.current.date(bySettingHour: hour, minute: minute, second: 0, of: Date())!
+        }
+        service.sunTimes = SunTimes(sunrise: date(5, 42), sunset: date(19, 6),
+                                   civilDawn: date(5, 18), civilDusk: date(19, 30))
+        XCTAssertEqual(manager.blendedColors, before)
+        let target = TimePhaseVisualState(hour: 14.5, schedule: manager.schedule)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        XCTAssertNotEqual(manager.blendedColors, target.colors, "Late data must not snap to the new palette")
+        try await Task.sleep(nanoseconds: 450_000_000)
+        XCTAssertEqual(manager.blendedColors, target.colors)
+        XCTAssertEqual(manager.sunPosition, target.sun)
+        manager.stop()
+    }
+
+    private func assertColorsClose(_ lhs: BlendedPhaseColors, _ rhs: BlendedPhaseColors,
+                                   accuracy: Double, file: StaticString = #filePath, line: UInt = #line) {
+        for (a, b) in zip([lhs.background1, lhs.background2, lhs.background3, lhs.sunColor],
+                          [rhs.background1, rhs.background2, rhs.background3, rhs.sunColor]) {
+            var ar: CGFloat = 0, ag: CGFloat = 0, ab: CGFloat = 0, aa: CGFloat = 0
+            var br: CGFloat = 0, bg: CGFloat = 0, bb: CGFloat = 0, ba: CGFloat = 0
+            UIColor(a).getRed(&ar, green: &ag, blue: &ab, alpha: &aa)
+            UIColor(b).getRed(&br, green: &bg, blue: &bb, alpha: &ba)
+            for (first, second) in zip([ar, ag, ab, aa], [br, bg, bb, ba]) {
+                XCTAssertEqual(Double(first), Double(second), accuracy: accuracy, file: file, line: line)
+            }
+        }
     }
 
     func testSheenSleepsForPauseAndRetainsSweepCadence() {

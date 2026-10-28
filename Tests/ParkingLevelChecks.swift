@@ -1,5 +1,6 @@
 import Foundation
 import CoreLocation
+import Combine
 
 @main
 struct ParkingLevelChecks {
@@ -529,8 +530,19 @@ struct ParkingLevelChecks {
         let reload = ParkingFloorStore()
         reload.prepare()
         precondition(reload.lots == store.lots, "Custom boundary and merged visits must survive reload")
+        let revisionBeforeReset = store.mapRevision
+        var publishedRevision = revisionBeforeReset
+        let revisionObserver = store.$mapRevision.dropFirst().sink { publishedRevision = $0 }
         precondition(store.setBoundary(lotID: destination.id, vertices: nil))
         precondition(store.lots[0].boundaryVertices == nil)
+        precondition(publishedRevision > revisionBeforeReset && publishedRevision == store.mapRevision,
+                     "Restoring a circle must publish a fresh map revision after boundary changes")
+        precondition(store.lots[0].radiusMeters >= 25 && store.lots[0].radiusMeters <= ParkingFloorStore.defaultRadiusMeters)
+        let restored = ParkingFloorStore()
+        restored.prepare()
+        precondition(restored.lots[0].boundaryVertices == nil && restored.lots[0].radiusMeters == store.lots[0].radiusMeters,
+                     "Restored circle geometry must survive reload")
+        revisionObserver.cancel()
         print("PASS: polygon validation, vertex insertion, containment, manual merge, unchanged visits, custom range persistence and clearing aliases")
     }
 }

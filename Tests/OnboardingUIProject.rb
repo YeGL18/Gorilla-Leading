@@ -10,6 +10,7 @@ about_section = settings[about_start...about_end]
 File.write("#{root}/Fixture.swift", <<~SWIFT)
   import SwiftUI
   import CoreLocation
+  extension CLLocationCoordinate2D { var wgs84ToGCJ02: Self { self } }
   final class LocationManager: ObservableObject {
     @Published var authorizationStatus: CLAuthorizationStatus = .notDetermined
     func startLocationServicesIfNeeded() {}
@@ -37,10 +38,11 @@ SWIFT
 project = Xcodeproj::Project.new("#{root}/OnboardingChecks.xcodeproj")
 app = project.new_target(:application, 'OnboardingChecks', :ios, '26.0')
 tests = project.new_target(:ui_test_bundle, 'OnboardingUITests', :ios, '26.0')
-["#{root}/Fixture.swift", "#{repo}/GorillaTranslate/Views/GorillaOnboardingView.swift", "#{repo}/GorillaTranslate/Views/GorillaPageView.swift", "#{repo}/GorillaTranslate/Extensions/ColorExtension.swift"].each do |file|
+["#{root}/Fixture.swift", "#{repo}/GorillaTranslate/Views/GorillaOnboardingView.swift", "#{repo}/GorillaTranslate/Views/GorillaPageView.swift", "#{repo}/GorillaTranslate/Extensions/ColorExtension.swift", "#{repo}/GorillaTranslate/Models/TrafficCamera.swift"].each do |file|
   app.source_build_phase.add_file_reference(project.main_group.new_file(file))
 end
 app.resources_build_phase.add_file_reference(project.main_group.new_file("#{repo}/GorillaTranslate/Assets.xcassets"))
+app.resources_build_phase.add_file_reference(project.main_group.new_file("#{repo}/GorillaTranslate/Resources/traffic_cameras.json"))
 tests.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Tests/OnboardingUITests.swift"))
 tour_source = File.read("#{repo}/GorillaTranslate/Views/GorillaOnboardingView.swift")
 motion_start = tour_source.index('struct LeadingJourneyMotion {') or abort 'Missing journey motion model'

@@ -825,6 +825,10 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         guard let location = locations.last else { return }
         DispatchQueue.main.async {
             self.lastLocation = location
+            Task { @MainActor in
+                TrafficCameraStore.shared.update(location,
+                    driving: self.wasAutomotive(around: location.timestamp, within: 120))
+            }
             // 緩存當前坐標（樓層慣例自動判定用；以前呢兩個 key 冇人寫，成日判死香港）
             if location.horizontalAccuracy >= 0,
                CLLocationCoordinate2DIsValid(location.coordinate),
@@ -2270,7 +2274,7 @@ final class ParkingFloorStore: ObservableObject {
     private var cachedLotNames: [UUID: String]?
     private var cachedRecordGroups: [ParkingRecordGroup]?
     private var cachedMapPoints: [ParkingPointRecord]?
-    private(set) var mapRevision = 0
+    @Published private(set) var mapRevision = 0
     /// 當前活躍的停車場 ID（最近一次 recordParkingPoint 命中的 lot）
     @Published var activeLotID: UUID?
     @Published private(set) var floorMode: ParkingFloorMode = .fixed

@@ -66,6 +66,7 @@ fixture = <<~SWIFT
     var body: some View {
       NavigationStack {
         List {
+          Section { LaunchAnimationSettingsSection() }
           Section { GorillaColorGroupPicker() }
           if group.showsOrbControls { Text("Orb Controls").accessibilityIdentifier("orbControls") }
           if group.showsOrbControls {
@@ -109,7 +110,7 @@ app = project.new_target(:application, 'ColorGroupChecks', :ios, '26.0')
 tests = project.new_target(:ui_test_bundle, 'ColorGroupUITests', :ios, '26.0')
 app.source_build_phase.add_file_reference(project.main_group.new_file("#{root}/Fixture.swift"))
 app.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/GorillaTranslate/Extensions/ColorExtension.swift"))
-%w[Models/AnimationClock.swift Views/AnimatedBackground.swift Shaders/MetaballEffect.metal].each do |file|
+%w[Models/AnimationClock.swift Views/AnimatedBackground.swift Views/LaunchAnimationView.swift Shaders/MetaballEffect.metal].each do |file|
   app.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/GorillaTranslate/#{file}"))
 end
 tests.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Tests/ColorGroupUITests.swift"))

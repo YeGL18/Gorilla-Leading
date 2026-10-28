@@ -1,0 +1,3686 @@
+{
+  "attribution": "Hong Kong SAR Government Transport Department / DATA.GOV.HK. All rights in the source data belong to their respective owners.",
+  "downloadedAt": "2026-10-26",
+  "terms": "https://data.gov.hk/en/terms-and-conditions",
+  "sources": [
+    "https://www.td.gov.hk/datagovhk_td/locations-of-sec/resources/locations_of_sec.kmz",
+    "https://www.td.gov.hk/datagovhk_td/junctions-with-rlc/resources/junctions_with_rlc.kmz"
+  ],
+  "cameras": [
+    {
+      "id": "sec-1",
+      "kind": "sec",
+      "name": "香港仔海旁道（西行）鄰近香港仔魚類批發巿場",
+      "english": "ABERDEEN PRAYA ROAD (WESTBOUND) NEAR WHOLESALE FISH MARKET",
+      "latitude": 22.2480832487535,
+      "longitude": 114.151768025462,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.51,
+      "roadRouteID": "2900",
+      "roadSpeedLimitID": "935",
+      "matchedRoadName": "香港仔海傍道"
+    },
+    {
+      "id": "sec-2",
+      "kind": "sec",
+      "name": "香港仔海旁道（東行）鄰近湖南街巴士總站",
+      "english": "ABERDEEN PRAYA ROAD (EASTBOUND) NEAR WU NAM STREET BUS TERMINUS",
+      "latitude": 22.2474967234724,
+      "longitude": 114.155017966928,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.82,
+      "roadRouteID": "3574",
+      "roadSpeedLimitID": "972",
+      "matchedRoadName": "香港仔海傍道"
+    },
+    {
+      "id": "sec-3",
+      "kind": "sec",
+      "name": "告士打道（東行）鄰近香港演藝學院",
+      "english": "GLOUCESTER ROAD (EASTBOUND) NEAR HK ACADEMY FOR PERFORMING ARTS",
+      "latitude": 22.2796923062232,
+      "longitude": 114.169402862181
+    },
+    {
+      "id": "sec-4",
+      "kind": "sec",
+      "name": "東區走廊（東行）鄰近東區海底隧道入囗",
+      "english": "ISLAND EASTERN CORRIDOR (EASTBOUND) NEAR ENTRANCE OF EHT",
+      "latitude": 22.2901457073226,
+      "longitude": 114.213933724552,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 5.5,
+      "roadRouteID": "4629",
+      "roadSpeedLimitID": "829",
+      "matchedRoadName": "東區走廊"
+    },
+    {
+      "id": "sec-5",
+      "kind": "sec",
+      "name": "東區走廊（東行）鄰近鰂魚涌公園",
+      "english": "ISLAND EASTERN CORRIDOR (EASTBOUND) NEAR QUARRY BAY PARK",
+      "latitude": 22.2895220521276,
+      "longitude": 114.216233385,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 4.03,
+      "roadRouteID": "4605",
+      "roadSpeedLimitID": "816",
+      "matchedRoadName": "東區走廊"
+    },
+    {
+      "id": "sec-6",
+      "kind": "sec",
+      "name": "東區走廊（東行）鄰近海防博物館",
+      "english": "ISLAND EASTERN CORRIDOR (EASTBOUND) NEAR HK MUSEUM OF COASTAL DEFENCE",
+      "latitude": 22.281117833076,
+      "longitude": 114.235259244642,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.63,
+      "roadRouteID": "4564",
+      "roadSpeedLimitID": "1384",
+      "matchedRoadName": "東區走廊"
+    },
+    {
+      "id": "sec-7",
+      "kind": "sec",
+      "name": "東區走廊（西行）鄰近阿公岩",
+      "english": "ISLAND EASTERN CORRIDOR (WESTBOUND) NEAR A KUNG NGAM",
+      "latitude": 22.2801514187253,
+      "longitude": 114.23563727004,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.94,
+      "roadRouteID": "4274",
+      "roadSpeedLimitID": "1389",
+      "matchedRoadName": "東區走廊"
+    },
+    {
+      "id": "sec-8",
+      "kind": "sec",
+      "name": "薄扶林道（香港仔方向）鄰近余振強紀念第二中學",
+      "english": "POK FU LAM ROAD (TO ABERDEEN) NEAR YU CHUN KEUNG MEMORIAL COLLEGE NO.2",
+      "latitude": 22.2566685864552,
+      "longitude": 114.137495388988
+    },
+    {
+      "id": "sec-9",
+      "kind": "sec",
+      "name": "香港仔水塘道（南行）鄰近香港仔美沙酮診所",
+      "english": "ABERDEEN RESERVOIR ROAD (SOUTHBOUND) NEAR ABERDEEN METHADONE CLINIC",
+      "latitude": 22.2502693138407,
+      "longitude": 114.15635630293
+    },
+    {
+      "id": "sec-10",
+      "kind": "sec",
+      "name": "藍塘道（落山方向）鄰近１４１－１４３號千葉居",
+      "english": "BLUE POOL ROAD (DOWN HILL DIRECTION) NEAR NO. 141-143 BILLION TERRACE",
+      "latitude": 22.2632381658744,
+      "longitude": 114.189186295012
+    },
+    {
+      "id": "sec-11",
+      "kind": "sec",
+      "name": "雲景道（落山方向）鄰近１２號美家閣",
+      "english": "CLOUD VIEW ROAD (DOWN HILL DIRECTION) NEAR NO. 12 MEGA COURT",
+      "latitude": 22.2856065139515,
+      "longitude": 114.195097773575
+    },
+    {
+      "id": "sec-12",
+      "kind": "sec",
+      "name": "柴灣道（柴灣方向）鄰近１１１號高威閣",
+      "english": "CHAI WAN ROAD (TOWARDS CHAI WAN) NEAR NO. 111 KOWAY COURT",
+      "latitude": 22.2672924808501,
+      "longitude": 114.233681718902
+    },
+    {
+      "id": "sec-13",
+      "kind": "sec",
+      "name": "柴灣道（筲箕灣方向）鄰近４２號筲箕灣官立中學",
+      "english": "CHAI WAN ROAD (TOWARDS SKW) NEAR NO.42 SKW GOVERNMENT SECONDARY SCHOOL",
+      "latitude": 22.2719074306246,
+      "longitude": 114.232849152601
+    },
+    {
+      "id": "sec-14",
+      "kind": "sec",
+      "name": "花園道（中環方向）鄰近３７號聖若瑟堂",
+      "english": "GARDEN ROAD (TOWARDS CENTRAL) NEAR NO.37 ST. JOSEPH’S CHURCH",
+      "latitude": 22.277478879143,
+      "longitude": 114.158011570931
+    },
+    {
+      "id": "sec-15",
+      "kind": "sec",
+      "name": "百福道（落山方向）鄰近百福道遊樂場",
+      "english": "PAK FUK ROAD (DOWN HILL DIRECTION) NEAR PAK FUK ROAD PLAYGROUND",
+      "latitude": 22.2904089607115,
+      "longitude": 114.207383617806
+    },
+    {
+      "id": "sec-16",
+      "kind": "sec",
+      "name": "士美菲路（北行）鄰近８３號時美閣",
+      "english": "SMITHFIELD ROAD (NORTHBOUND) NEAR NO. 83 SMITH COURT",
+      "latitude": 22.2795501143273,
+      "longitude": 114.129483841471
+    },
+    {
+      "id": "sec-17",
+      "kind": "sec",
+      "name": "沙宣道（南行）鄰近７號白文信樓",
+      "english": "SASSOON ROAD (SOUTHBOUND) NEAR NO. 7 PATRICK MANSION BUILDING",
+      "latitude": 22.2687674804179,
+      "longitude": 114.129322527997
+    },
+    {
+      "id": "sec-18",
+      "kind": "sec",
+      "name": "新西貢公路（北行）鄰近窩美",
+      "english": "NEW HIRAM'S HIGHWAY (NORTHBOUND) NEAR WO MEI",
+      "latitude": 22.3487761008156,
+      "longitude": 114.254305376053
+    },
+    {
+      "id": "sec-19",
+      "kind": "sec",
+      "name": "龍翔道（東行）鄰近竹園道（天橋底）",
+      "english": "LUNG CHEUNG ROAD (EASTBOUND) NEAR CHUK YUEN ROAD (UNDER THE FLYOVER)",
+      "latitude": 22.3433490345606,
+      "longitude": 114.184106548158,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.68,
+      "roadRouteID": "108012",
+      "roadSpeedLimitID": "3028",
+      "matchedRoadName": "龍翔道"
+    },
+    {
+      "id": "sec-20",
+      "kind": "sec",
+      "name": "將軍澳道（西南行）鄰近啟田道",
+      "english": "TSEUNG KWAN O ROAD (SOUTHWESTBOUND) NEAR KAI TIN ROAD",
+      "latitude": 22.3124538387376,
+      "longitude": 114.235903132523,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 2.64,
+      "roadRouteID": "100270",
+      "roadSpeedLimitID": "9010",
+      "matchedRoadName": "將軍澳道"
+    },
+    {
+      "id": "sec-21",
+      "kind": "sec",
+      "name": "環保大道（南行）鄰近康城路",
+      "english": "WAN PO ROAD (SOUTHBOUND) NEAR LOHAS PARK ROAD",
+      "latitude": 22.2977256197619,
+      "longitude": 114.272346909059,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 4.76,
+      "roadRouteID": "149355",
+      "roadSpeedLimitID": "140116",
+      "matchedRoadName": "環保大道"
+    },
+    {
+      "id": "sec-22",
+      "kind": "sec",
+      "name": "環保大道（北行）鄰近百勝角",
+      "english": "WAN PO ROAD (NORTHBOUND) NEAR PAK SHING KOK",
+      "latitude": 22.3044093072642,
+      "longitude": 114.270565747334,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.81,
+      "roadRouteID": "101628",
+      "roadSpeedLimitID": "3401",
+      "matchedRoadName": "環保大道"
+    },
+    {
+      "id": "sec-23",
+      "kind": "sec",
+      "name": "清水灣道（西行）鄰近德望學校",
+      "english": "CLEAR WATER BAY ROAD (WESTBOUND) NEAR GOOD HOPE SCHOOL",
+      "latitude": 22.3342758451861,
+      "longitude": 114.223283518126
+    },
+    {
+      "id": "sec-24",
+      "kind": "sec",
+      "name": "清水灣道（南行）鄰近銀綫灣道",
+      "english": "CLEAR WATER BAY ROAD (SOUTHBOUND) NEAR SILVERSTRAND BEACH ROAD",
+      "latitude": 22.3242597666142,
+      "longitude": 114.268433909726
+    },
+    {
+      "id": "sec-25",
+      "kind": "sec",
+      "name": "坑口道（南行）鄰近坑口鄉事委員會",
+      "english": "HANG HAU ROAD (SOUTHBOUND) NEAR HANG HAU RURAL COMMITTEE",
+      "latitude": 22.3191201346343,
+      "longitude": 114.270585274069
+    },
+    {
+      "id": "sec-26",
+      "kind": "sec",
+      "name": "沙田坳道（南行）鄰近慈雲山道",
+      "english": "SHATIN PASS ROAD (SOUTHBOUND) NEAR TSZ WAN SHAN ROAD",
+      "latitude": 22.3484233512271,
+      "longitude": 114.195047701974
+    },
+    {
+      "id": "sec-27",
+      "kind": "sec",
+      "name": "雲華街（南行）鄰近惠華街",
+      "english": "WAN WAH STREET (SOUTHBOUND) NEAR WAI WAH STREET",
+      "latitude": 22.3495605763958,
+      "longitude": 114.199950417996
+    },
+    {
+      "id": "sec-28",
+      "kind": "sec",
+      "name": "呈祥道（西行）鄰近明愛醫院",
+      "english": "CHING CHEUNG ROAD (WESTBOUND) NEAR CARITAS MEDICAL CENTRE",
+      "latitude": 22.3408907131445,
+      "longitude": 114.150314767579,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.4,
+      "roadRouteID": "107138",
+      "roadSpeedLimitID": "8360",
+      "matchedRoadName": "呈祥道"
+    },
+    {
+      "id": "sec-29",
+      "kind": "sec",
+      "name": "呈祥道（東行）明愛醫院對面",
+      "english": "CHING CHEUNG ROAD (EASTBOUND) OPPOSITE CARITAS MEDICAL CENTRE",
+      "latitude": 22.3405472357404,
+      "longitude": 114.148451005751,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 8.02,
+      "roadRouteID": "107131",
+      "roadSpeedLimitID": "1126",
+      "matchedRoadName": "呈祥道"
+    },
+    {
+      "id": "sec-30",
+      "kind": "sec",
+      "name": "龍翔道（西行）鄰近南昌街",
+      "english": "LUNG CHEUNG ROAD (WB) NEAR NAM CHEONG STREET",
+      "latitude": 22.3418497035786,
+      "longitude": 114.165167094525,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 4.9,
+      "roadRouteID": "107143",
+      "roadSpeedLimitID": "3041",
+      "matchedRoadName": "龍翔道"
+    },
+    {
+      "id": "sec-31",
+      "kind": "sec",
+      "name": "龍翔道（東行）鄰近龍坪道支路往龍翔道",
+      "english": "LUNG CHEUNG ROAD (EASTBOUND) NEAR SLIP ROAD FROM LUNG PING ROAD",
+      "latitude": 22.3424821209798,
+      "longitude": 114.170040239999,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 10.37,
+      "roadRouteID": "260835",
+      "roadSpeedLimitID": "140509",
+      "matchedRoadName": "龍翔道"
+    },
+    {
+      "id": "sec-32",
+      "kind": "sec",
+      "name": "公主道（北行）鄰近嘉輝台",
+      "english": "PRINCESS MARGARET ROAD (NORTHBOUND) NEAR GREENFIELD TERRACE",
+      "latitude": 22.3129974025851,
+      "longitude": 114.176699657804,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 3.46,
+      "roadRouteID": "105192",
+      "roadSpeedLimitID": "2239",
+      "matchedRoadName": "公主道"
+    },
+    {
+      "id": "sec-33",
+      "kind": "sec",
+      "name": "公主道（南行）鄰近愛民邨",
+      "english": "PRINCESS MARGARET ROAD (SOUTHBOUND) NEAR OI MAN ESTATE",
+      "latitude": 22.3139997990774,
+      "longitude": 114.17712670308,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.38,
+      "roadRouteID": "104983",
+      "roadSpeedLimitID": "3095",
+      "matchedRoadName": "公主道"
+    },
+    {
+      "id": "sec-34",
+      "kind": "sec",
+      "name": "義德道中華電力義德道電力站對面",
+      "english": "EDE ROAD OPPOSITE CLP EDE ROAD SUBSTATION",
+      "latitude": 22.3428796083358,
+      "longitude": 114.176767583066
+    },
+    {
+      "id": "sec-35",
+      "kind": "sec",
+      "name": "大埔道(南行)鄰近薩凡納藝術設計大學",
+      "english": "TAI PO ROAD (SOUTHBOUND) NEAR SAVANNAH COLLEGE OF ART AND DESIGN",
+      "latitude": 22.3350765826321,
+      "longitude": 114.162760308705
+    },
+    {
+      "id": "sec-36",
+      "kind": "sec",
+      "name": "窩打老道 (南行) 鄰近燈柱 K8635 (嘉諾撒聖家學校對面)",
+      "english": "WATERLOO RD (SB) NEAR L/P K8635 (OPPOSITE HOLY FAMILY CANOSSIAN SCHOOL)",
+      "latitude": 22.336648496679,
+      "longitude": 114.17918466929
+    },
+    {
+      "id": "sec-37",
+      "kind": "sec",
+      "name": "青山公路大欖段（南行）鄰近青欖路",
+      "english": "CASTLE PEAK ROAD - TAI LAM (SOUTHBOUND) NEAR TSING LAM ROAD",
+      "latitude": 22.3664445429203,
+      "longitude": 114.00988556522,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 4.74,
+      "roadRouteID": "94737",
+      "roadSpeedLimitID": "2286",
+      "matchedRoadName": "青山公路　–　大欖段"
+    },
+    {
+      "id": "sec-38",
+      "kind": "sec",
+      "name": "青山公路大欖段（北行）鄰近青欖路",
+      "english": "CASTLE PEAK ROAD - TAI LAM (NORTHBOUND) NEAR TSING LAM ROAD",
+      "latitude": 22.3661476939368,
+      "longitude": 114.011012183502,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 5.21,
+      "roadRouteID": "96047",
+      "roadSpeedLimitID": "3225",
+      "matchedRoadName": "青山公路　–　大欖段"
+    },
+    {
+      "id": "sec-39",
+      "kind": "sec",
+      "name": "青山公路大欖段（南行）鄰近燈柱 FA2028（大欖涌磅車中心）",
+      "english": "CASTLE PEAK ROAD-TAI LAM (S BOUND) NEAR L/P FA2028 (TLC WEIGHSTATION)",
+      "latitude": 22.3595274476408,
+      "longitude": 114.019175344664
+    },
+    {
+      "id": "sec-40",
+      "kind": "sec",
+      "name": "龍富路（南行）鄰近屯門高爾夫球場",
+      "english": "LUNG FU ROAD (SOUTHBOUND) NEAR TUEN MUN GOLF CENTRE",
+      "latitude": 22.382723830381,
+      "longitude": 113.961702981277,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.06,
+      "roadRouteID": "97110",
+      "roadSpeedLimitID": "149308",
+      "matchedRoadName": "龍富路"
+    },
+    {
+      "id": "sec-41",
+      "kind": "sec",
+      "name": "龍富路（南行）鄰近屯門公眾騎術學校",
+      "english": "LUNG FU ROAD (SOUTHBOUND) NEAR TUEN MUN PUBLIC RIDING SCHOOL",
+      "latitude": 22.3741994972379,
+      "longitude": 113.955336802989,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.69,
+      "roadRouteID": "276986",
+      "roadSpeedLimitID": "149310",
+      "matchedRoadName": "龍富路"
+    },
+    {
+      "id": "sec-42",
+      "kind": "sec",
+      "name": "汀角路（北行）鄰近下坑",
+      "english": "TING KOK ROAD (NORTHBOUND) NEAR HA HANG",
+      "latitude": 22.4607004263649,
+      "longitude": 114.183869760001,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.34,
+      "roadRouteID": "58919",
+      "roadSpeedLimitID": "1261",
+      "matchedRoadName": "汀角路"
+    },
+    {
+      "id": "sec-43",
+      "kind": "sec",
+      "name": "汀角路（南行）鄰近下坑",
+      "english": "TING KOK ROAD (SOUTHBOUND) NEAR HA HANG",
+      "latitude": 22.460745566908,
+      "longitude": 114.184132088393,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 4.73,
+      "roadRouteID": "58304",
+      "roadSpeedLimitID": "1204",
+      "matchedRoadName": "汀角路"
+    },
+    {
+      "id": "sec-44",
+      "kind": "sec",
+      "name": "汀角路（南行）鄰近龍尾泳灘",
+      "english": "TING KOK ROAD (SOUTHBOUND) NEAR LUNG MEI BEACH",
+      "latitude": 22.471637649447,
+      "longitude": 114.227040901898
+    },
+    {
+      "id": "sec-45",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0523（嘉才里）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0523 (KA CHOI LANE)",
+      "latitude": 22.3708760730044,
+      "longitude": 113.999102734752,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 10.19,
+      "roadRouteID": "97121",
+      "roadSpeedLimitID": "1793",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-46",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0556（青榕臺）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0556 (TSING YUNG TERRACE)",
+      "latitude": 22.3811155078087,
+      "longitude": 113.982397887387,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 11.17,
+      "roadRouteID": "95350",
+      "roadSpeedLimitID": "140508",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-47",
+      "kind": "sec",
+      "name": "屯門公路（南行）鄰近燈柱 GD5522（井財街）",
+      "english": "TUEN MUN ROAD (SOUTHBOUND) NEAR L/P GD5522 (TSENG CHOI STREET)",
+      "latitude": 22.4005156382178,
+      "longitude": 113.977175237439,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.44,
+      "roadRouteID": "97031",
+      "roadSpeedLimitID": "2122",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-48",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 H1676（育康街）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P H1676 (YUK HONG STREET)",
+      "latitude": 22.3999281668678,
+      "longitude": 113.976777904662,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 2.77,
+      "roadRouteID": "121516",
+      "roadSpeedLimitID": "14435",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-49",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 FB5332（栢麗廣場）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P FB5332 (PARKLANE SQUARE)",
+      "latitude": 22.390898683925,
+      "longitude": 113.977577403771
+    },
+    {
+      "id": "sec-50",
+      "kind": "sec",
+      "name": "屯門公路（南行）鄰近燈柱 H0430（栢麗廣場）",
+      "english": "TUEN MUN ROAD (SOUTHBOUND) NEAR L/P H0430  (PARKLANE SQUARE)",
+      "latitude": 22.3904116007404,
+      "longitude": 113.978034507461,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 8.52,
+      "roadRouteID": "94180",
+      "roadSpeedLimitID": "2445",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-51",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 FA2130（青田交滙處）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P FA2130 (TSING TIN INTERCHANGE)",
+      "latitude": 22.4060523426808,
+      "longitude": 113.978012266839,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 9.16,
+      "roadRouteID": "96968",
+      "roadSpeedLimitID": "7080",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-52",
+      "kind": "sec",
+      "name": "粉嶺公路（東行）鄰近燈柱 EA2240（古洞）",
+      "english": "FANLING HIGHWAY (EASTBOUND) NEAR L/P EA2240 (KWU TUNG)",
+      "latitude": 22.5029755410193,
+      "longitude": 114.108571192337,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.84,
+      "roadRouteID": "60401",
+      "roadSpeedLimitID": "187",
+      "matchedRoadName": "粉嶺公路"
+    },
+    {
+      "id": "sec-53",
+      "kind": "sec",
+      "name": "粉嶺公路（西行）鄰近燈柱 EA2246（金錢）",
+      "english": "FANLING HIGHWAY (WESTBOUND) NEAR L/P EA2246 (KAM TSIN)",
+      "latitude": 22.5023897476043,
+      "longitude": 114.111419054086,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.07,
+      "roadRouteID": "62793",
+      "roadSpeedLimitID": "179",
+      "matchedRoadName": "粉嶺公路"
+    },
+    {
+      "id": "sec-54",
+      "kind": "sec",
+      "name": "粉嶺公路（西行）鄰近燈柱 EA2222（古洞）",
+      "english": "FANLING HIGHWAY (WESTBOUND) NEAR L/P EA2222 (KWU TUNG)",
+      "latitude": 22.5033868501262,
+      "longitude": 114.099522832219,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 8.58,
+      "roadRouteID": "96811",
+      "roadSpeedLimitID": "1693",
+      "matchedRoadName": "粉嶺公路"
+    },
+    {
+      "id": "sec-55",
+      "kind": "sec",
+      "name": "粉嶺公路（東行）鄰近燈柱 EA2220（白石凹）",
+      "english": "FANLING HIGHWAY (EASTBOUND) NEAR L/P EA2220 (PAK SHEK AU)",
+      "latitude": 22.5036935880486,
+      "longitude": 114.098910379016,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 5.55,
+      "roadRouteID": "279884",
+      "roadSpeedLimitID": "144933",
+      "matchedRoadName": "粉嶺公路"
+    },
+    {
+      "id": "sec-56",
+      "kind": "sec",
+      "name": "新田公路（南行）鄰近燈柱 EA2779（石湖圍）",
+      "english": "SAN TIN HIGHWAY (SOUTHBOUND) NEAR L/P EA2779 (SHEK WU WAI)",
+      "latitude": 22.4952460213464,
+      "longitude": 114.075241623702,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.43,
+      "roadRouteID": "96873",
+      "roadSpeedLimitID": "1921",
+      "matchedRoadName": "新田公路"
+    },
+    {
+      "id": "sec-57",
+      "kind": "sec",
+      "name": "新田公路（南行）鄰近燈柱 FA8204（牛潭尾）",
+      "english": "SAN TIN HIGHWAY (SOUTHBOUND) NEAR L/P FA8204 (NGAU TAM MEI)",
+      "latitude": 22.4812464824993,
+      "longitude": 114.05845080519,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.72,
+      "roadRouteID": "96799",
+      "roadSpeedLimitID": "1687",
+      "matchedRoadName": "新田公路"
+    },
+    {
+      "id": "sec-58",
+      "kind": "sec",
+      "name": "新田公路（北行）鄰近燈柱 FA8204（和生圍）",
+      "english": "SAN TIN HIGHWAY (NORTHBOUND) NEAR L/P FA8204 (WO SHANG WAI)",
+      "latitude": 22.4814810727292,
+      "longitude": 114.058178523763,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.52,
+      "roadRouteID": "96800",
+      "roadSpeedLimitID": "1688",
+      "matchedRoadName": "新田公路"
+    },
+    {
+      "id": "sec-59",
+      "kind": "sec",
+      "name": "新田公路（北行）鄰近燈柱 FA9247（壆圍）",
+      "english": "SAN TIN HIGHWAY (NORTHBOUND) NEAR L/P FA9247 (POK WAI)",
+      "latitude": 22.4637688564485,
+      "longitude": 114.0534036342,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 8.21,
+      "roadRouteID": "96913",
+      "roadSpeedLimitID": "1821",
+      "matchedRoadName": "新田公路"
+    },
+    {
+      "id": "sec-60",
+      "kind": "sec",
+      "name": "新田公路（南行）鄰近燈柱 FA9250（下竹園）",
+      "english": "SAN TIN HIGHWAY (SOUTHBOUND) NEAR L/P FA9250 (HA CHUK YUEN)",
+      "latitude": 22.4644013340547,
+      "longitude": 114.053859726947,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.44,
+      "roadRouteID": "279724",
+      "roadSpeedLimitID": "1824",
+      "matchedRoadName": "新田公路"
+    },
+    {
+      "id": "sec-61",
+      "kind": "sec",
+      "name": "新娘潭路(南行)鄰近燈柱 EB0898 (新娘潭路巴士總站)",
+      "english": "BRIDE'S POOL ROAD (SOUTHBOUND) NEAR L/P EB0898 (BRIDE'S POOL BUS TERMINUS)",
+      "latitude": 22.5022559328102,
+      "longitude": 114.238092360601
+    },
+    {
+      "id": "sec-62",
+      "kind": "sec",
+      "name": "新娘潭路(北行)鄰近燈柱 EB0797 (雞谷樹下)",
+      "english": "BRIDE'S POOL ROAD (NORTHBOUND) NEAR L/P EB0797 (KAI KUK SHUE HA)",
+      "latitude": 22.5229592177888,
+      "longitude": 114.220751061549
+    },
+    {
+      "id": "sec-63",
+      "kind": "sec",
+      "name": "青山公路屏山段（屯門方向）鄰近灰沙圍",
+      "english": "CASTLE PEAK ROAD-PING SHAN (TUEN MUN BOUND) NEAR FUI SHA WAI",
+      "latitude": 22.439036375823,
+      "longitude": 114.005922861551,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 3.9,
+      "roadRouteID": "272664",
+      "roadSpeedLimitID": "2471",
+      "matchedRoadName": "青山公路　–　屏山段"
+    },
+    {
+      "id": "sec-64",
+      "kind": "sec",
+      "name": "吐露港公路（南行）鄰近燈柱 AE1083（馬料水）",
+      "english": "TOLO HIGHWAY (SOUTHBOUND) NEAR L/P AE1083 (MA LIU SHUI)",
+      "latitude": 22.4169979808009,
+      "longitude": 114.213656519125,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 12.16,
+      "roadRouteID": "61462",
+      "roadSpeedLimitID": "659",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-65",
+      "kind": "sec",
+      "name": "港深西部公路（北行）鄰近燈柱 BD3021（青磚圍）",
+      "english": "KONG SHAM WESTERN HIGHWAY (NORTHBOUND) NEAR L/P BD3021 (TSING CHUEN WAI)",
+      "latitude": 22.4247249433888,
+      "longitude": 113.983502804974,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 13.41,
+      "roadRouteID": "111684",
+      "roadSpeedLimitID": "12193",
+      "matchedRoadName": "港深西部公路"
+    },
+    {
+      "id": "sec-66",
+      "kind": "sec",
+      "name": "港深西部公路（北行）鄰近燈柱 BD3058（靈渡寺）",
+      "english": "KONG SHAM WESTERN HIGHWAY (NORTHBOUND) NEAR L/P BD3058 (LING TO TSZ)",
+      "latitude": 22.4387783914646,
+      "longitude": 113.985261039431,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 10.02,
+      "roadRouteID": "279806",
+      "roadSpeedLimitID": "144901",
+      "matchedRoadName": "港深西部公路"
+    },
+    {
+      "id": "sec-67",
+      "kind": "sec",
+      "name": "青山公路-藍地(北行)鄰近泥圍輕便鐵路站",
+      "english": "CASTLE PEAK ROAD - LAM TEI (NORTHBOUND) NEAR LAI WAI LRT STATION",
+      "latitude": 22.4234549653838,
+      "longitude": 113.986292236162,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.18,
+      "roadRouteID": "96310",
+      "roadSpeedLimitID": "2414",
+      "matchedRoadName": "青山公路　–　藍地段"
+    },
+    {
+      "id": "sec-68",
+      "kind": "sec",
+      "name": "港深西部公路（南行）鄰近燈柱 BD3128（亦園村）",
+      "english": "KONG SHAM WESTERN HIGHWAY (SOUTHBOUND) NEAR L/P BD3128 (YICK YUEN TSUEN)",
+      "latitude": 22.4248428034344,
+      "longitude": 113.983891171455,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 14.18,
+      "roadRouteID": "279790",
+      "roadSpeedLimitID": "144874",
+      "matchedRoadName": "港深西部公路"
+    },
+    {
+      "id": "sec-69",
+      "kind": "sec",
+      "name": "元朗公路（南行）鄰近燈柱 BD3378（龍田村）",
+      "english": "YUEN LONG HIGHWAY (SOUTHBOUND) NEAR L/P BD3378 (LUNG TIN TSUEN)",
+      "latitude": 22.4349450922937,
+      "longitude": 114.023412994124,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 13.7,
+      "roadRouteID": "95982",
+      "roadSpeedLimitID": "1943",
+      "matchedRoadName": "元朗公路"
+    },
+    {
+      "id": "sec-70",
+      "kind": "sec",
+      "name": "元朗公路（南行）鄰近燈柱 BD3814（丹桂村）",
+      "english": "YUEN LONG HIGHWAY (SOUTHBOUND) NEAR L/P BD3814 (TAN KWAI TSUEN)",
+      "latitude": 22.4279417157947,
+      "longitude": 114.001002006986,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 12.42,
+      "roadRouteID": "95309",
+      "roadSpeedLimitID": "1802",
+      "matchedRoadName": "元朗公路"
+    },
+    {
+      "id": "sec-71",
+      "kind": "sec",
+      "name": "元朗公路（北行）鄰近燈柱 BD2704（福亨村）",
+      "english": "YUEN LONG HIGHWAY (NORTHBOUND) NEAR L/P BD2704 (FUK HANG TSUEN)",
+      "latitude": 22.4196063821823,
+      "longitude": 113.99268856214,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 9.92,
+      "roadRouteID": "97261",
+      "roadSpeedLimitID": "1981",
+      "matchedRoadName": "元朗公路"
+    },
+    {
+      "id": "sec-72",
+      "kind": "sec",
+      "name": "元朗公路（北行）鄰近燈柱 BD3384（馬田壆）",
+      "english": "YUEN LONG HIGHWAY (NORTHBOUND) NEAR L/P BD3384 (MA TIN POK)",
+      "latitude": 22.4348481009967,
+      "longitude": 114.025899872749,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 12.48,
+      "roadRouteID": "95983",
+      "roadSpeedLimitID": "1772",
+      "matchedRoadName": "元朗公路"
+    },
+    {
+      "id": "sec-73",
+      "kind": "sec",
+      "name": "露輝路（南行）燈柱 EA8123 對面（淺月灣二期）",
+      "english": "LO FAI ROAD (SOUTHBOUND) OPPOSITE L/P EA8123 (CASA MARINA II)",
+      "latitude": 22.4647544234249,
+      "longitude": 114.193119654995
+    },
+    {
+      "id": "sec-74",
+      "kind": "sec",
+      "name": "林錦公路（八鄉方向）鄰近燈柱 U8529（淩雲寺）",
+      "english": "LAM KAM ROAD (PAT HEUNG BOUND) NEAR L/P U8529 (LING WAN MONASTERY)",
+      "latitude": 22.4322501697687,
+      "longitude": 114.110772012006
+    },
+    {
+      "id": "sec-75",
+      "kind": "sec",
+      "name": "林錦公路（大埔方向）鄰近燈柱 EB0428（嘉道理農場）",
+      "english": "LAM KAM ROAD (TAI PO BOUND) NEAR L/P EB0428 (KADOORIE FARM)",
+      "latitude": 22.4344745782792,
+      "longitude": 114.118328410509
+    },
+    {
+      "id": "sec-76",
+      "kind": "sec",
+      "name": "粉嶺公路（西行）鄰近燈柱 GD1159（嘉盛苑）",
+      "english": "FANLING HIGHWAY (WESTBOUND) NEAR L/P GD1159 (KA SHING COURT)",
+      "latitude": 22.4924737923786,
+      "longitude": 114.137370756787,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 9.23,
+      "roadRouteID": "279888",
+      "roadSpeedLimitID": "144952",
+      "matchedRoadName": "粉嶺公路"
+    },
+    {
+      "id": "sec-77",
+      "kind": "sec",
+      "name": "粉嶺公路（西行）鄰近燈柱 BD0140（蓬瀛仙館）",
+      "english": "FANLING HIGHWAY (WESTBOUND) NEAR L/P BD0140 (FUNG YING SIN KOON)",
+      "latitude": 22.4902980847717,
+      "longitude": 114.139985473369,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 8.33,
+      "roadRouteID": "58894",
+      "roadSpeedLimitID": "296",
+      "matchedRoadName": "粉嶺公路"
+    },
+    {
+      "id": "sec-78",
+      "kind": "sec",
+      "name": "屯門公路（東行）鄰近燈柱 GC0527（嘉才里）",
+      "english": "TUEN MUN ROAD (EASTBOUND) NEAR L/P GC0527 (KA CHOI LANE)",
+      "latitude": 22.3725640699766,
+      "longitude": 113.99845975712,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 6.23,
+      "roadRouteID": "280863",
+      "roadSpeedLimitID": "145213",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-79",
+      "kind": "sec",
+      "name": "龍鼓灘路（北行）鄰近燈柱 AJ0052（沙埔崗）",
+      "english": "LUNG KWU TAN ROAD (NORTHBOUND) NEAR L/P AJ0052 (SHA PO KONG)",
+      "latitude": 22.3859067514771,
+      "longitude": 113.921146969219
+    },
+    {
+      "id": "sec-80",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 AE1062 (大埔滘)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P AE1062 (TAI PO KAU)",
+      "latitude": 22.4414836845481,
+      "longitude": 114.18256705624,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 9.53,
+      "roadRouteID": "61760",
+      "roadSpeedLimitID": "142176",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-81",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 GE1150 (廣福)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P GE1150 (KWONG FUK)",
+      "latitude": 22.4438587552886,
+      "longitude": 114.173192559422,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 12.61,
+      "roadRouteID": "57470",
+      "roadSpeedLimitID": "142399",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-82",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 GE1161 (山塘)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P GE1161 (SHAN TONG)",
+      "latitude": 22.4407972892081,
+      "longitude": 114.169170881016,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 10.04,
+      "roadRouteID": "57411",
+      "roadSpeedLimitID": "142402",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-83",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 GE1183 (碗窰)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P GE1183 (WUN YIU)",
+      "latitude": 22.4397040539549,
+      "longitude": 114.161467488464,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 11.98,
+      "roadRouteID": "57058",
+      "roadSpeedLimitID": "142409",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-84",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 GE2446 (半春園)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P GE2446 (PUN CHUNG YUEN)",
+      "latitude": 22.4482279374374,
+      "longitude": 114.15412207771,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 12.7,
+      "roadRouteID": "60309",
+      "roadSpeedLimitID": "142413",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-85",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 GE2481 (水圍)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P GE2481 (SHUI WAI)",
+      "latitude": 22.45792569723,
+      "longitude": 114.148223137739,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 5.68,
+      "roadRouteID": "163830",
+      "roadSpeedLimitID": "147354",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-86",
+      "kind": "sec",
+      "name": "吐露港公路（南行）鄰近燈柱 GE2473 (水圍)",
+      "english": "TOLO HIGHWAY (SOUTHBOUND) NEAR L/P GE2473 (SHUI WAI)",
+      "latitude": 22.4549732149985,
+      "longitude": 114.151021772892,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 8.11,
+      "roadRouteID": "62110",
+      "roadSpeedLimitID": "142332",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-87",
+      "kind": "sec",
+      "name": "吐露港公路（南行）鄰近燈柱 GE1151 (廣福)",
+      "english": "TOLO HIGHWAY (SOUTHBOUND) NEAR L/P GE1151 (KWONG FUK)",
+      "latitude": 22.4441025688377,
+      "longitude": 114.172823397395,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 5.4,
+      "roadRouteID": "58013",
+      "roadSpeedLimitID": "142233",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-88",
+      "kind": "sec",
+      "name": "吐露港公路（南行）鄰近燈柱 AE1062 (元洲仔)",
+      "english": "TOLO HIGHWAY (SOUTHBOUND) NEAR L/P AE1062 (YUEN CHAU TSAI)",
+      "latitude": 22.4417455557886,
+      "longitude": 114.182897358577,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 11.33,
+      "roadRouteID": "58041",
+      "roadSpeedLimitID": "142177",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-89",
+      "kind": "sec",
+      "name": "完善路（南行）鄰近富善邨善景樓",
+      "english": "YUEN SHIN ROAD (SOUTHBOUND) NEAR SHIN KING HOUSE FU SHIN ESTATE",
+      "latitude": 22.455453890365,
+      "longitude": 114.177884800839,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 5.01,
+      "roadRouteID": "58362",
+      "roadSpeedLimitID": "1264",
+      "matchedRoadName": "完善路"
+    },
+    {
+      "id": "sec-90",
+      "kind": "sec",
+      "name": "大埔公路馬料水段（北行）鄰近大埔尾村",
+      "english": "TAI PO ROAD - MA LIU SHUI (NORTHBOUND) NEAR TAI PO MEI VILLAGE",
+      "latitude": 22.4194570610927,
+      "longitude": 114.1981553684
+    },
+    {
+      "id": "sec-91",
+      "kind": "sec",
+      "name": "獅子山隧道公路（南行）鄰近燈柱 EB1762（紅梅谷）",
+      "english": "LION ROCK TUNNEL ROAD (SOUTHBOUND) NEAR L/P EB1762 (HUNG MUI KUK)",
+      "latitude": 22.3654106929852,
+      "longitude": 114.183855255521,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 6.72,
+      "roadRouteID": "61025",
+      "roadSpeedLimitID": "572",
+      "matchedRoadName": "獅子山隧道公路"
+    },
+    {
+      "id": "sec-92",
+      "kind": "sec",
+      "name": "獅子山隧道公路（北行）鄰近燈柱 EB1769（隔田村）",
+      "english": "LION ROCK TUNNEL ROAD (NORTHBOUND) NEAR L/P EB1769 (KAK TIN VILLAGE)",
+      "latitude": 22.3662504831342,
+      "longitude": 114.184933020255,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 6.46,
+      "roadRouteID": "57646",
+      "roadSpeedLimitID": "545",
+      "matchedRoadName": "獅子山隧道公路"
+    },
+    {
+      "id": "sec-93",
+      "kind": "sec",
+      "name": "葵涌道（南行）鄰近豪華工業大廈",
+      "english": "KWAI CHUNG ROAD (SOUTHBOUND) NEAR HOOVER INDUSTRIAL BUILDING",
+      "latitude": 22.3647908020938,
+      "longitude": 114.132882391714
+    },
+    {
+      "id": "sec-94",
+      "kind": "sec",
+      "name": "青山公路（北行）鄰近中葵涌公園",
+      "english": "CASTLE PEAK ROAD (NORTHBOUND) NEAR CENTRAL KWAI CHUNG PARK",
+      "latitude": 22.3535839137747,
+      "longitude": 114.132963574251
+    },
+    {
+      "id": "sec-95",
+      "kind": "sec",
+      "name": "海安路（北行）鄰近荃灣麗城花園三期",
+      "english": "HOI ON ROAD (NORTHBOUND) NEAR TSUEN WAN BELVEDERE GARDEN PHASE 3",
+      "latitude": 22.37111890031,
+      "longitude": 114.10198462882,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 4.9,
+      "roadRouteID": "93417",
+      "roadSpeedLimitID": "2302",
+      "matchedRoadName": "海安路"
+    },
+    {
+      "id": "sec-96",
+      "kind": "sec",
+      "name": "海安路（南行）鄰近荃灣麗城花園三期",
+      "english": "HOI ON ROAD (SOUTHBOUND) NEAR TSUEN WAN BELVEDERE GARDEN PHASE 3",
+      "latitude": 22.3709383480523,
+      "longitude": 114.102110949259
+    },
+    {
+      "id": "sec-97",
+      "kind": "sec",
+      "name": "沙田路（北行）鄰近燈柱 N4937（王屋村）",
+      "english": "SHATIN ROAD (NORTHBOUND) NEAR L/P N4937 (WONG UK VILLAGE)",
+      "latitude": 22.3800295949568,
+      "longitude": 114.200198202173,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 4.69,
+      "roadRouteID": "60760",
+      "roadSpeedLimitID": "763",
+      "matchedRoadName": "沙田路"
+    },
+    {
+      "id": "sec-98",
+      "kind": "sec",
+      "name": "沙田路（南行）鄰近燈柱 N7138（沙田圍新村）",
+      "english": "SHATIN ROAD (SOUTHBOUND) NEAR L/P N7138 (SHATIN WAI NEW VILLAGE)",
+      "latitude": 22.3742958188616,
+      "longitude": 114.195497716157,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 6.13,
+      "roadRouteID": "62032",
+      "roadSpeedLimitID": "442",
+      "matchedRoadName": "沙田路"
+    },
+    {
+      "id": "sec-99",
+      "kind": "sec",
+      "name": "沙田路（北行）鄰近燈柱 EB9484（博康村）",
+      "english": "SHATIN ROAD (NORTHBOUND) NEAR L/P EB9484 (POK HONG ESTATE)",
+      "latitude": 22.3741063647096,
+      "longitude": 114.193798483353,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 4.29,
+      "roadRouteID": "60657",
+      "roadSpeedLimitID": "602",
+      "matchedRoadName": "沙田路"
+    },
+    {
+      "id": "sec-100",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0266（半山村）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0266 (PUN SHAN TSUEN)",
+      "latitude": 22.3729692257046,
+      "longitude": 114.099993156706,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 10.1,
+      "roadRouteID": "109127",
+      "roadSpeedLimitID": "2260",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-101",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0381（青朗公路）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0381 (TSING LONG HIGHWAY)",
+      "latitude": 22.3713218088736,
+      "longitude": 114.076448388118,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 11.7,
+      "roadRouteID": "93805",
+      "roadSpeedLimitID": "3223",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-102",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0391（青朗公路）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0391 (TSING LONG HIGHWAY)",
+      "latitude": 22.3689986277629,
+      "longitude": 114.072750775464,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 10.61,
+      "roadRouteID": "96881",
+      "roadSpeedLimitID": "3182",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-103",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0964（海韻花園）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0964 (RHINE GARDEN)",
+      "latitude": 22.3666998947576,
+      "longitude": 114.06527637604,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 10.31,
+      "roadRouteID": "96893",
+      "roadSpeedLimitID": "3299",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-104",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0442（浪翠園）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0442 (SEA CREST VILLA)",
+      "latitude": 22.3661219227232,
+      "longitude": 114.052839365656,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 10.49,
+      "roadRouteID": "96888",
+      "roadSpeedLimitID": "1813",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-105",
+      "kind": "sec",
+      "name": "屯門公路（南行）鄰近燈柱 GC0198（豪景花園）",
+      "english": "TUEN MUN ROAD (SOUTHBOUND) NEAR L/P GC0198 (HONG KONG GARDEN)",
+      "latitude": 22.3614676840383,
+      "longitude": 114.037416103785,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 6.61,
+      "roadRouteID": "280865",
+      "roadSpeedLimitID": "145194",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-106",
+      "kind": "sec",
+      "name": "屯門公路（北行）鄰近燈柱 GC0160（大欖）",
+      "english": "TUEN MUN ROAD (NORTHBOUND) NEAR L/P GC0160 (TAI LAM)",
+      "latitude": 22.3559243306015,
+      "longitude": 114.028810203361,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 10.03,
+      "roadRouteID": "279261",
+      "roadSpeedLimitID": "144450",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-107",
+      "kind": "sec",
+      "name": "大埔公路（北行）鄰近沙田鄉事會路 (瀝源邨對面)",
+      "english": "TAI PO ROAD (NORTHBOUND) NEAR SHA TIN RURAL COMMITTEE ROAD (OPPOSITE LEK YUEN ESTATE)",
+      "latitude": 22.3860450458517,
+      "longitude": 114.190352672686
+    },
+    {
+      "id": "sec-108",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 EA3635（馬料水）",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P EA3635 (MA LIU SHUI)",
+      "latitude": 22.4096204837297,
+      "longitude": 114.211799540416,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 8.95,
+      "roadRouteID": "61875",
+      "roadSpeedLimitID": "676",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-109",
+      "kind": "sec",
+      "name": "吐露港公路（南行）鄰近燈柱 EA3638（２號幹線橋底）",
+      "english": "TOLO HIGHWAY (SOUTHBOUND) NEAR L/P EA3638 (UNDER ROUTE 2 FLYOVER)",
+      "latitude": 22.4108033553387,
+      "longitude": 114.212363150056,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 6.63,
+      "roadRouteID": "60458",
+      "roadSpeedLimitID": "140561",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-110",
+      "kind": "sec",
+      "name": "大埔公路（南行）鄰近燈柱 ST1818（沙田新城市廣場）",
+      "english": "TAI PO ROAD (SOUTHBOUND) NEARL/P ST1818 (SHATIN NEW TOWN PLAZA)",
+      "latitude": 22.3822433924535,
+      "longitude": 114.187749939061
+    },
+    {
+      "id": "sec-111",
+      "kind": "sec",
+      "name": "大埔公路（南行）鄰近燈柱 EB3564（禾輋邨）",
+      "english": "TAI PO ROAD (SOUTHBOUND) NEAR L/P EB3564 (WO CHE ESTATE)",
+      "latitude": 22.3909931388426,
+      "longitude": 114.196500169125
+    },
+    {
+      "id": "sec-112",
+      "kind": "sec",
+      "name": "大埔公路沙田嶺段（北行）鄰近蜆殼油站",
+      "english": "TAI PO ROAD - SHATIN HEIGHTS (NORTHBOUND) NEAR SHELL STATION",
+      "latitude": 22.360931008872,
+      "longitude": 114.16193246111
+    },
+    {
+      "id": "sec-113",
+      "kind": "sec",
+      "name": "大埔公路沙田嶺段（南行）鄰近牡丹園",
+      "english": "TAI PO ROAD - SHATIN HEIGHTS (SOUTHBOUND) NEAR GARDEN VILLA",
+      "latitude": 22.3613013078706,
+      "longitude": 114.162446991801
+    },
+    {
+      "id": "sec-114",
+      "kind": "sec",
+      "name": "大埔公路沙田嶺段（北行）鄰近桂園",
+      "english": "TAI PO ROAD - SHATIN HEIGHTS (NORTHBOUND) NEAR WOODCREST HILLS",
+      "latitude": 22.3676864017228,
+      "longitude": 114.170097273956
+    },
+    {
+      "id": "sec-115",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1531（大蠔灣）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1531 (TAI HO WAN)",
+      "latitude": 22.2984402454704,
+      "longitude": 113.967305578193,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 10.24,
+      "roadRouteID": "279766",
+      "roadSpeedLimitID": "144819",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-116",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1583（小蠔灣）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1583 (SIU HO WAN)",
+      "latitude": 22.3107784048878,
+      "longitude": 113.991540794965,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 9.11,
+      "roadRouteID": "279773",
+      "roadSpeedLimitID": "144835",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-117",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1616（深水角）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1616 (SHAM SHUI KOK)",
+      "latitude": 22.3213125014331,
+      "longitude": 114.00374682866,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 7.49,
+      "roadRouteID": "279776",
+      "roadSpeedLimitID": "144842",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-118",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1644（欣澳）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1644 (SUNNY BAY)",
+      "latitude": 22.3248029437445,
+      "longitude": 114.017069290825,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 8.67,
+      "roadRouteID": "9289",
+      "roadSpeedLimitID": "69",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-119",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1295（映灣園）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1295 (CARIBBEAN COAST)",
+      "latitude": 22.2928679707373,
+      "longitude": 113.953456452563,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 9.37,
+      "roadRouteID": "279764",
+      "roadSpeedLimitID": "144815",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-120",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1600（小蠔灣）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1600 (SIU HO WAN)",
+      "latitude": 22.3165016593591,
+      "longitude": 113.997686676367,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 9.23,
+      "roadRouteID": "9274",
+      "roadSpeedLimitID": "175",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-121",
+      "kind": "sec",
+      "name": "大老山公路（南行）鄰近燈柱 EA6750（石門）",
+      "english": "TATE'S CAIRN HIGHWAY (SOUTHBOUND) NEAR L/P EA6750 (SHEK MUN)",
+      "latitude": 22.3899974491992,
+      "longitude": 114.210619619224,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 10.58,
+      "roadRouteID": "60754",
+      "roadSpeedLimitID": "8040",
+      "matchedRoadName": "大老山公路"
+    },
+    {
+      "id": "sec-122",
+      "kind": "sec",
+      "name": "大老山公路（南行）鄰近燈柱 EA6735（沙田醫院）",
+      "english": "TATE'S CAIRN HIGHWAY (SOUTHBOUND) NEAR L/P EA6735 (SHATIN HOSPITAL)",
+      "latitude": 22.4002916360079,
+      "longitude": 114.213351058713,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 6.57,
+      "roadRouteID": "61513",
+      "roadSpeedLimitID": "510",
+      "matchedRoadName": "大老山公路"
+    },
+    {
+      "id": "sec-123",
+      "kind": "sec",
+      "name": "和宜合道 (南行) 鄰近和宜合道運動場",
+      "english": "WO YI HOP ROAD (SOUTHBOUND) NEAR WO YI HOP ROAD SPORTSGROUND",
+      "latitude": 22.3744995615919,
+      "longitude": 114.136462253857
+    },
+    {
+      "id": "sec-124",
+      "kind": "sec",
+      "name": "北大嶼山公路（東行）鄰近燈柱 DC1534（大蠔灣）",
+      "english": "NORTH LANTAU HIGHWAY (EASTBOUND) NEAR L/P DC1534 (TAI HO WAN)",
+      "latitude": 22.2991740661303,
+      "longitude": 113.96912893446,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 10.9,
+      "roadRouteID": "7938",
+      "roadSpeedLimitID": "9",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-125",
+      "kind": "sec",
+      "name": "青山公路 (北行) 鄰近業成街",
+      "english": "CASTLE PEAK ROAD (NORTHBOUND) NEAR YIP SHING STREET",
+      "latitude": 22.3617934998916,
+      "longitude": 114.136087269864
+    },
+    {
+      "id": "sec-126",
+      "kind": "sec",
+      "name": "華景山路（荔景行）鄰近華員徑",
+      "english": "WAH KING HILL ROAD (LAI KING BOUND) NEAR WAH YUEN DRIVE",
+      "latitude": 22.3490968350004,
+      "longitude": 114.137265632621
+    },
+    {
+      "id": "sec-127",
+      "kind": "sec",
+      "name": "嶼南道（梅窩行）鄰近富崗山路",
+      "english": "SOUTH LANTAU ROAD (MUI WO BOUND) NEAR FU KONG SHAN ROAD",
+      "latitude": 22.2638543167887,
+      "longitude": 113.998617244955
+    },
+    {
+      "id": "sec-128",
+      "kind": "sec",
+      "name": "嶼南道（貝澳行）鄰近貝澳抽水站",
+      "english": "SOUTH LANTAU ROAD (PUI O BOUND) NEAR PUI O PUMPING STATION",
+      "latitude": 22.2464491935941,
+      "longitude": 113.980265772217,
+      "roadSpeedLimitKmh": 30,
+      "roadSpeedMatchDistance": 3.96,
+      "roadRouteID": "8887",
+      "roadSpeedLimitID": "138",
+      "matchedRoadName": "嶼南道"
+    },
+    {
+      "id": "sec-129",
+      "kind": "sec",
+      "name": "東涌道（大嶼山南行）鄰近燈柱 BC0633",
+      "english": "TUNG CHUNG ROAD (LANTAU SOUTH BOUND) NEAR L/P BC0633",
+      "latitude": 22.2438597610753,
+      "longitude": 113.947587701266
+    },
+    {
+      "id": "sec-130",
+      "kind": "sec",
+      "name": "東涌道（東涌行）水庫對面",
+      "english": "TUNG CHUNG ROAD (TUNG CHUNG BOUND) OPPOSITE WATER SERVICE RESERVOIR",
+      "latitude": 22.2585587017843,
+      "longitude": 113.93927851493
+    },
+    {
+      "id": "sec-131",
+      "kind": "sec",
+      "name": "屯門公路（南行）鄰近燈柱 GC0345（汀九橋）",
+      "english": "TUEN MUN ROAD (SOUTHBOUND) NEAR L/P GC0345 (TING KAU BRIDGE)",
+      "latitude": 22.3696656176268,
+      "longitude": 114.085615286529,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 11.14,
+      "roadRouteID": "96816",
+      "roadSpeedLimitID": "2282",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-132",
+      "kind": "sec",
+      "name": "北大嶼山公路（西行）鄰近燈柱 DC1560（機場鐵路車廠）",
+      "english": "NORTH LANTAU HIGHWAY (WESTBOUND) NEAR L/P DC1560 (RAILWAY DEPOT)",
+      "latitude": 22.3043360797457,
+      "longitude": 113.98085450701,
+      "roadSpeedLimitKmh": 110,
+      "roadSpeedMatchDistance": 10.76,
+      "roadRouteID": "7944",
+      "roadSpeedLimitID": "367",
+      "matchedRoadName": "北大嶼山公路"
+    },
+    {
+      "id": "sec-133",
+      "kind": "sec",
+      "name": "西沙路 (南行) 鄰近燈柱 BE3482 (富寶花園)",
+      "english": "SAI SHA ROAD (SOUTHBOUBD) NEAR L/P BE3482 (SADDLE RIDGE GARDEN)",
+      "latitude": 22.4256242890589,
+      "longitude": 114.236523981868
+    },
+    {
+      "id": "sec-134",
+      "kind": "sec",
+      "name": "順朗路 （東行）鄰近燈柱 GC4765A",
+      "english": "SHUN LONG ROAD (EASTBOUND) NEAR L/P GC4765A",
+      "latitude": 22.3074388609562,
+      "longitude": 113.963575105414,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 8.78,
+      "roadRouteID": "261780",
+      "roadSpeedLimitID": "140667",
+      "matchedRoadName": "順朗路"
+    },
+    {
+      "id": "sec-135",
+      "kind": "sec",
+      "name": "順朗路 （西行）鄰近燈柱 GC4755B",
+      "english": "SHUN LONG ROAD (WESTBOUND) NEAR L/P GC4755B",
+      "latitude": 22.3055369023565,
+      "longitude": 113.966246857783,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 7.46,
+      "roadRouteID": "261778",
+      "roadSpeedLimitID": "140624",
+      "matchedRoadName": "順朗路"
+    },
+    {
+      "id": "sec-136",
+      "kind": "sec",
+      "name": "吐露港公路（北行）鄰近燈柱 AE0946 (馬料水)",
+      "english": "TOLO HIGHWAY (NORTHBOUND) NEAR L/P AE0946 (MA LIU SHUI)",
+      "latitude": 22.4144606111241,
+      "longitude": 114.212781720058,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 7.69,
+      "roadRouteID": "61875",
+      "roadSpeedLimitID": "654",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-137",
+      "kind": "sec",
+      "name": "吐露港公路（南行）鄰近燈柱 AE0981 (科學園第2期)",
+      "english": "TOLO HIGHWAY (SOUTHBOUND) NEAR L/P AE0981 (SCIENCE PARK PHASE 2)",
+      "latitude": 22.4269418793207,
+      "longitude": 114.207209425445,
+      "roadSpeedLimitKmh": 100,
+      "roadSpeedMatchDistance": 11.95,
+      "roadRouteID": "60489",
+      "roadSpeedLimitID": "289",
+      "matchedRoadName": "吐露港公路"
+    },
+    {
+      "id": "sec-138",
+      "kind": "sec",
+      "name": "荃錦公路（錦田方向）鄰近燈柱 FB3924",
+      "english": "ROUTE TWISK (KAM TIN BOUND) NEAR L/P FB3924",
+      "latitude": 22.4271199115288,
+      "longitude": 114.108482069153
+    },
+    {
+      "id": "sec-139",
+      "kind": "sec",
+      "name": "域多利道（上環方向）鄰近燈柱 39644",
+      "english": "VICTORIA ROAD (SHEUNG WAN BOUND) NEAR L/P 39644",
+      "latitude": 22.2816520352912,
+      "longitude": 114.12240938551
+    },
+    {
+      "id": "sec-140",
+      "kind": "sec",
+      "name": "青山公路青龍頭段（屯門方向）鄰近燈柱 BC0985",
+      "english": "CASTLE PEAK ROAD - TSING LUNG TAU (TUEN MUN BOUND) NEAR BC0985",
+      "latitude": 22.362626093766,
+      "longitude": 114.051522044182,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 5.52,
+      "roadRouteID": "110884",
+      "roadSpeedLimitID": "2270",
+      "matchedRoadName": "青山公路　–　青龍頭段"
+    },
+    {
+      "id": "sec-141",
+      "kind": "sec",
+      "name": "大埔道（深水埗方向）鄰近燈柱 N7380",
+      "english": "TAI PO ROAD (SHAM SHUI PO BOUND) NEAR L/P N7380",
+      "latitude": 22.343816996216,
+      "longitude": 114.152741128546
+    },
+    {
+      "id": "sec-142",
+      "kind": "sec",
+      "name": "汀角路（大尾篤方向）鄰近燈柱 GE0599",
+      "english": "TING KOK ROAD (TAI MEI TUK BOUND) NEAR L/P GE0599",
+      "latitude": 22.466531061956,
+      "longitude": 114.208860082089
+    },
+    {
+      "id": "sec-143",
+      "kind": "sec",
+      "name": "薄扶林道（香港仔方向）鄰近燈柱 44641",
+      "english": "POK FU LAM ROAD (ABERDEEN BOUND) NEAR L/P 44641",
+      "latitude": 22.2635672328305,
+      "longitude": 114.134408189895
+    },
+    {
+      "id": "sec-144",
+      "kind": "sec",
+      "name": "紅磡道 (尖沙咀方向) 近德安街",
+      "english": "HUNG HOM ROAD (TSIM SHA TSUI BOUND) NEAR TAK ON STREET",
+      "latitude": 22.3052577408757,
+      "longitude": 114.188675624282
+    },
+    {
+      "id": "sec-145",
+      "kind": "sec",
+      "name": "龍富路 (北行) 鄰近燈柱 AD4251",
+      "english": "LUNG FU ROAD (NORTHBOUND) NEAR L/P AD4251",
+      "latitude": 22.3828228295136,
+      "longitude": 113.96145036094,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.27,
+      "roadRouteID": "95341",
+      "roadSpeedLimitID": "149307",
+      "matchedRoadName": "龍富路"
+    },
+    {
+      "id": "sec-146",
+      "kind": "sec",
+      "name": "荃錦公路 (錦田方向) 鄰近燈柱 FA7989",
+      "english": "ROUTE TWISK (KAM TIN BOUND) NEAR L/P FA7989",
+      "latitude": 22.4211625819098,
+      "longitude": 114.115410369537
+    },
+    {
+      "id": "sec-147",
+      "kind": "sec",
+      "name": "東涌道 (石門甲方向) 鄰近燈柱 GC0780",
+      "english": "TUNG CHUNG ROAD (SHEK MUN KAP BOUND) NEAR L/P GC0780",
+      "latitude": 22.2775515802125,
+      "longitude": 113.934210586176
+    },
+    {
+      "id": "sec-148",
+      "kind": "sec",
+      "name": "清水灣道（九龍方向）鄰近燈柱 EB4994",
+      "english": "CLEAR WATER BAY ROAD (KOWLOON BOUND) NEAR L/P EB4994",
+      "latitude": 22.3369420914043,
+      "longitude": 114.242883196368,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 7.39,
+      "roadRouteID": "100548",
+      "roadSpeedLimitID": "2882",
+      "matchedRoadName": "清水灣道"
+    },
+    {
+      "id": "sec-149",
+      "kind": "sec",
+      "name": "新清水灣道（西貢方向）鄰近燈柱 AB6208",
+      "english": "NEW CLEAR WATER BAY ROAD (SAI KUNG BOUND) NEAR L/P AB6208",
+      "latitude": 22.3325697172803,
+      "longitude": 114.220953302401
+    },
+    {
+      "id": "sec-150",
+      "kind": "sec",
+      "name": "西貢公路（九龍方向）鄰近燈柱 GE4407",
+      "english": "HIRAM’S HIGHWAY (KOWLOON BOUND) NEAR L/P GE4407",
+      "latitude": 22.3590176961336,
+      "longitude": 114.25229162797
+    },
+    {
+      "id": "sec-151",
+      "kind": "sec",
+      "name": "清水灣道（大坳門方向）鄰近燈柱 EB5481",
+      "english": "CLEAR WATER BAY ROAD (TAI AU MUN BOUND) NEAR L/P EB5481",
+      "latitude": 22.3077956941247,
+      "longitude": 114.285203383085
+    },
+    {
+      "id": "sec-152",
+      "kind": "sec",
+      "name": "涌美路（東行）鄰近燈柱 W4011",
+      "english": "CHUNG MEI ROAD (EASTBOUND) NEAR L/P W4011",
+      "latitude": 22.3509274016417,
+      "longitude": 114.103723467121
+    },
+    {
+      "id": "sec-153",
+      "kind": "sec",
+      "name": "林錦公路（康樂園方向）鄰近燈柱 EB0527 ",
+      "english": "LAM KAM ROAD (HONG LOK YUEN BOUND) NEAR L/P EB0527",
+      "latitude": 22.4563352996248,
+      "longitude": 114.142860522808
+    },
+    {
+      "id": "sec-154",
+      "kind": "sec",
+      "name": "青山公路掃管笏段（屯門方向）鄰近燈柱 DD0019",
+      "english": "CASTLE PEAK ROAD - SO KWU WAT (TUEN MUN BOUND) NEAR L/P DD0019",
+      "latitude": 22.3692824058524,
+      "longitude": 113.995230711869
+    },
+    {
+      "id": "sec-155",
+      "kind": "sec",
+      "name": "新娘潭路（鹿頸方向）鄰近燈柱 EB0851",
+      "english": "BRIDE’S POOL ROAD (LUK KENG BOUND) NEAR L/P EB0851",
+      "latitude": 22.5143135346422,
+      "longitude": 114.232460351134
+    },
+    {
+      "id": "sec-156",
+      "kind": "sec",
+      "name": "大坑道（灣仔方向）鄰近燈柱 44585",
+      "english": "TAI HANG ROAD (WAN CHAI BOUND) NEAR LAMPPOST 44585",
+      "latitude": 22.27734375645,
+      "longitude": 114.19246716977
+    },
+    {
+      "id": "sec-157",
+      "kind": "sec",
+      "name": "大網仔路（北潭湧方向）鄰近燈柱 M5820",
+      "english": "TAI MONG TSAI ROAD (PAK TAM CHUNG BOUND) NEAR LAMPPOST M5820",
+      "latitude": 22.3955622453161,
+      "longitude": 114.287184388548
+    },
+    {
+      "id": "sec-158",
+      "kind": "sec",
+      "name": "龍翔道（美孚方向）鄰近燈柱 E8049",
+      "english": "LUNG CHEUNG ROAD (MEI FOO BOUND) NEAR LAMPPOST E8049",
+      "latitude": 22.3423644763512,
+      "longitude": 114.188067180672,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.61,
+      "roadRouteID": "103806",
+      "roadSpeedLimitID": "3047",
+      "matchedRoadName": "龍翔道"
+    },
+    {
+      "id": "sec-159",
+      "kind": "sec",
+      "name": "西沙路（沙田方向）鄰近燈柱 DE4112",
+      "english": "SAI SHA ROAD (SHA TIN BOUND) NEAR LAMPPOST DE4112",
+      "latitude": 22.4305107302988,
+      "longitude": 114.255390021168
+    },
+    {
+      "id": "sec-160",
+      "kind": "sec",
+      "name": "青山公路-元朗段（元朗市方向）鄰近燈柱 CD0972",
+      "english": "CASTLE PEAK ROAD - YUEN LONG (YUEN LONG TOWN BOUND) NEAR LAMPPOST CD0972",
+      "latitude": 22.4442584241096,
+      "longitude": 114.036585478608
+    },
+    {
+      "id": "sec-161",
+      "kind": "sec",
+      "name": "屯門公路（九龍方向）鄰近燈柱 GC0388",
+      "english": "TUEN MUN ROAD (KOWLOON BOUND) NEAR LAMPPOST GC0388",
+      "latitude": 22.3706154587812,
+      "longitude": 114.073322434255,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 9.61,
+      "roadRouteID": "96880",
+      "roadSpeedLimitID": "5137",
+      "matchedRoadName": "屯門公路"
+    },
+    {
+      "id": "sec-162",
+      "kind": "sec",
+      "name": "石澳道（北行）鄰近燈柱33796號",
+      "english": "SHEK O ROAD (NORTHBOUND) NEAR LAMPPOST 33796 ",
+      "latitude": 22.2377697020711,
+      "longitude": 114.237908847253
+    },
+    {
+      "id": "sec-163",
+      "kind": "sec",
+      "name": "偉業街 (南行) 鄰近燈柱AA6340號",
+      "english": "WAI YIP STREET (SOUTHBOUND) NEAR LAMPPOST AA6340",
+      "latitude": 22.3212295344617,
+      "longitude": 114.21180659601,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 6.3,
+      "roadRouteID": "103625",
+      "roadSpeedLimitID": "2849",
+      "matchedRoadName": "偉業街"
+    },
+    {
+      "id": "sec-164",
+      "kind": "sec",
+      "name": "連翔道（西北行）鄰近燈杜AB4220號",
+      "english": "LIN CHEUNG ROAD (NORTHWESTBOUND) NEAR LAMPPOST AB4220",
+      "latitude": 22.3242481007627,
+      "longitude": 114.155345778605,
+      "roadSpeedLimitKmh": 80,
+      "roadSpeedMatchDistance": 8.07,
+      "roadRouteID": "106233",
+      "roadSpeedLimitID": "1464",
+      "matchedRoadName": "連翔道"
+    },
+    {
+      "id": "rlc-1",
+      "kind": "rlc",
+      "name": "皇后大道東（西行）與金鐘道交界",
+      "english": "QUEEN'S ROAD E. (WEST BOUND) AT JUNCTION WITH QUEENSWAY",
+      "latitude": 22.2778508529005,
+      "longitude": 114.167365308567
+    },
+    {
+      "id": "rlc-2",
+      "kind": "rlc",
+      "name": "寶琳北路（東南行）鄰近魷魚灣村道",
+      "english": "PO LAM ROAD NORTH (SOUTHEAST BOUND) NEAR YAU YUE WAN VILLAGE ROAD",
+      "latitude": 22.3258038276237,
+      "longitude": 114.258616889844
+    },
+    {
+      "id": "rlc-3",
+      "kind": "rlc",
+      "name": "彩虹道（東南行）與四美街交界",
+      "english": "CHOI HUNG ROAD (SOUTHEAST BOUND) AT JUNCTION WITH SZE MEI STREET",
+      "latitude": 22.3382396463122,
+      "longitude": 114.201388139595
+    },
+    {
+      "id": "rlc-4",
+      "kind": "rlc",
+      "name": "秀茂坪道（西北行）與秀明道交界",
+      "english": "SAU MAU PING ROAD (NORTHWEST BOUND) AT JUNCTION WITH SAU MING ROAD",
+      "latitude": 22.3235589356087,
+      "longitude": 114.230184028406
+    },
+    {
+      "id": "rlc-5",
+      "kind": "rlc",
+      "name": "荔枝角道（南行）與太子道西交界",
+      "english": "LAI CHI KOK ROAD (SOUTH BOUND) AT JUNCTION WITH PRINCE EDWARD ROAD W.",
+      "latitude": 22.323729049712,
+      "longitude": 114.166760429175
+    },
+    {
+      "id": "rlc-6",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與加連威老道交界",
+      "english": "NATHAN ROAD (SOUTH BOUND) AT JUNCTION WITH GRANVILLE ROAD",
+      "latitude": 22.2995155354049,
+      "longitude": 114.172028848807
+    },
+    {
+      "id": "rlc-7",
+      "kind": "rlc",
+      "name": "洗衣街（北行）與旺角道交界",
+      "english": "SAI YEE STREET (NORTH BOUND) AT JUNCTION WITH MONG KOK ROAD",
+      "latitude": 22.3212079286103,
+      "longitude": 114.171343827573
+    },
+    {
+      "id": "rlc-8",
+      "kind": "rlc",
+      "name": "大埔道（西行）與青山道交界",
+      "english": "TAI PO ROAD (WEST BOUND) AT JUNCTION WITH CASTLE PEAK ROAD",
+      "latitude": 22.3334420957392,
+      "longitude": 114.163320563113
+    },
+    {
+      "id": "rlc-9",
+      "kind": "rlc",
+      "name": "土瓜灣道（南行）與木廠街交界",
+      "english": "TO KWA WAN ROAD (SOUTH BOUND) AT JUNCTION WITH MOK CHEONG STREET",
+      "latitude": 22.3212287877099,
+      "longitude": 114.193981352852
+    },
+    {
+      "id": "rlc-10",
+      "kind": "rlc",
+      "name": "蕪湖街（東行）與機利士南路交界",
+      "english": "WUHU STREET (EAST BOUND) AT JUNCTION WITH GILLIES AVENUE SOUTH",
+      "latitude": 22.3078723279986,
+      "longitude": 114.185016994974
+    },
+    {
+      "id": "rlc-11",
+      "kind": "rlc",
+      "name": "青山公路-青山灣段（北行）鄰近海榮路",
+      "english": "CASTLE PEAK ROAD-CASTLE PEAK BAY (NORTHBOUND) NEAR HOI WING ROAD",
+      "latitude": 22.3835104616675,
+      "longitude": 113.977996733536
+    },
+    {
+      "id": "rlc-12",
+      "kind": "rlc",
+      "name": "沙咀道（東行）與鹹田街交界",
+      "english": "SHA TSUI ROAD (EAST BOUND) AT JUNCTION WITH HAM TIN STREET",
+      "latitude": 22.369209107725,
+      "longitude": 114.117650816644
+    },
+    {
+      "id": "rlc-13",
+      "kind": "rlc",
+      "name": "永興街（東行）與電氣道交界",
+      "english": "WING HING STREET (EAST BOUND) AT JUNCTION WITH ELECTRIC ROAD",
+      "latitude": 22.285260994456,
+      "longitude": 114.191624806547
+    },
+    {
+      "id": "rlc-14",
+      "kind": "rlc",
+      "name": "德輔道西（北行）與干諾道西交界",
+      "english": "DES VOEUX ROAD W. (NORTH BOUND) AT JUNCTION WITH CONNAUGHT ROAD W.",
+      "latitude": 22.2881344427293,
+      "longitude": 114.147892954721
+    },
+    {
+      "id": "rlc-15",
+      "kind": "rlc",
+      "name": "干諾道中（西行）與禧利街交界",
+      "english": "CONNAUGHT ROAD C. (WEST BOUND) AT JUNCTION WITH HILLIER STREET",
+      "latitude": 22.2871273386303,
+      "longitude": 114.152222970104
+    },
+    {
+      "id": "rlc-16",
+      "kind": "rlc",
+      "name": "興發街（北行）與維園道交界",
+      "english": "HING FAT STREET (NORTH BOUND) AT JUNCTION WITH VICTORIA PARK ROAD",
+      "latitude": 22.285206885417,
+      "longitude": 114.190780587075
+    },
+    {
+      "id": "rlc-17",
+      "kind": "rlc",
+      "name": "英皇道（西行）與健康東街交界",
+      "english": "KING'S ROAD (WEST BOUND) AT JUNCTION WITH HEALTHY STREET EAST",
+      "latitude": 22.2918367399802,
+      "longitude": 114.207184024471
+    },
+    {
+      "id": "rlc-18",
+      "kind": "rlc",
+      "name": "康山道（東行）與康安街交界",
+      "english": "KORNHILL ROAD (EAST BOUND) AT JUNCTION WITH HONG ON STREET",
+      "latitude": 22.2845553149596,
+      "longitude": 114.215782718069
+    },
+    {
+      "id": "rlc-19",
+      "kind": "rlc",
+      "name": "柴灣道（東行）與新業街交界",
+      "english": "CHAI WAN ROAD (EAST BOUND) AT JUNCTION WITH SUN YIP STREET",
+      "latitude": 22.2656491973942,
+      "longitude": 114.246806263952
+    },
+    {
+      "id": "rlc-20",
+      "kind": "rlc",
+      "name": "告士打道（西行）與加寧街交界",
+      "english": "GLOUCESTER ROAD (WEST BOUND) AT JUNCTION WITH CLEVELAND STREET",
+      "latitude": 22.2826795813483,
+      "longitude": 114.185456062986
+    },
+    {
+      "id": "rlc-21",
+      "kind": "rlc",
+      "name": "城西道（西南行）與西祥街北交界",
+      "english": "SHING SAI ROAD (SOUTHWEST BOUND) AT JUNCTION WITH SAI CHEUNG STREET N.",
+      "latitude": 22.2859911338524,
+      "longitude": 114.130778081643
+    },
+    {
+      "id": "rlc-22",
+      "kind": "rlc",
+      "name": "茶果嶺道（西北行）與鯉魚門道交界",
+      "english": "CHA KWO LING ROAD (NORTHWEST BOUND) AT JUNCTION WITH LEI YUE MUN ROAD",
+      "latitude": 22.3102544672414,
+      "longitude": 114.229243377885
+    },
+    {
+      "id": "rlc-23",
+      "kind": "rlc",
+      "name": "康寧道（南行）與崇仁街交界",
+      "english": "HONG NING ROAD (SOUTH BOUND) AT JUNCTION WITH SHUNG YAN STREET",
+      "latitude": 22.3159084872475,
+      "longitude": 114.223453111807
+    },
+    {
+      "id": "rlc-24",
+      "kind": "rlc",
+      "name": "彩虹道（西南行）與爵祿街交界",
+      "english": "CHOI HUNG ROAD (SOUTHWEST BOUND) AT JUNCTION WITH TSEUK LUK STREET",
+      "latitude": 22.3368145589498,
+      "longitude": 114.195017072218
+    },
+    {
+      "id": "rlc-25",
+      "kind": "rlc",
+      "name": "新清水灣道（西北行）鄰近清水灣道",
+      "english": "NEW CLEAR WATER BAY ROAD (NORTHWEST BOUND) NEAR CLEAR WATER BAY ROAD",
+      "latitude": 22.3335353720145,
+      "longitude": 114.212449351452
+    },
+    {
+      "id": "rlc-26",
+      "kind": "rlc",
+      "name": "清水灣道（西行）與新清水灣道交界",
+      "english": "CLEAR WATER BAY ROAD (WEST BOUND) AT JUNCTION WITH NEW CLEAR WATER BAY ROAD",
+      "latitude": 22.3335353720145,
+      "longitude": 114.212449351452
+    },
+    {
+      "id": "rlc-27",
+      "kind": "rlc",
+      "name": "宏照道（東行）與祥業街交界",
+      "english": "WANG CHIU ROAD (EAST BOUND) AT JUNCTION WITH CHEUNG YIP STREET",
+      "latitude": 22.3170294356469,
+      "longitude": 114.211665785864
+    },
+    {
+      "id": "rlc-28",
+      "kind": "rlc",
+      "name": "偉業街（北行）與順業街交界",
+      "english": "WAI YIP STREET (NORTH BOUND) AT JUNCTION WITH SHUN YIP STREET",
+      "latitude": 22.3164445236334,
+      "longitude": 114.214494870725
+    },
+    {
+      "id": "rlc-29",
+      "kind": "rlc",
+      "name": "觀塘道（東行）與雅麗道交界",
+      "english": "KWUN TONG ROAD (EAST BOUND) AT JUNCTION WITH ELEGANCE ROAD",
+      "latitude": 22.315486287139,
+      "longitude": 114.218552565471
+    },
+    {
+      "id": "rlc-30",
+      "kind": "rlc",
+      "name": "鯉魚門道（西北行）與偉發道交界",
+      "english": "LEI YUE MUN ROAD (NORTHWEST BOUND) AT JUNCTION WITH WAI FAT ROAD",
+      "latitude": 22.3095288600438,
+      "longitude": 114.230617375241
+    },
+    {
+      "id": "rlc-31",
+      "kind": "rlc",
+      "name": "寶康路（南行）與運亨路交界",
+      "english": "PO HONG ROAD (SOUTH BOUND) AT JUNCTION WITH WAN HANG ROAD",
+      "latitude": 22.3201573788802,
+      "longitude": 114.256041505371
+    },
+    {
+      "id": "rlc-32",
+      "kind": "rlc",
+      "name": "蒲崗村道（南行）與鳳德道交界",
+      "english": "PO KONG VILLAGE ROAD (SOUTH BOUND) AT JUNCTION WITH FUNG TAK ROAD",
+      "latitude": 22.343212258614,
+      "longitude": 114.198735919002
+    },
+    {
+      "id": "rlc-33",
+      "kind": "rlc",
+      "name": "順利村道（東行）與秀茂坪道交界",
+      "english": "SHUN LEE TSUEN ROAD (EASTBOUND) AT JUNCTION WITH SAU MAU PING ROAD",
+      "latitude": 22.324065061097,
+      "longitude": 114.226024105384
+    },
+    {
+      "id": "rlc-34",
+      "kind": "rlc",
+      "name": "寶邑路（西行）與唐俊街交界",
+      "english": "PO YAP ROAD (WEST BOUND) AT JUNCTION WITH TONG CHUN STREET",
+      "latitude": 22.3075362482507,
+      "longitude": 114.261352803006
+    },
+    {
+      "id": "rlc-35",
+      "kind": "rlc",
+      "name": "蒲崗村道（南行）鄰近龍翔道",
+      "english": "PO KONG VILLAGE ROAD (SOUTH BOUND) NEAR LUNG CHEUNG ROAD",
+      "latitude": 22.3406819520737,
+      "longitude": 114.198295776622
+    },
+    {
+      "id": "rlc-36",
+      "kind": "rlc",
+      "name": "亞皆老街（西行）與天光道交界",
+      "english": "ARGYLE STREET (WEST BOUND) AT JUNCTION WITH TIN KWONG ROAD",
+      "latitude": 22.32405612377,
+      "longitude": 114.18371147209
+    },
+    {
+      "id": "rlc-37",
+      "kind": "rlc",
+      "name": "廣東道（北行）與甘肅街交界",
+      "english": "CANTON ROAD (NORTH BOUND) AT JUNCTION WITH KANSU STREET",
+      "latitude": 22.308976778831,
+      "longitude": 114.168794736757
+    },
+    {
+      "id": "rlc-38",
+      "kind": "rlc",
+      "name": "廣東道（南行）與九龍公園徑交界",
+      "english": "CANTON ROAD (SOUTH BOUND) AT JUNCTION WITH KOWLOON PARK DRIVE",
+      "latitude": 22.3002432621915,
+      "longitude": 114.168537092714
+    },
+    {
+      "id": "rlc-39",
+      "kind": "rlc",
+      "name": "漆咸道北（東行）與新柳街交界",
+      "english": "CHATHAM ROAD N. (EAST BOUND) AT JUNCTION WITH SAN LAU STREET",
+      "latitude": 22.312555518875,
+      "longitude": 114.186483768425
+    },
+    {
+      "id": "rlc-40",
+      "kind": "rlc",
+      "name": "長沙灣道（東行）與黃竹街交界",
+      "english": "CHEUNG SHA WAN ROAD (EAST BOUND) AT JUNCTION WITH WONG CHUK STREET",
+      "latitude": 22.3284402057279,
+      "longitude": 114.165245862402
+    },
+    {
+      "id": "rlc-41",
+      "kind": "rlc",
+      "name": "佐敦道（西行）與覺士道交界",
+      "english": "JORDAN ROAD (WEST BOUND) AT JUNCTION WITH COX'S ROAD",
+      "latitude": 22.3061187446609,
+      "longitude": 114.17297195412
+    },
+    {
+      "id": "rlc-42",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與太子道西交界",
+      "english": "NATHAN ROAD (SOUTH BOUND) AT JUNCTION WITH PRINCE EDWARD ROAD W.",
+      "latitude": 22.3239440717354,
+      "longitude": 114.168408540605
+    },
+    {
+      "id": "rlc-43",
+      "kind": "rlc",
+      "name": "土瓜灣道（西行）與落山道交界",
+      "english": "TO KWA WAN ROAD (WEST BOUND) AT JUNCTION WITH LOK SHAN ROAD",
+      "latitude": 22.3163878802829,
+      "longitude": 114.189722844245
+    },
+    {
+      "id": "rlc-44",
+      "kind": "rlc",
+      "name": "窩打老道（南行）與蘭開夏道交界",
+      "english": "WATERLOO ROAD (SOUTH BOUND) AT JUNCTION WITH LANCASHIRE ROAD",
+      "latitude": 22.3303514808475,
+      "longitude": 114.178659429729
+    },
+    {
+      "id": "rlc-45",
+      "kind": "rlc",
+      "name": "窩打老道（北行）與律倫街交界",
+      "english": "WATERLOO ROAD (NORTH BOUND) AT JUNCTION WITH RUTLAND QUADRANT",
+      "latitude": 22.3325504249513,
+      "longitude": 114.178860390779
+    },
+    {
+      "id": "rlc-46",
+      "kind": "rlc",
+      "name": "長沙灣道（南行）與昌華街交界",
+      "english": "CHEUNG SHA WAN ROAD (SOUTH BOUND) AT JUNCTION WITH CHEUNG WAH STREET",
+      "latitude": 22.3381430877414,
+      "longitude": 114.152731425381
+    },
+    {
+      "id": "rlc-47",
+      "kind": "rlc",
+      "name": "馬頭涌道（東行）與富寧街交界",
+      "english": "MA TAU CHUNG ROAD (EAST BOUND) AT JUNCTION WITH FU NING STREET",
+      "latitude": 22.324638301161,
+      "longitude": 114.188796647512
+    },
+    {
+      "id": "rlc-48",
+      "kind": "rlc",
+      "name": "馬頭圍道（西行）與浙江街交界",
+      "english": "MA TAU WAI ROAD (WEST BOUND) AT JUNCTION WITH CHI KIANG STREET",
+      "latitude": 22.3157414329002,
+      "longitude": 114.18777096542
+    },
+    {
+      "id": "rlc-49",
+      "kind": "rlc",
+      "name": "南昌街（北行）與元州街交界",
+      "english": "NAM CHEONG STREET (NORTH BOUND) AT JUNCTION WITH UN CHAU STREET",
+      "latitude": 22.3311032952769,
+      "longitude": 114.164842811193
+    },
+    {
+      "id": "rlc-50",
+      "kind": "rlc",
+      "name": "亞皆老街（東行）與露明道交界",
+      "english": "ARGYLE STREET (EAST BOUND) AT JUNCTION WITH LOMOND ROAD",
+      "latitude": 22.3249473488589,
+      "longitude": 114.185652786296
+    },
+    {
+      "id": "rlc-51",
+      "kind": "rlc",
+      "name": "佐敦道（西行）與上海街交界",
+      "english": "JORDAN ROAD (WEST BOUND) AT JUNCTION WITH SHANGHAI STREET",
+      "latitude": 22.3054801499671,
+      "longitude": 114.1692627181
+    },
+    {
+      "id": "rlc-52",
+      "kind": "rlc",
+      "name": "土瓜灣道（東行）與浙江街交界",
+      "english": "TO KWA WAN ROAD (EAST BOUND) AT JUNCTION WITH CHI KIANG STREET",
+      "latitude": 22.3153015774202,
+      "longitude": 114.188699765238
+    },
+    {
+      "id": "rlc-53",
+      "kind": "rlc",
+      "name": "巴域街（東行）與南昌街交界",
+      "english": "BERWICK STREET (EAST BOUND) AT JUNCTION WITH NAM CHEONG STREET",
+      "latitude": 22.3319332687134,
+      "longitude": 114.165728003679
+    },
+    {
+      "id": "rlc-54",
+      "kind": "rlc",
+      "name": "荔枝角道（西行）與東京街交界",
+      "english": "LAI CHI KOK ROAD (WEST BOUND) AT JUNCTION WITH TONKIN STREET",
+      "latitude": 22.3324190032166,
+      "longitude": 114.155573609439
+    },
+    {
+      "id": "rlc-55",
+      "kind": "rlc",
+      "name": "馬頭圍道（南行）與譚公道交界",
+      "english": "MA TAU WAI ROAD (SOUTH BOUND) AT JUNCTION WITH TAM KUNG ROAD",
+      "latitude": 22.3210270586013,
+      "longitude": 114.187498636522
+    },
+    {
+      "id": "rlc-56",
+      "kind": "rlc",
+      "name": "太子道西（東行）與聯合道交界",
+      "english": "PRINCE EDWARD ROAD W. (EAST BOUND) AT JUNCTION WITH JUNCTION ROAD",
+      "latitude": 22.3272898074047,
+      "longitude": 114.186948753268
+    },
+    {
+      "id": "rlc-57",
+      "kind": "rlc",
+      "name": "窩打老道（東行）與新填地街交界",
+      "english": "WATERLOO ROAD (EAST BOUND) AT JUNCTION WITH RECLAMATION STREET",
+      "latitude": 22.312696493114,
+      "longitude": 114.168969223018
+    },
+    {
+      "id": "rlc-58",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與窩打老道交界",
+      "english": "NATHAN ROAD (SOUTH BOUND) AT JUNCTION WITH WATERLOO ROAD",
+      "latitude": 22.3129918666968,
+      "longitude": 114.17065408576
+    },
+    {
+      "id": "rlc-59",
+      "kind": "rlc",
+      "name": "亞皆老街(西行)與洗衣街交界",
+      "english": "ARGYLE STREET (WEST BOUND) AT JUNCTION WITH SAI YEE STREET",
+      "latitude": 22.3197485944953,
+      "longitude": 114.1716399174
+    },
+    {
+      "id": "rlc-60",
+      "kind": "rlc",
+      "name": "櫻桃街（西行）與海泓道交界",
+      "english": "CHERRY STREET (WEST BOUND) AT JUNCTION WITH HOI WANG ROAD",
+      "latitude": 22.3181469418893,
+      "longitude": 114.162751329781
+    },
+    {
+      "id": "rlc-61",
+      "kind": "rlc",
+      "name": "塘尾道（北行）與旺角道交界",
+      "english": "TONG MI ROAD (NORTH BOUND) AT JUNCTION WITH MONG KOK ROAD",
+      "latitude": 22.3202043493309,
+      "longitude": 114.165828903729
+    },
+    {
+      "id": "rlc-62",
+      "kind": "rlc",
+      "name": "長沙灣道（東行）與美荔道交界",
+      "english": "CHEUNG SHA WAN ROAD (EAST BOUND) AT JUNCTION WITH MEI LAI ROAD",
+      "latitude": 22.337256815804,
+      "longitude": 114.140957710912
+    },
+    {
+      "id": "rlc-63",
+      "kind": "rlc",
+      "name": "彌敦道（北行）與柯士甸道交界",
+      "english": "NATHAN ROAD (NORTH BOUND) AT JUNCTION WITH AUSTIN ROAD",
+      "latitude": 22.3032587171353,
+      "longitude": 114.171767660366
+    },
+    {
+      "id": "rlc-64",
+      "kind": "rlc",
+      "name": "亞皆老街（西行）與公主道交界",
+      "english": "ARGYLE STREET (WEST BOUND) AT JUNCTION WITH PRINCESS MARGARET ROAD",
+      "latitude": 22.321403980204,
+      "longitude": 114.178114800478
+    },
+    {
+      "id": "rlc-65",
+      "kind": "rlc",
+      "name": "汀角路（南行）與汀太路交界",
+      "english": "TING KOK ROAD (SOUTH BOUND) AT JUNCTION WITH TING TAI ROAD",
+      "latitude": 22.4553541739031,
+      "longitude": 114.165692936761
+    },
+    {
+      "id": "rlc-66",
+      "kind": "rlc",
+      "name": "宏達路（東北行）與媽廟路交界",
+      "english": "WANG TAT ROAD (NORTHEAST BOUND) AT JUNCTION WITH MA MIU ROAD",
+      "latitude": 22.447102957867,
+      "longitude": 114.020785369646
+    },
+    {
+      "id": "rlc-67",
+      "kind": "rlc",
+      "name": "青山公路-大欖段（東行）與樂翠街交界",
+      "english": "CASTLE PEAK ROAD-TAI LAM (EAST BOUND) AT JUNCTION WITH LOK CHUI STREET",
+      "latitude": 22.3664659799095,
+      "longitude": 114.008784516676,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 0.53,
+      "roadRouteID": "94940",
+      "roadSpeedLimitID": "3279",
+      "matchedRoadName": "青山公路　–　大欖段"
+    },
+    {
+      "id": "rlc-68",
+      "kind": "rlc",
+      "name": "汀角路（東行）與大貴街交界",
+      "english": "TING KOK ROAD (EAST BOUND) AT JUNCTION WITH DAI KWAI STREET",
+      "latitude": 22.4622208965229,
+      "longitude": 114.188320683552,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 0.42,
+      "roadRouteID": "58459",
+      "roadSpeedLimitID": "140349",
+      "matchedRoadName": "汀角路"
+    },
+    {
+      "id": "rlc-69",
+      "kind": "rlc",
+      "name": "寶運路（東行）與寶石湖路交界",
+      "english": "PO WAN ROAD (EAST BOUND) AT JUNCTION WITH PO SHEK WU ROAD",
+      "latitude": 22.5060304679524,
+      "longitude": 114.125450517376
+    },
+    {
+      "id": "rlc-70",
+      "kind": "rlc",
+      "name": "南運路（南行）與大埔太和路交界",
+      "english": "NAM WAN ROAD (SOUTH BOUND) AT JUNCTION WITH TAI PO TAI WO ROAD",
+      "latitude": 22.451072254612,
+      "longitude": 114.172190743202
+    },
+    {
+      "id": "rlc-71",
+      "kind": "rlc",
+      "name": "銀城街（北行）與插桅杆街交界",
+      "english": "NGAN SHING STREET (NORTH BOUND) AT JUNCTION WITH CHAP WAI KON STREET",
+      "latitude": 22.3816556423639,
+      "longitude": 114.202509520511
+    },
+    {
+      "id": "rlc-72",
+      "kind": "rlc",
+      "name": "興芳路（北行）與榮芳路交界",
+      "english": "HING FONG ROAD (NORTH BOUND) AT JUNCTION WITH WING FONG ROAD",
+      "latitude": 22.3601027541746,
+      "longitude": 114.128679959165
+    },
+    {
+      "id": "rlc-73",
+      "kind": "rlc",
+      "name": "沙咀道（東行）與川龍街交界",
+      "english": "SHA TSUI ROAD (EAST BOUND) AT JUNCTION WITH CHUEN LUNG STREET",
+      "latitude": 22.3702261190638,
+      "longitude": 114.115687129003
+    },
+    {
+      "id": "rlc-74",
+      "kind": "rlc",
+      "name": "和宜合道（東行）與梨木道交界",
+      "english": "WO YI HOP ROAD (EAST BOUND) AT JUNCTION WITH LEI MUK ROAD",
+      "latitude": 22.3705724503634,
+      "longitude": 114.137550851541
+    },
+    {
+      "id": "rlc-75",
+      "kind": "rlc",
+      "name": "西沙路（東行）與鞍超街及馬鞍山路交界",
+      "english": "SAI SHA ROAD (EAST BOUND) AT JUNCTION WITH ON CHIU STREET AND MA ON SHAN ROAD",
+      "latitude": 22.4254662444615,
+      "longitude": 114.234059644514
+    },
+    {
+      "id": "rlc-76",
+      "kind": "rlc",
+      "name": "荔景山路（東行）與葵涌交匯處交界",
+      "english": "LAI KING HILL ROAD AT JUNCTION WITH KWAI CHUNG INTERCHANGE",
+      "latitude": 22.3430034431104,
+      "longitude": 114.131991271842
+    },
+    {
+      "id": "rlc-77",
+      "kind": "rlc",
+      "name": "英皇道（西行）與 電照街交界",
+      "english": "KING'S ROAD (WESTBOUND) AT JUNCTION WITH TIN CHIU STREET",
+      "latitude": 22.2916956701387,
+      "longitude": 114.203109261743
+    },
+    {
+      "id": "rlc-78",
+      "kind": "rlc",
+      "name": "英皇道（西行）與 長康街交界",
+      "english": "KING'S ROAD (WESTBOUND) AT JUNCTION WITH CHEONG HONG STREET",
+      "latitude": 22.2901100562936,
+      "longitude": 114.195383654833
+    },
+    {
+      "id": "rlc-79",
+      "kind": "rlc",
+      "name": "薄扶林道（北行 向中環）鄰近 地段137號",
+      "english": "POK FU LAM ROAD (NORTHBOUND TOWARDS CENTRAL) NEAR LOT NO. 137",
+      "latitude": 22.2639030805494,
+      "longitude": 114.134054930958
+    },
+    {
+      "id": "rlc-80",
+      "kind": "rlc",
+      "name": "薄扶林道（向香港仔）與 域多利道交界",
+      "english": "POK FU LAM ROAD (TOWARDS ABERDEEN) AT JUNCTION WITH VICTORIA ROAD",
+      "latitude": 22.2536581504304,
+      "longitude": 114.139129950574
+    },
+    {
+      "id": "rlc-81",
+      "kind": "rlc",
+      "name": "軒尼詩道（東行）與 菲林明道交界",
+      "english": "HENNESSY ROAD (EASTBOUND) AT JUNCTION WITH FLEMING ROAD",
+      "latitude": 22.2777770642229,
+      "longitude": 114.174764893078
+    },
+    {
+      "id": "rlc-82",
+      "kind": "rlc",
+      "name": "渣華道（東行）與 糖水道交界",
+      "english": "JAVA ROAD (EASTBOUND) AT JUNCTION WITH TONG SHUI ROAD",
+      "latitude": 22.2920304488462,
+      "longitude": 114.198762868118
+    },
+    {
+      "id": "rlc-83",
+      "kind": "rlc",
+      "name": "健康中街（北行）與 英皇道交界",
+      "english": "HEALTHY STREET CENTRAL (NORTHBOUND) AT JUNCTION WITH KING'S ROAD",
+      "latitude": 22.2919769608071,
+      "longitude": 114.205838099786
+    },
+    {
+      "id": "rlc-84",
+      "kind": "rlc",
+      "name": "薄扶林道（東南行 向香港仔）鄰近 No. 126",
+      "english": "POK FU LAM ROAD (SOUTHEAST BOUND TOWARDS ABERDEEN) NEAR NO.126",
+      "latitude": 22.266934240354,
+      "longitude": 114.132451182522
+    },
+    {
+      "id": "rlc-85",
+      "kind": "rlc",
+      "name": "摩利臣山道〔北行〕靠左與 體育道交界",
+      "english": "LHS OF MORRISON HILL ROAD (NORTHBOUND) AT JUNCTION WITH SPORTS ROAD",
+      "latitude": 22.2764865520923,
+      "longitude": 114.18071673534
+    },
+    {
+      "id": "rlc-86",
+      "kind": "rlc",
+      "name": "摩利臣山道〔北行〕靠右與 體育道交界",
+      "english": "RHS OF MORRISON HILL ROAD (NORTHBOUND) AT JUNCTION WITH SPORTS ROAD",
+      "latitude": 22.2764865520923,
+      "longitude": 114.18071673534
+    },
+    {
+      "id": "rlc-87",
+      "kind": "rlc",
+      "name": "干諾道中（東行）與 康樂廣場交界",
+      "english": "CONNAUGHT ROAD CENTRAL (EASTBOUND) AT JUNCTION WITH CONNAUGHT SQUARE",
+      "latitude": 22.2829298434022,
+      "longitude": 114.158638654809
+    },
+    {
+      "id": "rlc-88",
+      "kind": "rlc",
+      "name": "協和街（南行）與 月華街交界",
+      "english": "HIP WO STREET (SOUTHBOUND) AT JUNCTION WITH YUET WAH STREET",
+      "latitude": 22.3166553370386,
+      "longitude": 114.226431092189
+    },
+    {
+      "id": "rlc-89",
+      "kind": "rlc",
+      "name": "宏照道（北行）與 常怡道交界",
+      "english": "WANG CHIU ROAD (NORTHBOUND) AT JUNCTION WITH SHEUNG YEE ROAD",
+      "latitude": 22.3192514605503,
+      "longitude": 114.209262171609
+    },
+    {
+      "id": "rlc-90",
+      "kind": "rlc",
+      "name": "協和街（南行）與 雲漢街交界",
+      "english": "HIP WO STREET (SOUTHBOUND) AT JUNCTION WITH WAN HON STREET",
+      "latitude": 22.317676563299,
+      "longitude": 114.226867245571
+    },
+    {
+      "id": "rlc-91",
+      "kind": "rlc",
+      "name": "西貢公路〔北行〕與 菠蘿輋路交界",
+      "english": "HIRAM'S HIGHWAY (NORTHBOUND) AT JUNCTION WITH PO LO CHE ROAD",
+      "latitude": 22.3777523329585,
+      "longitude": 114.265012119753
+    },
+    {
+      "id": "rlc-92",
+      "kind": "rlc",
+      "name": "公主道（北行）與 亞皆老街交界",
+      "english": "PRINCESS MARGARET ROAD (NORTHBOUND) AT JUNCTION WITH ARGYLE STREET",
+      "latitude": 22.321403980204,
+      "longitude": 114.178114800478
+    },
+    {
+      "id": "rlc-93",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與亞皆老街交界",
+      "english": "NATHAN ROAD (SOUTHBOUND) AT JUNCTION WITH ARGYLE STREET",
+      "latitude": 22.3193060068142,
+      "longitude": 114.169369709175
+    },
+    {
+      "id": "rlc-94",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與 佐敦道交界",
+      "english": "NATHAN ROAD (SOUTHBOUND) AT JUNCTION WITH JORDAN ROAD",
+      "latitude": 22.3053511057843,
+      "longitude": 114.171642390503
+    },
+    {
+      "id": "rlc-95",
+      "kind": "rlc",
+      "name": "上海街（南行）與 甘肅街交界",
+      "english": "SHANGHAI STREET (SOUTHBOUND) AT JUNCTION WITH KANSU STREET",
+      "latitude": 22.3086761184912,
+      "longitude": 114.170086519738
+    },
+    {
+      "id": "rlc-96",
+      "kind": "rlc",
+      "name": "界限街（東行）與 大坑東道交界",
+      "english": "BOUNDARY STREET (EASTBOUND) AT JUNCTION WITH TAI HANG TUNG ROAD",
+      "latitude": 22.3267003582896,
+      "longitude": 114.172148279509
+    },
+    {
+      "id": "rlc-97",
+      "kind": "rlc",
+      "name": "登打士街（西行）與 彌敦道交界",
+      "english": "DUNDAS STREET (WESTBOUND) AT JUNCTION WITH NATHAN ROAD",
+      "latitude": 22.3153497376361,
+      "longitude": 114.170179373866
+    },
+    {
+      "id": "rlc-98",
+      "kind": "rlc",
+      "name": "界限街（東行）與 喇沙利道交界",
+      "english": "BOUNDARY STREET (EASTBOUND) AT JUNCTION WITH LA SALLE ROAD",
+      "latitude": 22.3271148505717,
+      "longitude": 114.181899418072
+    },
+    {
+      "id": "rlc-99",
+      "kind": "rlc",
+      "name": "彌敦道（北行）與 窩打老道交界",
+      "english": "NATHAN ROAD (NORTHBOUND) AT JUNCTION WITH WATERLOO ROAD",
+      "latitude": 22.3129918666968,
+      "longitude": 114.17065408576
+    },
+    {
+      "id": "rlc-100",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與 堪富利士道交界",
+      "english": "NATHAN ROAD (SOUTHBOUND) AT JUNCTION WITH HUMPHREY'S AVENUE",
+      "latitude": 22.2981437874898,
+      "longitude": 114.172125940665
+    },
+    {
+      "id": "rlc-101",
+      "kind": "rlc",
+      "name": "彌敦道（北行）與 旺角道交界",
+      "english": "NATHAN ROAD (NORTHBOUND) AT JUNCTION WITH MONG KOK ROAD",
+      "latitude": 22.3208357745032,
+      "longitude": 114.169053210045
+    },
+    {
+      "id": "rlc-102",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與 加士居道交界",
+      "english": "NATHAN ROAD (SOUTHBOUND) AT JUNCTION WITH GASCOIGNE ROAD",
+      "latitude": 22.3083989256586,
+      "longitude": 114.171325888155
+    },
+    {
+      "id": "rlc-103",
+      "kind": "rlc",
+      "name": "漆咸道南（東北行）與 柯士甸道交界",
+      "english": "CHATHAM ROAD SOUTH (NORTHEAST BOUND) AT JUNCTION WITH AUSTIN ROAD",
+      "latitude": 22.3029653009182,
+      "longitude": 114.177119886327
+    },
+    {
+      "id": "rlc-104",
+      "kind": "rlc",
+      "name": "長沙灣道（東行）與 蝴蝶谷道交界",
+      "english": "CHEUNG SHA WAN ROAD (EASTBOUND) AT JUNCTION WITH BUTTERFLY VALLEY ROAD",
+      "latitude": 22.3364575525719,
+      "longitude": 114.145005795919
+    },
+    {
+      "id": "rlc-105",
+      "kind": "rlc",
+      "name": "荔枝角道（東南行）與 東京街交界",
+      "english": "LAI CHI KOK ROAD (SOUTHEAST BOUND) AT JUNCTION WITH TONKIN STREET",
+      "latitude": 22.3324190032166,
+      "longitude": 114.155573609439
+    },
+    {
+      "id": "rlc-106",
+      "kind": "rlc",
+      "name": "柯士甸道（東行）與 彌敦道交界",
+      "english": "AUSTIN ROAD (EASTBOUND) AT JUNCTION WITH NATHAN ROAD",
+      "latitude": 22.3032587171353,
+      "longitude": 114.171767660366
+    },
+    {
+      "id": "rlc-107",
+      "kind": "rlc",
+      "name": "窩打老道（南行）與 聯合道交界",
+      "english": "WATERLOO ROAD (SOUTHBOUND) AT JUNCTION WITH JUNCTION ROAD",
+      "latitude": 22.3391698328888,
+      "longitude": 114.17918665307
+    },
+    {
+      "id": "rlc-108",
+      "kind": "rlc",
+      "name": "彌敦道（北行）與 界限街交界",
+      "english": "NATHAN ROAD (NORTHBOUND) AT JUNCTION WITH BOUNDARY STREET",
+      "latitude": 22.326515048471,
+      "longitude": 114.16782017477
+    },
+    {
+      "id": "rlc-109",
+      "kind": "rlc",
+      "name": "長沙灣道（西北行）與 東京街交界",
+      "english": "CHEUNG SHA WAN ROAD (NORTHWEST BOUND) AT JUNCTION WITH TONKIN STREET",
+      "latitude": 22.3346073287921,
+      "longitude": 114.157293361808
+    },
+    {
+      "id": "rlc-110",
+      "kind": "rlc",
+      "name": "太子道西（西行）與 洗衣街交界",
+      "english": "PRINCE EDWARD ROAD WEST (WESTBOUND) AT JUNCTION WITH SAI YEE STREET",
+      "latitude": 22.3243686118353,
+      "longitude": 114.170688527918
+    },
+    {
+      "id": "rlc-111",
+      "kind": "rlc",
+      "name": "亞皆老街（西行）靠左與 上海街交界",
+      "english": "LHS OF ARGYLE STREET (WESTBOUND) AT JUNCTION WITH SHANGHAI STREET",
+      "latitude": 22.3190964352031,
+      "longitude": 114.168129300184
+    },
+    {
+      "id": "rlc-112",
+      "kind": "rlc",
+      "name": "亞皆老街（西行）靠右與 上海街交界",
+      "english": "RHS OF ARGYLE STREET (WESTBOUND) AT JUNCTION WITH SHANGHAI STREET",
+      "latitude": 22.3190964352031,
+      "longitude": 114.168129300184
+    },
+    {
+      "id": "rlc-113",
+      "kind": "rlc",
+      "name": "亞皆老街（西行）與 染布房街交界",
+      "english": "ARGYLE STREET (WESTBOUND) AT JUNCTION WITH YIM PO FONG STREET",
+      "latitude": 22.3199193016152,
+      "longitude": 114.172638658979
+    },
+    {
+      "id": "rlc-114",
+      "kind": "rlc",
+      "name": "柯士甸道（東行）與 漆咸道南交界",
+      "english": "AUSTIN ROAD (EASTBOUND) AT JUNCTION WITH CHATHAM ROAD SOUTH",
+      "latitude": 22.3029653009182,
+      "longitude": 114.177119886327
+    },
+    {
+      "id": "rlc-115",
+      "kind": "rlc",
+      "name": "柯士甸道（西行）與 廣東道交界",
+      "english": "AUSTIN ROAD (WESTBOUND) AT JUNCTION WITH CANTON ROAD",
+      "latitude": 22.3029497122299,
+      "longitude": 114.168061396219
+    },
+    {
+      "id": "rlc-116",
+      "kind": "rlc",
+      "name": "通菜街（北行）與 界限街交界",
+      "english": "TUNG CHOI STREET (NORTHBOUND) AT JUNCTION WITH BOUNDARY STREET",
+      "latitude": 22.3264988594311,
+      "longitude": 114.169098516561
+    },
+    {
+      "id": "rlc-117",
+      "kind": "rlc",
+      "name": "長沙灣道（西北行）與 欽州街交界",
+      "english": "CHEUNG SHA WAN ROAD (NORTHWEST BOUND) AT JUNCTION WITH YEN CHOW STREET",
+      "latitude": 22.3317513600312,
+      "longitude": 114.160988176391
+    },
+    {
+      "id": "rlc-118",
+      "kind": "rlc",
+      "name": "麗翔道（東行）與 渡船街交界",
+      "english": "LAI CHEUNG  ROAD (EASTBOUND) AT JUNCTION WITH FERRY STREET",
+      "latitude": 22.3124435300973,
+      "longitude": 114.167020375219
+    },
+    {
+      "id": "rlc-119",
+      "kind": "rlc",
+      "name": "馬頭涌道（南行）與 宋皇臺道交界",
+      "english": "MA TAU CHUNG ROAD (SOUTHBOUND) AT JUNCTION WITH SUNG WONG TOI ROAD",
+      "latitude": 22.324638301161,
+      "longitude": 114.188796647512
+    },
+    {
+      "id": "rlc-120",
+      "kind": "rlc",
+      "name": "長沙灣道（西北行）與 南昌街交界",
+      "english": "CHEUNG SHA WAN ROAD  (NORTHWESTBOUND) AT JUNCTION WITH NAM CHEONG STREET",
+      "latitude": 22.3296528945701,
+      "longitude": 114.163691723139
+    },
+    {
+      "id": "rlc-121",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與 眾坊街交界",
+      "english": "NATHAN ROAD (SOUTHBOUND) AT JUNCTION WITH PUBLIC SQUARE STREET",
+      "latitude": 22.3102745737783,
+      "longitude": 114.171076387464
+    },
+    {
+      "id": "rlc-122",
+      "kind": "rlc",
+      "name": "彌敦道（南行）與 梳士巴利道交界",
+      "english": "NATHAN ROAD (SOUTHBOUND) AT JUNCTION WITH SALISBURY ROAD",
+      "latitude": 22.2947428632666,
+      "longitude": 114.172382247068
+    },
+    {
+      "id": "rlc-123",
+      "kind": "rlc",
+      "name": "窩打老道〔北行〕與 太子道西交界",
+      "english": "WATERLOO ROAD (NORTHBOUND) AT JUNCTION WITH PRINCE EDWARD ROAD WEST",
+      "latitude": 22.3257251147994,
+      "longitude": 114.178413797346
+    },
+    {
+      "id": "rlc-124",
+      "kind": "rlc",
+      "name": "欽州街（西南行）與 醫局街交界",
+      "english": "YEN CHOW STREET (SOUTHWEST BOUND) AT JUNCTION WITH YEE KUK STREET",
+      "latitude": 22.3291792071057,
+      "longitude": 114.158669549388
+    },
+    {
+      "id": "rlc-125",
+      "kind": "rlc",
+      "name": "窩打老道（南行）與 衛理道交界",
+      "english": "WATERLOO ROAD (SOUTHBOUND) AT JUNCTION WITH WYLIE ROAD",
+      "latitude": 22.3164940253589,
+      "longitude": 114.173956804538
+    },
+    {
+      "id": "rlc-126",
+      "kind": "rlc",
+      "name": "麗翔道（東行）與 海泓道交界",
+      "english": "LAI CHEUNG ROAD (EASTBOUND) AT JUNCTION WITH HOI WANG ROAD",
+      "latitude": 22.3121083426527,
+      "longitude": 114.164764848656
+    },
+    {
+      "id": "rlc-127",
+      "kind": "rlc",
+      "name": "太子道西（東行）與 荔枝角道交界",
+      "english": "PRINCE EDWARD ROAD WEST (EASTBOUND) AT JUNCTION WITH LAI CHI KOK ROAD",
+      "latitude": 22.323729049712,
+      "longitude": 114.166760429175
+    },
+    {
+      "id": "rlc-128",
+      "kind": "rlc",
+      "name": "大角咀路〔北行〕與 富貴街交界",
+      "english": "TAI KOK TSUI ROAD (NORTHBOUND) AT JUNCTION WITH FOO KWAI STREET",
+      "latitude": 22.3194743682623,
+      "longitude": 114.161955306794
+    },
+    {
+      "id": "rlc-129",
+      "kind": "rlc",
+      "name": "通州街（西行）與發祥街交界",
+      "english": "TUNG CHAU STREET (WESTBOUND) AT JUNCTION WITH FAT TSEUNG STREET",
+      "latitude": 22.3324311824847,
+      "longitude": 114.152292685644
+    },
+    {
+      "id": "rlc-130",
+      "kind": "rlc",
+      "name": "何文田山道（西行）與衛理道交界",
+      "english": "HO MAN TIN HILL ROAD (WESTBOUND) AT JUNCTION WITH WYLIE ROAD",
+      "latitude": 22.3128167876123,
+      "longitude": 114.175844602208
+    },
+    {
+      "id": "rlc-131",
+      "kind": "rlc",
+      "name": "青山公路（洪水橋）與 田廈路交界",
+      "english": "CASTLE PEAK ROAD (HUNG SHUI KIU) AT JUNCTION WITH TIN HA ROAD",
+      "latitude": 22.4302963673341,
+      "longitude": 113.993259223484,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 0.3,
+      "roadRouteID": "94946",
+      "roadSpeedLimitID": "2154",
+      "matchedRoadName": "青山公路　–　洪水橋段"
+    },
+    {
+      "id": "rlc-132",
+      "kind": "rlc",
+      "name": "青松觀路（西行）與 震寰路交界",
+      "english": "TSING CHUNG KOON ROAD (WESTBOUND) AT JUNCTION WITH TSUN WEN ROAD",
+      "latitude": 22.4028138427347,
+      "longitude": 113.972796831096
+    },
+    {
+      "id": "rlc-133",
+      "kind": "rlc",
+      "name": "龍門路（北行）與 湖翠路交界",
+      "english": "LUNG MUN ROAD (NORTHBOUND) AT JUNCTION WITH WU CHUI ROAD",
+      "latitude": 22.3762191798712,
+      "longitude": 113.9603526298
+    },
+    {
+      "id": "rlc-134",
+      "kind": "rlc",
+      "name": "鳴琴路（南行）與杯渡路交界",
+      "english": "MING KUM ROAD (SOUTHBOUND) AT JUNCTION WITH PUI TO ROAD",
+      "latitude": 22.3953191960382,
+      "longitude": 113.96764238982
+    },
+    {
+      "id": "rlc-135",
+      "kind": "rlc",
+      "name": "鳴琴路（北行）與 田景路交界",
+      "english": "MING KUM ROAD (NORTHBOUND) AT JUNCTION WITH TIN KING ROAD",
+      "latitude": 22.4047137320288,
+      "longitude": 113.967059218292
+    },
+    {
+      "id": "rlc-136",
+      "kind": "rlc",
+      "name": "杯渡路（東行）鄰近 屯門大坑渠",
+      "english": "PUI TO ROAD (EASTBOUND) NEAR TUEN MUN NULLAH",
+      "latitude": 22.3945608422319,
+      "longitude": 113.971324042928
+    },
+    {
+      "id": "rlc-137",
+      "kind": "rlc",
+      "name": "朗日路(東行)鄰近新元朗中心公共運輸交匯處",
+      "english": "LONG YAT ROAD (EASTBOUND) NEAR SUN YUEN LONG CENTRE PTI",
+      "latitude": 22.4465443441975,
+      "longitude": 114.03488212374
+    },
+    {
+      "id": "rlc-138",
+      "kind": "rlc",
+      "name": "湖山路（西行）與 湖景路交界",
+      "english": "WU SHAN ROAD (WESTBOUND) AT JUNCTION WITH WU KING ROAD",
+      "latitude": 22.3776814825264,
+      "longitude": 113.966721070592
+    },
+    {
+      "id": "rlc-139",
+      "kind": "rlc",
+      "name": "屯門鄉事會路與青山公路交界",
+      "english": "TUEN MUN HEUNG SZE WUI ROAD AT JUNCTION WITH CASTLE PEAK ROAD",
+      "latitude": 22.4007388869303,
+      "longitude": 113.97806741129
+    },
+    {
+      "id": "rlc-140",
+      "kind": "rlc",
+      "name": "青雲路〔北行〕與 興才街交界",
+      "english": "TSING WUN ROAD (NORTHBOUND) AT JUNCTION WITH HING CHOI STREET",
+      "latitude": 22.3924989461859,
+      "longitude": 113.967615533411
+    },
+    {
+      "id": "rlc-141",
+      "kind": "rlc",
+      "name": "青山公路（元朗段）（東行）與 媽橫路交界",
+      "english": "CASTLE PEAK ROAD(YUEN LONG) (EASTBOUND) AT JUNCTION WITH MA WANG ROAD",
+      "latitude": 22.4441779208642,
+      "longitude": 114.017010633808
+    },
+    {
+      "id": "rlc-142",
+      "kind": "rlc",
+      "name": "龍門路（南行）與 屯青里交界",
+      "english": "LUNG MUN ROAD (SOUTHBOUND) AT JUNCTION WITH TUEN TSING LANE",
+      "latitude": 22.3812486848605,
+      "longitude": 113.963394824674
+    },
+    {
+      "id": "rlc-143",
+      "kind": "rlc",
+      "name": "海珠路（東行）與 屯門鄉事會路交界",
+      "english": "HOI CHU ROAD (EASTBOUND) AT JUNCTION WITH TUEN MUN HEUNG SZE WUI ROAD",
+      "latitude": 22.3837823738197,
+      "longitude": 113.975155088241
+    },
+    {
+      "id": "rlc-144",
+      "kind": "rlc",
+      "name": "馬會道（西北行）與 龍琛路交界",
+      "english": "JOCKEY CLUB ROAD (NORTHWESTBOUND) AT JUNCTION WITH LUNG SUM AVENUE",
+      "latitude": 22.5042133111777,
+      "longitude": 114.130607991061
+    },
+    {
+      "id": "rlc-145",
+      "kind": "rlc",
+      "name": "青山公路－青山灣段與屯興路交界",
+      "english": "CASTLE PEAK ROAD (CASTLE PEAK BAY) AT JUNCTION WITH TUEN HING ROAD",
+      "latitude": 22.3907326037674,
+      "longitude": 113.979854839186
+    },
+    {
+      "id": "rlc-146",
+      "kind": "rlc",
+      "name": "天瑞路（南行）與 天榮路交界",
+      "english": "TIN SHUI ROAD (SOUTHBOUND) AT JUNCTION WITH TIN WING ROAD",
+      "latitude": 22.4587294843871,
+      "longitude": 113.99802325328
+    },
+    {
+      "id": "rlc-147",
+      "kind": "rlc",
+      "name": "天瑞路（北行）與 天秀路交界",
+      "english": "TIN SHUI ROAD (NORTHBOUND) AT JUNCTION WITH TIN SAU ROAD",
+      "latitude": 22.4661227361448,
+      "longitude": 113.998077893686
+    },
+    {
+      "id": "rlc-148",
+      "kind": "rlc",
+      "name": "青山公路－洪水橋段與洪天路交界",
+      "english": "CASTLE PEAK ROAD (HUNG SHUI KIU) AT JUNCTION WITH HUNG TIN ROAD",
+      "latitude": 22.4357102186186,
+      "longitude": 114.000650287536
+    },
+    {
+      "id": "rlc-149",
+      "kind": "rlc",
+      "name": "媽橫路（西行）與 媽廟路交界",
+      "english": "MA WANG ROAD (WESTBOUND) AT JUNCTION WITH MA MIU ROAD",
+      "latitude": 22.447102957867,
+      "longitude": 114.020785369646
+    },
+    {
+      "id": "rlc-150",
+      "kind": "rlc",
+      "name": "屯門鄉事會路與友愛路交界",
+      "english": "TM HEUNG SZE WUI ROAD AT JUNCTION WITH YAU OI ROAD",
+      "latitude": 22.3866749610591,
+      "longitude": 113.975254821672
+    },
+    {
+      "id": "rlc-151",
+      "kind": "rlc",
+      "name": "青山公路（西行）與 大涌道交界",
+      "english": "CASTLE PEAK ROAD (WESTBOUND) AT JUNCTION WITH TAI CHUNG ROAD",
+      "latitude": 22.375136379408,
+      "longitude": 114.111973889266
+    },
+    {
+      "id": "rlc-152",
+      "kind": "rlc",
+      "name": "昌榮路（南行）與 青山公路交界",
+      "english": "CHEUNG WING ROAD (SOUTHBOUND) AT JUNCTION WITH CASTLE PEAK ROAD",
+      "latitude": 22.3684187072521,
+      "longitude": 114.134142499056
+    },
+    {
+      "id": "rlc-153",
+      "kind": "rlc",
+      "name": "大河道〔北行〕與 沙嘴道交界",
+      "english": "TAI HO ROAD (NORTHBOUND) AT JUNCTION WITH SHA TSUI ROAD",
+      "latitude": 22.3712620682285,
+      "longitude": 114.113717578596
+    },
+    {
+      "id": "rlc-154",
+      "kind": "rlc",
+      "name": "菲林明道（北行）與港灣道交界",
+      "english": "FLEMING ROAD (NORTHBOUND) AT JUNCTION WITH HARBOUR ROAD",
+      "latitude": 22.280681312778,
+      "longitude": 114.174406798925
+    },
+    {
+      "id": "rlc-155",
+      "kind": "rlc",
+      "name": "域多利皇后街與德輔道中交界",
+      "english": "QUEEN VICTORIA STREET AT JUNCTION WITH DES VOEUX ROAD CENTRAL",
+      "latitude": 22.2841658291826,
+      "longitude": 114.15607093971
+    },
+    {
+      "id": "rlc-156",
+      "kind": "rlc",
+      "name": "英皇道（西行）與健康中街交界",
+      "english": "KING'S ROAD (WESTBOUND) AT JUNCTION WITH HEALTHY STREET CENTRAL",
+      "latitude": 22.2919769608071,
+      "longitude": 114.205838099786
+    },
+    {
+      "id": "rlc-157",
+      "kind": "rlc",
+      "name": "東邊街北（南行）與干諾道西交界",
+      "english": "EASTERN STREET NORTH (SOUTHBOUND) AT JUNCTION WITH CONNAUGHT ROAD WEST",
+      "latitude": 22.2886176991825,
+      "longitude": 114.143780367411
+    },
+    {
+      "id": "rlc-158",
+      "kind": "rlc",
+      "name": "干諾道西（東行）與水街交界",
+      "english": "CONNAUGHT ROAD WEST (EASTBOUND) AT JUNCTION WITH WATER STREET",
+      "latitude": 22.2880918820594,
+      "longitude": 114.138598659457
+    },
+    {
+      "id": "rlc-159",
+      "kind": "rlc",
+      "name": "民耀街（南行）與民祥街交界",
+      "english": "MAN YIU STREET (SOUTHBOUND) AT JUNCTION WITH MAN CHEUNG STREET",
+      "latitude": 22.2844317279727,
+      "longitude": 114.159462292175
+    },
+    {
+      "id": "rlc-160",
+      "kind": "rlc",
+      "name": "軒尼詩道（東行）與菲林明道交界",
+      "english": "HENNESSY ROAD (EASTBOUND) AT JUNCTION WITH FLEMING ROAD",
+      "latitude": 22.2777770642229,
+      "longitude": 114.174764893078
+    },
+    {
+      "id": "rlc-161",
+      "kind": "rlc",
+      "name": "鯉魚門道（西北行）與高超道交界",
+      "english": "LEI YUE MUN ROAD (NORTHWEST BOUND) AT JUNCTION WITH KO CHIU ROAD",
+      "latitude": 22.3006472421656,
+      "longitude": 114.238288426995
+    },
+    {
+      "id": "rlc-162",
+      "kind": "rlc",
+      "name": "蒲崗村道（南行）與彩虹道交界",
+      "english": "PO KONG VILLAGE ROAD (SOUTHBOUND) AT JUNCTION WITH CHOI HUNG ROAD",
+      "latitude": 22.3395504597279,
+      "longitude": 114.198005353274
+    },
+    {
+      "id": "rlc-163",
+      "kind": "rlc",
+      "name": "康寧道（北行）與振華道交界",
+      "english": "HONG NING ROAD (NORTHBOUND) AT JUNCTION WITH CHUN WAH ROAD",
+      "latitude": 22.3202719737542,
+      "longitude": 114.223787477835
+    },
+    {
+      "id": "rlc-164",
+      "kind": "rlc",
+      "name": "鯉魚門道（東南行）與將軍澳道交界",
+      "english": "LEI YUE MUN ROAD (SOUTHEAST BOUND) AT JUNCTION WITH TSEUNG KWAN O ROAD",
+      "latitude": 22.3095288600438,
+      "longitude": 114.230617375241
+    },
+    {
+      "id": "rlc-165",
+      "kind": "rlc",
+      "name": "觀塘道（東南行）與翠屏道交界",
+      "english": "KWUN TONG ROAD (SOUTHEAST BOUND) AT JUNCTION WITH TSUI PING ROAD",
+      "latitude": 22.3108949524751,
+      "longitude": 114.228572004769
+    },
+    {
+      "id": "rlc-166",
+      "kind": "rlc",
+      "name": "偉業街（西行）與勵業街交界",
+      "english": "WAI YIP STREET (WESTBOUND) AT JUNCTION WITH LAI YIP STREET",
+      "latitude": 22.3139631481968,
+      "longitude": 114.217277768679
+    },
+    {
+      "id": "rlc-167",
+      "kind": "rlc",
+      "name": "昭信路（西行）與銀澳路交界",
+      "english": "CHIU SHUN ROAD (WESTBOUND) AT JUNCTION WITH NGAN O ROAD",
+      "latitude": 22.3137802929842,
+      "longitude": 114.267504071137
+    },
+    {
+      "id": "rlc-168",
+      "kind": "rlc",
+      "name": "中間道（西行）與九龍公園徑交界",
+      "english": "MIDDLE ROAD (WESTBOUND) AT JUNCTION WITH KOWLOON PARK DRIVE",
+      "latitude": 22.2955483280262,
+      "longitude": 114.170393806282
+    },
+    {
+      "id": "rlc-169",
+      "kind": "rlc",
+      "name": "長沙灣道（東南行）與東京街交界",
+      "english": "CHEUNG SHA WAN ROAD (SOUTHEAST BOUND) AT JUNCTION WITH TONKIN STREET",
+      "latitude": 22.3346073287921,
+      "longitude": 114.157293361808
+    },
+    {
+      "id": "rlc-170",
+      "kind": "rlc",
+      "name": "東京街（西南行）與荔枝角道交界",
+      "english": "TONKIN STREET (SOUTHWEST BOUND) AT JUNCTION WITH LAI CHI KOK ROAD",
+      "latitude": 22.3324190032166,
+      "longitude": 114.155573609439
+    },
+    {
+      "id": "rlc-171",
+      "kind": "rlc",
+      "name": "九龍公園徑（北行）與北京道交界",
+      "english": "KOWLOON PARK DRIVE (NORTHBOUND) AT JUNCTION WITH PEKING ROAD",
+      "latitude": 22.2962653507223,
+      "longitude": 114.170181247744
+    },
+    {
+      "id": "rlc-172",
+      "kind": "rlc",
+      "name": "窩打老道（東行）與上海街交界",
+      "english": "WATERLOO ROAD (EASTBOUND) AT JUNCTION WITH SHANGHAI STREET",
+      "latitude": 22.3127804996201,
+      "longitude": 114.169435082852
+    },
+    {
+      "id": "rlc-173",
+      "kind": "rlc",
+      "name": "加士居道（西行）與佐敦道交界",
+      "english": "GASCOIGNE ROAD (WESTBOUND) AT JUNCTION WITH JORDAN ROAD",
+      "latitude": 22.3071103310293,
+      "longitude": 114.174261737252
+    },
+    {
+      "id": "rlc-174",
+      "kind": "rlc",
+      "name": "窩打老道（南行）與歌和老街交界",
+      "english": "WATERLOO ROAD (SOUTHBOUND) AT JUNCTION WITH CORNWALL STREET",
+      "latitude": 22.3399771653479,
+      "longitude": 114.179233262115
+    },
+    {
+      "id": "rlc-175",
+      "kind": "rlc",
+      "name": "青山道（東南行）與東京街交界",
+      "english": "CASTLE PEAK ROAD (SOUTHEAST BOUND) AT JUNCTION WITH TONKIN STREET",
+      "latitude": 22.3364759380061,
+      "longitude": 114.158875366916
+    },
+    {
+      "id": "rlc-176",
+      "kind": "rlc",
+      "name": "大南西街（北行）與長沙灣道交界",
+      "english": "TAI NAN WEST STREET (NORTHBOUND) AT JUNCTION WITH CHEUNG SHA WAN ROAD",
+      "latitude": 22.3377415966135,
+      "longitude": 114.149376673256
+    },
+    {
+      "id": "rlc-177",
+      "kind": "rlc",
+      "name": "九龍城道（北行）與馬頭角道交界",
+      "english": "KOWLOON CITY ROAD (NORTHBOUND) AT JUNCTION WITH MA TAU KOK ROAD",
+      "latitude": 22.321598461294,
+      "longitude": 114.190600756172
+    },
+    {
+      "id": "rlc-178",
+      "kind": "rlc",
+      "name": "亞皆老街（西行）與塘尾道交界",
+      "english": "ARGYLE STREET (WESTBOUND) AT JUNCTION WITH TONG MI ROAD",
+      "latitude": 22.3188542940436,
+      "longitude": 114.166105628574
+    },
+    {
+      "id": "rlc-179",
+      "kind": "rlc",
+      "name": "大坑東道（南行）與達之路交界",
+      "english": "TAI HANG TUNG ROAD (SOUTHBOUND) AT JUNCTION WITH TAT CHEE AVENUE",
+      "latitude": 22.3273559778727,
+      "longitude": 114.172115255466
+    },
+    {
+      "id": "rlc-180",
+      "kind": "rlc",
+      "name": "博文街（東行）與大角咀道交界",
+      "english": "POK MAN STREET (EASTBOUND) AT JUNCTION WITH TAI KOK TSUI ROAD",
+      "latitude": 22.3194743682623,
+      "longitude": 114.161955306794
+    },
+    {
+      "id": "rlc-181",
+      "kind": "rlc",
+      "name": "連翔道（東南行）與東京街西交界",
+      "english": "LIN CHEUNG ROAD (SOUTHEAST BOUND) AT JUNCTION WITH TONKIN STREET WEST",
+      "latitude": 22.3280314155653,
+      "longitude": 114.151850835831
+    },
+    {
+      "id": "rlc-182",
+      "kind": "rlc",
+      "name": "醫局街（東南行）與南昌街交界",
+      "english": "YEE KUK STREET (SOUTHEAST BOUND) AT JUNCTION WITH NAM CHEONG STREET",
+      "latitude": 22.3271322460014,
+      "longitude": 114.161289599595
+    },
+    {
+      "id": "rlc-183",
+      "kind": "rlc",
+      "name": "渡船街（南行）與山東街交界",
+      "english": "FERRY STREET (SOUTHBOUND) AT JUNCTION WITH SHANTUNG STREET",
+      "latitude": 22.3169326047798,
+      "longitude": 114.166436743101
+    },
+    {
+      "id": "rlc-184",
+      "kind": "rlc",
+      "name": "通州街（東南行）與南昌街交界",
+      "english": "TUNG CHAU STREET (SOUTHEAST BOUND) AT JUNCTION WITH NAM CHEONG STREET",
+      "latitude": 22.3262724560562,
+      "longitude": 114.16049473707
+    },
+    {
+      "id": "rlc-185",
+      "kind": "rlc",
+      "name": "長沙灣道（東南行）與欽州街交界",
+      "english": "CHEUNG SHA WAN ROAD (SOUTHEAST BOUND) AT JUNCTION WITH YEN CHOW STREET",
+      "latitude": 22.3317513600312,
+      "longitude": 114.160988176391
+    },
+    {
+      "id": "rlc-186",
+      "kind": "rlc",
+      "name": "媽橫路（西行）與屏會街交界",
+      "english": "MA WANG ROAD (WESTBOUND) AT JUNCTION WITH PING WUI STREET",
+      "latitude": 22.4476891109681,
+      "longitude": 114.021803801176
+    },
+    {
+      "id": "rlc-187",
+      "kind": "rlc",
+      "name": "宏達路（東行）與鳯池路交界",
+      "english": "WANG TAT ROAD (EASTBOUND) AT JUNCTION WITH FUNG CHI ROAD",
+      "latitude": 22.4476891109681,
+      "longitude": 114.021803801176
+    },
+    {
+      "id": "rlc-188",
+      "kind": "rlc",
+      "name": "青山公路-青山灣段（西行）與海榮路交界",
+      "english": "CASTLE PEAK ROAD-CASTLE PEAK BAY (WESTBOUND) AT JUNCTION WITH HOI WING ROAD",
+      "latitude": 22.3835104616675,
+      "longitude": 113.977996733536
+    },
+    {
+      "id": "rlc-189",
+      "kind": "rlc",
+      "name": "元朗安樂路（西行）與元朗東堤街交界",
+      "english": "YUEN LONG ON LOK ROAD (WESTBOUND) AT JUNCTION WITH YUEN LONG TUNG TAI STREET",
+      "latitude": 22.4469266507808,
+      "longitude": 114.030188516394
+    },
+    {
+      "id": "rlc-190",
+      "kind": "rlc",
+      "name": "青山公路_藍地段（北行）鄰近藍地大街",
+      "english": "CASTLE PEAK ROAD-LAM TEI (NORTHBOUND) NEAR LAM TEI MAIN STREET",
+      "latitude": 22.4193400858107,
+      "longitude": 113.982745857752,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 0.34,
+      "roadRouteID": "96324",
+      "roadSpeedLimitID": "2417",
+      "matchedRoadName": "青山公路　–　藍地段"
+    },
+    {
+      "id": "rlc-191",
+      "kind": "rlc",
+      "name": "鳯池路（南行）與宏達路交界",
+      "english": "FUNG CHI ROAD (SOUTHBOUND) AT JUNCTION WITH WANG TAT ROAD",
+      "latitude": 22.4476891109681,
+      "longitude": 114.021803801176
+    },
+    {
+      "id": "rlc-192",
+      "kind": "rlc",
+      "name": "青山公路-荃灣段（西行）與大河道交界",
+      "english": "CASTLE PEAK ROAD-TSUEN WAN (WESTBOUND) AT JUNCTION WITH TAI HO ROAD",
+      "latitude": 22.3730731201836,
+      "longitude": 114.117234579791
+    },
+    {
+      "id": "rlc-193",
+      "kind": "rlc",
+      "name": "裕東路（北行）與順東路交界",
+      "english": "YU TUNG ROAD (NORTHBOUND) AT JUNCTION WITH SHUN TUNG ROAD",
+      "latitude": 22.2846632465403,
+      "longitude": 113.942882956555
+    },
+    {
+      "id": "rlc-194",
+      "kind": "rlc",
+      "name": "沙田圍路（西行）與沙田路南行支路交界",
+      "english": "SHA TIN WAI ROAD (WESTBOUND) AT JUNCTION WITH SHATIN ROAD SB SLIP ROAD",
+      "latitude": 22.3780546722658,
+      "longitude": 114.199823065268
+    },
+    {
+      "id": "rlc-195",
+      "kind": "rlc",
+      "name": "青山公路-荃灣段（西行）與關門口街交界",
+      "english": "CASTLE PEAK ROAD-TSUEN WAN (WESTBOUND) AT JUNCTION WITH KWAN MUN HAU STREET",
+      "latitude": 22.3702101384236,
+      "longitude": 114.121467191563
+    },
+    {
+      "id": "rlc-196",
+      "kind": "rlc",
+      "name": "大涌橋路（南行）與沙田圍路交界",
+      "english": "TAI CHUNG KIU ROAD (SOUTHBOUND) AT JUNCTION WITH SHA TIN WAI ROAD",
+      "latitude": 22.3808810141805,
+      "longitude": 114.194305207375
+    },
+    {
+      "id": "rlc-197",
+      "kind": "rlc",
+      "name": "大涌橋路（南行）與沙田圍路交界",
+      "english": "TAI CHUNG KIU ROAD (SOUTHBOUND) AT JUNCTION WITH SHA TIN WAI ROAD",
+      "latitude": 22.3808810141805,
+      "longitude": 114.194305207375
+    },
+    {
+      "id": "rlc-198",
+      "kind": "rlc",
+      "name": "大涌橋路（南行）與沙田路和火炭路交界",
+      "english": "TAI CHUNG KIU ROAD (SOUTHBOUND) AT JUNCTION WITH SHA TIN ROAD AND FO TAN ROAD",
+      "latitude": 22.3870607533498,
+      "longitude": 114.2002440453
+    },
+    {
+      "id": "rlc-199",
+      "kind": "rlc",
+      "name": "大涌橋路（南行）與沙田路和火炭路交界",
+      "english": "TAI CHUNG KIU ROAD (SOUTHBOUND) AT JUNCTION WITH SHA TIN ROAD AND FO TAN ROAD",
+      "latitude": 22.3870607533498,
+      "longitude": 114.2002440453
+    },
+    {
+      "id": "rlc-200",
+      "kind": "rlc",
+      "name": "環保大道(南行)與石角路交界",
+      "english": "WAN PO ROAD (SOUTHBOUND) AT JUNCTION WITH SHEK KOK ROAD",
+      "latitude": 22.2955739503609,
+      "longitude": 114.273323641267,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 0.3,
+      "roadRouteID": "101203",
+      "roadSpeedLimitID": "2679",
+      "matchedRoadName": "環保大道"
+    },
+    {
+      "id": "rlc-201",
+      "kind": "rlc",
+      "name": "達東路（南行）與慶東街交界",
+      "english": "TAT TUNG ROAD (SOUTHBOUND) AT JUNCTION WITH HING TUNG STREET",
+      "latitude": 22.2880872951401,
+      "longitude": 113.941394526548
+    },
+    {
+      "id": "rlc-202",
+      "kind": "rlc",
+      "name": "天秀路（東行）與輕鐵交界",
+      "english": "TIN SAU ROAD (EASTBOUND) AT JUNCTION WITH MTR LIGHT RAIL",
+      "latitude": 22.4644637520752,
+      "longitude": 114.002943855332
+    },
+    {
+      "id": "rlc-203",
+      "kind": "rlc",
+      "name": "渣華道（東行）與民康街交界",
+      "english": "JAVA ROAD (EASTBOUND) AT JUNCTION WITH MAN HONG STREET",
+      "latitude": 22.2928946205125,
+      "longitude": 114.204995970123
+    },
+    {
+      "id": "rlc-204",
+      "kind": "rlc",
+      "name": "鳳麒路（北行）與馬棠路交界",
+      "english": "FUNG KI ROAD (NORTHBOUND) AT JUNCTION WITH MA TONG ROAD",
+      "latitude": 22.4405277118071,
+      "longitude": 114.032220685254
+    },
+    {
+      "id": "rlc-205",
+      "kind": "rlc",
+      "name": "觀塘道（東南行）與康寧道交界",
+      "english": "KWUN TONG ROAD (SOUTHEAST BOUND) AT JUNCTION WITH HONG NING ROAD",
+      "latitude": 22.3137944585607,
+      "longitude": 114.223334001708
+    },
+    {
+      "id": "rlc-206",
+      "kind": "rlc",
+      "name": "英皇道（西行）與祐民街交界 ",
+      "english": "KING’S ROAD (WESTBOUND) AT JUNCTION WITH YAU MAN STREET",
+      "latitude": 22.2846101896765,
+      "longitude": 114.212788213332
+    },
+    {
+      "id": "rlc-207",
+      "kind": "rlc",
+      "name": "大涌橋路（北行）與沙田鄉事會路交界",
+      "english": "JUNCTION OF TAI CHUNG KIU ROAD AND SHA TIN RURAL COMM. ROAD",
+      "latitude": 22.3808810141805,
+      "longitude": 114.194305207375
+    },
+    {
+      "id": "rlc-208",
+      "kind": "rlc",
+      "name": "大涌橋路（西行）與小瀝源路交界",
+      "english": "TAI CHUNG KIU ROAD (WEST BOUND) AT JUNCTION WITH SIU LEK YUEN ROAD",
+      "latitude": 22.3892059883876,
+      "longitude": 114.202960516437
+    },
+    {
+      "id": "rlc-209",
+      "kind": "rlc",
+      "name": "沙田路（西北行）與大涌橋路交界",
+      "english": "SHA TIN ROAD (NORTHWEST BOUND) AT JUNCTION WITH TAI CHUNG KIU ROAD",
+      "latitude": 22.3870607533498,
+      "longitude": 114.2002440453
+    },
+    {
+      "id": "rlc-210",
+      "kind": "rlc",
+      "name": "大涌橋路（西行）與安麗街交界",
+      "english": "TAI CHUNG KIU ROAD (WEST BOUND) AT JUNCTION WITH ON LAI STREET",
+      "latitude": 22.3908021369655,
+      "longitude": 114.205592472699
+    },
+    {
+      "id": "rlc-211",
+      "kind": "rlc",
+      "name": "西貢公路（南行）與匡湖居南閘門交界",
+      "english": "HIRAM’S HIGHWAY (SOUTHBOUND) AT JUNCTION WITH MARINA COVE SOUTH GATE",
+      "latitude": 22.3567413344591,
+      "longitude": 114.251776819684
+    },
+    {
+      "id": "rlc-212",
+      "kind": "rlc",
+      "name": "荔枝角道（東南行）與桂林街交界",
+      "english": "LAI CHI KOK ROAD (SOUTHEAST BOUND) AT JUNCTION WITH KWEILIN STREET",
+      "latitude": 22.3289165568418,
+      "longitude": 114.159962506069
+    },
+    {
+      "id": "rlc-213",
+      "kind": "rlc",
+      "name": "源禾路（南行）與沙田鄉事會路交界",
+      "english": "YUEN WO ROAD (SOUTHBOUND) AT JUNCTION WITH SHATIN RURAL COMMITTEE ROAD",
+      "latitude": 22.3828815197958,
+      "longitude": 114.191873010398
+    },
+    {
+      "id": "rlc-214",
+      "kind": "rlc",
+      "name": "源禾路（南行）與沙田鄉事會路交界",
+      "english": "YUEN WO ROAD (SOUTHBOUND) AT JUNCTION WITH SHATIN RURAL COMMITTEE ROAD",
+      "latitude": 22.3828815197958,
+      "longitude": 114.191873010398
+    },
+    {
+      "id": "rlc-215",
+      "kind": "rlc",
+      "name": "錦上路（西行）與東匯路交界",
+      "english": "KAM SHEUNG ROAD (WESTBOUND) AT JUNCTION WITH TUNG WUI ROAD",
+      "latitude": 22.4368156129158,
+      "longitude": 114.068341547427
+    },
+    {
+      "id": "rlc-216",
+      "kind": "rlc",
+      "name": "廣福道（西行）鄰近廣福里",
+      "english": "KWONG FUK ROAD (WESTBOUND) NEAR KWONG FUK LANE",
+      "latitude": 22.4483114599043,
+      "longitude": 114.167797750394
+    },
+    {
+      "id": "rlc-217",
+      "kind": "rlc",
+      "name": "宏樂街（南行）與朗業街交界",
+      "english": "WANG LOK STREET (SOUTHBOUND) AT JUNCTION WITH LONG YIP STREET",
+      "latitude": 22.4476979798915,
+      "longitude": 114.025439087257
+    },
+    {
+      "id": "rlc-218",
+      "kind": "rlc",
+      "name": "環保大道（北行）與日出大道交界 ",
+      "english": "WAN PO ROAD (NORTHBOUND) AT JUNCTION WITH SUNRISE BOULEVARD",
+      "latitude": 22.2955739503609,
+      "longitude": 114.273323641267,
+      "roadSpeedLimitKmh": 70,
+      "roadSpeedMatchDistance": 0.3,
+      "roadRouteID": "101203",
+      "roadSpeedLimitID": "2679",
+      "matchedRoadName": "環保大道"
+    },
+    {
+      "id": "rlc-219",
+      "kind": "rlc",
+      "name": "大坑道（東行）與嘉寧徑交界",
+      "english": "TAI HANG ROAD (EASTBOUND) AT JUNCTION WITH KA NING PATH",
+      "latitude": 22.2779354018012,
+      "longitude": 114.190957432435
+    },
+    {
+      "id": "rlc-220",
+      "kind": "rlc",
+      "name": "源禾路（東行）與火炭路交界",
+      "english": "YUEN WO ROAD (EASTBOUND) AT JUNCTION WITH FO TAN ROAD",
+      "latitude": 22.3890748505168,
+      "longitude": 114.198133255316
+    },
+    {
+      "id": "rlc-221",
+      "kind": "rlc",
+      "name": "司徒拔道 (北行) 與皇后大道東交界",
+      "english": "STUBBS ROAD (NORTHBOUND) AT JUNCTION WITH QUEEN'S ROAD EAST",
+      "latitude": 22.2750967797137,
+      "longitude": 114.177819408204
+    },
+    {
+      "id": "rlc-222",
+      "kind": "rlc",
+      "name": "薄扶林道 (南行) 鄰近薄扶林村",
+      "english": "POK FU LAM ROAD (SOUTHBOUND) NEAR POK FU LAM VILLAGE",
+      "latitude": 22.2603176380434,
+      "longitude": 114.136523210565
+    },
+    {
+      "id": "rlc-223",
+      "kind": "rlc",
+      "name": "啓祥道 (東行) 與宏照道交界",
+      "english": "KAI CHEUNG ROAD (EASTBOUND) AT JUNCTION WITH WANG CHIU ROAD",
+      "latitude": 22.3254556003987,
+      "longitude": 114.208634631492
+    },
+    {
+      "id": "rlc-224",
+      "kind": "rlc",
+      "name": "寶邑路 (西行) 與唐賢街交界",
+      "english": "PO YAP ROAD (WESTBOUND) AT JUNCTION WITH TONG YIN STREET",
+      "latitude": 22.3065849347716,
+      "longitude": 114.258592106857
+    },
+    {
+      "id": "rlc-225",
+      "kind": "rlc",
+      "name": "鯉魚門道 (西北行) 與茶果嶺道交界",
+      "english": "LEI YUE MUN ROAD (NORTHWESTBOUND) AT JUNCTION WITH CHA KWO LING ROAD",
+      "latitude": 22.3102544672414,
+      "longitude": 114.229243377885
+    },
+    {
+      "id": "rlc-226",
+      "kind": "rlc",
+      "name": "窩打老道 (南行) 與亞皆老街交界",
+      "english": "WATERLOO ROAD (SOUTHBOUND) AT JUNCTION WITH ARGYLE STREET",
+      "latitude": 22.321653224194,
+      "longitude": 114.17815848032
+    },
+    {
+      "id": "rlc-227",
+      "kind": "rlc",
+      "name": "窩打老道 (南行) 與亞皆老街交界",
+      "english": "WATERLOO ROAD (SOUTHBOUND) AT JUNCTION WITH ARGYLE STREET",
+      "latitude": 22.321653224194,
+      "longitude": 114.17815848032
+    },
+    {
+      "id": "rlc-228",
+      "kind": "rlc",
+      "name": "荔枝角道 (東南行) 與南昌街交界",
+      "english": "LAI CHI KOK ROAD (SOUTHEASTBOUND) AT JUNCTION WITH NAM CHEONG STREET",
+      "latitude": 22.3275621501856,
+      "longitude": 114.161802056926
+    },
+    {
+      "id": "rlc-229",
+      "kind": "rlc",
+      "name": "寮肚路 (東行) 與青衣西路交界",
+      "english": "LIU TO ROAD (EASTBOUND) AT JUNCTION WITH TSING YI ROAD WEST",
+      "latitude": 22.3524483642499,
+      "longitude": 114.098397698579
+    },
+    {
+      "id": "rlc-230",
+      "kind": "rlc",
+      "name": "怡東路 (南行) 與迎禧路交界",
+      "english": "YI TUNG ROAD (SOUTHBOUND) AT JUNCTION WITH YING HEI ROAD",
+      "latitude": 22.2940625432301,
+      "longitude": 113.946867368342
+    }
+  ],
+  "speedLimitSource": "https://static.data.gov.hk/td/road-network-v2/SPEED_LIMIT.gml",
+  "speedLimitAssociation": "Matching street name, HK1980 road centerline within 45 m, shared ROUTE_ID, restriction chainage extent; conflicts excluded. Road reference, not enforcement setting.",
+  "roadSource": "https://static.data.gov.hk/td/road-network-v2/CENTERLINE.gml"
+}

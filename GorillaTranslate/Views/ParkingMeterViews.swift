@@ -75,6 +75,11 @@ final class MeterMapLayer {
     private var annotations: [String: MeterAnnotation] = [:]
     private var lastRevision = -1
     private var lastMeters: [ParkingMeter]?
+    private var overviewAnnotations: [String: MKAnnotation] = [:]
+    private var overviewMembers: [String: [ParkingMeter]] = [:]
+    private var overviewRegion: MKCoordinateRegion?
+    private var overviewRevision = -1
+    private var overviewCount = -1
     private(set) var clusteringEnabled = true
     static func members(_ annotation: MKAnnotation?) -> [ParkingMeter] {
         if let meter = annotation as? MeterAnnotation { return [meter.meter] }
@@ -85,6 +90,13 @@ final class MeterMapLayer {
         return []
     }
     func sync(map: MKMapView, meters: [ParkingMeter], manager: ParkingMeterManager) {
+        if overviewRegion != nil {
+            map.removeAnnotations(Array(overviewAnnotations.values))
+            overviewAnnotations.removeAll()
+            overviewMembers.removeAll()
+            overviewRegion = nil
+            lastMeters = nil
+        }
         guard lastMeters != meters || lastRevision != manager.revision else { return }
         lastMeters = meters
         let wanted = Dictionary(uniqueKeysWithValues: meters.map { ($0.id, $0) })
@@ -108,6 +120,42 @@ final class MeterMapLayer {
             }
             lastRevision = manager.revision
         }
+    }
+
+    func syncOverview(map: MKMapView, meters: [ParkingMeter], manager: ParkingMeterManager) {
+        let region = map.region
+        if let previous = overviewRegion, overviewRevision == manager.revision, overviewCount == meters.count,
+           previous.center.latitude == region.center.latitude, previous.center.longitude == region.center.longitude,
+           previous.span.latitudeDelta == region.span.latitudeDelta,
+           previous.span.longitudeDelta == region.span.longitudeDelta { return }
+        if !annotations.isEmpty {
+            map.removeAnnotations(Array(annotations.values))
+            annotations.removeAll()
+        }
+        lastMeters = nil
+        let groups = MeterOverviewGrouping.groups(meters, latitude: region.center.latitude,
+            longitude: region.center.longitude, latitudeDelta: region.span.latitudeDelta,
+            longitudeDelta: region.span.longitudeDelta)
+        let removedKeys = overviewMembers.keys.filter { groups[$0] != overviewMembers[$0] }
+        let removed = removedKeys.compactMap { overviewAnnotations.removeValue(forKey: $0) }
+        if !removed.isEmpty { map.removeAnnotations(removed) }
+        var added: [MKAnnotation] = []
+        for (key, group) in groups where overviewAnnotations[key] == nil {
+            let annotation: MKAnnotation = group.count == 1 ? MeterAnnotation(group[0]) : MeterGroupAnnotation(group)
+            overviewAnnotations[key] = annotation
+            added.append(annotation)
+        }
+        if !added.isEmpty { map.addAnnotations(added) }
+        if overviewRevision != manager.revision {
+            for annotation in overviewAnnotations.values {
+                (map.view(for: annotation) as? MeterAnnotationView)?.configure(
+                    Self.members(annotation), manager: manager, clusteringEnabled: false)
+            }
+        }
+        overviewMembers = groups
+        overviewRegion = region
+        overviewRevision = manager.revision
+        overviewCount = meters.count
     }
 
     func containsTargetInCluster(map: MKMapView, targetID: String) -> Bool {
@@ -159,6 +207,7 @@ struct MeterSettingsSection: View {
     var body: some View {
         Section {
             Toggle("咪錶探測", isOn: $enabled)
+            DisclosureGroup("詳細設定") {
             Stepper(value: $statusRefreshInterval, in: 30...300, step: 30) {
                 LabeledContent(String(localized: "咪錶狀態刷新時間"),
                                value: String(format: String(localized: "%d 秒"), Int(statusRefreshInterval)))
@@ -171,6 +220,7 @@ struct MeterSettingsSection: View {
             LabeledContent("同街延伸上限", value: "\(Int(radius * 2)) 米")
             distanceSlider("目的地提示範圍", value: $destinationRadius, range: 50...800)
             distanceSlider("接近咪錶提示距離", value: $nearbyRadius, range: 10...200)
+            }
         } header: {
             Label("咪錶", systemImage: "parkingsign.circle")
         }

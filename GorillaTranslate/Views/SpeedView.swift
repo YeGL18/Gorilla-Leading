@@ -78,6 +78,7 @@ struct SpeedView: View {
         .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode, legacyTimeBased: useTimeBasedOrb)
     }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
+    @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
     @Environment(\.colorScheme) private var colorScheme
     
     @State private var accelArmedFromStop: Bool = true
@@ -203,12 +204,13 @@ struct SpeedView: View {
                 SpeedInstrumentCards(motion: gForceMotion, telemetry: acTelemetry,
                 partiallyOpen: isDuoPartiallyOpen, foreground: instrumentForeground,
                 accent: Color(hex: dotMatrixColorHex),
+                textColorOverride: usesGrayMapText ? instrumentForeground : nil,
                 source: acTelemetry.isReceiving ? "AC" : "GPS",
                 drivingState: drivingState,
                 onBlankTap: toggleInstruments) { compact in
                 speedCardDisplay(compact: compact)
                 }
-                .environment(\.colorScheme, showMap || colorGroup == .m3Concept || colorGroup == .darkKnight ? .dark : colorScheme)
+                .environment(\.colorScheme, usesGrayMapText ? .light : showMap || colorGroup == .m3Concept || colorGroup == .darkKnight ? .dark : colorScheme)
             }
         }
         .sheet(isPresented: $showGameDetails) {
@@ -441,7 +443,12 @@ struct SpeedView: View {
         .foregroundStyle(instrumentForeground)
     }
 
+    private var usesGrayMapText: Bool {
+        colorScheme == .light && showMap && !showSatellite && !darkGlassEnabled
+    }
+
     private var instrumentForeground: Color {
+        if usesGrayMapText { return Color(red: 0.33, green: 0.36, blue: 0.39) }
         if showMap && !acTelemetry.isReceiving { return .white }
         return colorGroup == .m3Concept ? Color(hex: M3ConceptPalette.paper)
             : colorScheme == .dark || colorGroup == .darkKnight ? .white : .black
@@ -772,7 +779,8 @@ final class GForceParallaxMotion: ObservableObject {
             guard let dm else { self.resetReadings(); return }
             let ua = dm.userAcceleration
             let projected = SpeedGForce.project(acceleration: SIMD3(ua.x, ua.y, ua.z),
-                gravity: SIMD3(dm.gravity.x, dm.gravity.y, dm.gravity.z), rotation: self.screenRotation)
+                gravity: SIMD3(dm.gravity.x, dm.gravity.y, dm.gravity.z), rotation: self.screenRotation,
+                angularVelocity: SIMD3(dm.rotationRate.x, dm.rotationRate.y, dm.rotationRate.z))
             let filtered = self.forceFilter.update(projected, at: dm.timestamp)
             let elapsed = self.lastPublishedTime.map { dm.timestamp - $0 } ?? (1 / self.updateRate)
             guard elapsed >= 1 / self.updateRate - 0.001 else { return }

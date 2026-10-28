@@ -106,6 +106,40 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
         marker.prepareForReuse()
         marker.removeFromSuperview()
         let map = NonAdjustingMapView(frame: window.bounds)
+        map.beginAnnotationHold()
+        check(map.isAnnotationSelectionSuppressed, "Selection is blocked from touch-down, before drag recognition")
+        map.allowAnnotationTap()
+        check(!map.isAnnotationSelectionSuppressed, "A genuine short tap may select the marker")
+        map.beginAnnotationDrag()
+        map.allowAnnotationTap()
+        check(map.isAnnotationSelectionSuppressed, "A tap cannot interrupt an active drag")
+        map.endAnnotationDrag()
+        check(map.isAnnotationSelectionSuppressed, "Delayed selection after release remains blocked")
+        map.beginAnnotationTouch()
+        check(!map.isAnnotationSelectionSuppressed, "The next physical touch starts a fresh interaction")
+        let fixedMarker = ParkingRecordMarkerView(annotation: MKPointAnnotation(), reuseIdentifier: "fixed")
+        fixedMarker.configure(tint: .systemTeal, glyph: "S", title: "Stay record", subtitle: nil, scale: 1.3)
+        for style in [UIUserInterfaceStyle.light, .dark] {
+            let traits = UITraitCollection(userInterfaceStyle: style)
+            let labels = fixedMarker.subviews.compactMap { $0 as? UILabel }
+            check(labels.count == 2, "Both marker text labels are checked")
+            for label in labels {
+                let expected = style == .dark ? UIColor.white
+                    : UIColor(red: 0.40, green: 0.43, blue: 0.46, alpha: 1)
+                check(label.textColor.resolvedColor(with: traits).isEqual(expected),
+                      "Marker labels use medium gray in light appearance and white in dark appearance")
+                check(label.layer.shadowOpacity == 0, "Marker labels do not acquire a text shadow")
+            }
+        }
+        let originalBounds = fixedMarker.bounds
+        fixedMarker.animateHold(true)
+        for index in 0..<1000 {
+            fixedMarker.center = CGPoint(x: 100 + Double(index) * 0.01, y: 200)
+            fixedMarker.setSelected(index % 2 == 0, animated: true)
+            check(fixedMarker.bounds == originalBounds, "Movement and native selection cannot alter marker bounds")
+            check(fixedMarker.transform == .identity, "The map-owned view never carries our hold enlargement")
+        }
+        fixedMarker.animateHold(false)
         window.rootViewController!.view.addSubview(map)
         let origin = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
         let camera = MKMapCamera(lookingAtCenter: origin, fromDistance: 1400, pitch: 42, heading: 0)
@@ -140,7 +174,7 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
 }
 
 final class ParkingHoldCheckController: UIViewController, UIGestureRecognizerDelegate {
-    private let marker = ScaledMarkerAnnotationView(annotation: MKPointAnnotation(), reuseIdentifier: "hold")
+    private let marker = ParkingRecordMarkerView(annotation: MKPointAnnotation(), reuseIdentifier: "hold")
     private let status = UILabel()
     private var unlocks = 0
     private var releases = 0
@@ -151,7 +185,7 @@ final class ParkingHoldCheckController: UIViewController, UIGestureRecognizerDel
         super.viewDidLoad()
         view.backgroundColor = .systemBackground
         marker.frame = CGRect(x: 120, y: 260, width: 40, height: 50)
-        marker.markerTintColor = .orange
+        marker.configure(tint: .systemTeal, glyph: "S", title: "Stay record", subtitle: nil, scale: 1)
         view.addSubview(marker)
         touchRegion.isAccessibilityElement = true
         touchRegion.accessibilityIdentifier = "holdMarker"
@@ -241,10 +275,9 @@ final class MapMarkerMotionCheckController: UIViewController, MKMapViewDelegate 
             marker.displayPriority = .required
             return marker
         }
-        let marker = ScaledMarkerAnnotationView(annotation: annotation, reuseIdentifier: "motion")
-        marker.markerTintColor = .systemOrange
-        marker.glyphText = "15"
-        marker.sizeScale = 1.3
+        let marker = ParkingRecordMarkerView(annotation: annotation, reuseIdentifier: "motion")
+        marker.configure(tint: .systemOrange, glyph: "15", title: annotation.title ?? nil,
+                         subtitle: annotation.subtitle ?? nil, scale: 1.3)
         marker.displayPriority = .required
         return marker
     }
@@ -259,7 +292,7 @@ final class MapMarkerMotionCheckController: UIViewController, MKMapViewDelegate 
         if nativePan, let meterView = map.view(for: meter) {
             baselineMeterPixels = orangePixels(in: meterView, green: true)
         }
-        (marker as? ScaledMarkerAnnotationView)?.locksDragAppearance = true
+        (marker as? ParkingRecordMarkerView)?.animateHold(true)
         map.beginAnnotationDrag()
         map.deselectAnnotation(point, animated: false)
         start = CACurrentMediaTime()

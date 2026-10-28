@@ -63,6 +63,24 @@ struct MeterDataChecks {
         let candidates = [bay("1", 100, "A"), bay("2", 750, "A"), bay("3", 1100, "A"),
                           bay("4", 740, "B"), bay("5", 300, "C"), bay("90001", 50, "A")]
         let index = MeterSpatialIndex(candidates)
+        let inventory = (0..<24000).map { i in
+            ParkingMeter(id: "overview-\(i)", poleId: "1000", district: "", street: "", streetKey: "",
+                         latitude: 22.15 + Double(i / 200) * 0.003,
+                         longitude: 113.85 + Double(i % 200) * 0.003,
+                         bayType: .general, lpp: nil, operatingPeriod: "", paymentUnit: nil, timeUnit: nil)
+        }
+        let overviewStart = Date()
+        let groups = MeterOverviewGrouping.groups(inventory, latitude: 22.34, longitude: 114.16,
+                                                  latitudeDelta: 0.5, longitudeDelta: 0.7)
+        check(groups.count <= 256, "Full inventory uses bounded overview annotations")
+        check(groups.values.reduce(0) { $0 + $1.count } == inventory.count, "Overview groups retain every real bay")
+        let close = MeterOverviewGrouping.groups(inventory, latitude: 22.3, longitude: 114.17,
+                                                 latitudeDelta: 0.01, longitudeDelta: 0.01)
+        check(close.values.allSatisfy { $0.count == 1 }, "Zooming in restores individual bays")
+        check(close.values.flatMap { $0 }.allSatisfy {
+            abs($0.latitude - 22.3) <= 0.006 && abs($0.longitude - 114.17) <= 0.006
+        }, "Offscreen bays are not submitted to MapKit")
+        print("Overview grouping: 24000 bays -> \(groups.count) annotations in \(Date().timeIntervalSince(overviewStart)) s")
         let nearby = index.nearby(origin, radius: 1000)
         check(Set(nearby.map(\.id)) == Set(["1", "2", "4", "5"]), "Spatial index excludes distant and internal test bays")
         var visibility = MeterVisibility()

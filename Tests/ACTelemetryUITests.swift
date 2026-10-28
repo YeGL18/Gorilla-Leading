@@ -1,6 +1,61 @@
 import XCTest
 
 final class ACTelemetryUITests: XCTestCase {
+    func testLightTransparentStandardMapAndSatelliteText() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--light", "--transparent"]
+        app.launch()
+        XCTAssertTrue(app.staticTexts["speedDigits"].waitForExistence(timeout: 10))
+        let toggle = app.buttons["speedMapPresentationSwitch"]
+        toggle.tap()
+        let map = app.descendants(matching: .any)["fixtureSpeedMap"].firstMatch
+        XCTAssertTrue(map.waitForExistence(timeout: 5))
+        XCTAssertEqual(map.value as? String, "standard")
+        assertCards(app, horizontal: false)
+        capture(app, "Light Transparent Standard Map Gray Text")
+        toggle.tap()
+        XCTAssertEqual(map.value as? String, "satellite")
+        assertCards(app, horizontal: false)
+        capture(app, "Light Transparent Satellite Unchanged Text")
+    }
+
+    func testGlassVariantsAcrossAppearances() {
+        XCUIDevice.shared.orientation = .portrait
+        for arguments in [["--transparent", "--light"], ["--transparent"], ["--light"], []] {
+            let app = XCUIApplication()
+            app.launchArguments = arguments
+            app.launch()
+            XCTAssertTrue(app.staticTexts["speedDigits"].waitForExistence(timeout: 10))
+            assertCards(app, horizontal: false)
+            let appearance = arguments.contains("--light") ? "Light" : "Dark"
+            let glass = arguments.contains("--transparent") ? "Transparent" : "Dark Glass"
+            capture(app, "\(appearance) Appearance \(glass) Cards")
+            app.terminate()
+        }
+    }
+
+    func testRecentGForcePeakSurvivesLowerForcesAndResetsAfterQuiet() {
+        XCUIDevice.shared.orientation = .portrait
+        let app = XCUIApplication()
+        app.launchArguments = ["--recent-peak-trace"]
+        app.launch()
+        XCTAssertTrue(app.buttons["computerTelemetrySwitch"].waitForExistence(timeout: 10))
+        app.buttons["computerTelemetrySwitch"].tap()
+        app.buttons["Start Mock"].tap()
+        let peak = app.staticTexts["gForceRecentPeak"]
+        let firstPeak = expectation(for: NSPredicate { _, _ in peak.label == "0.50 G" }, evaluatedWith: app)
+        wait(for: [firstPeak], timeout: 8)
+        let force = app.staticTexts["gForceMagnitude"]
+        let lowerForce = expectation(for: NSPredicate { _, _ in force.label == "0.20 G" }, evaluatedWith: app)
+        wait(for: [lowerForce], timeout: 6)
+        XCTAssertEqual(peak.label, "0.50 G")
+        let reset = expectation(for: NSPredicate { _, _ in peak.label == "0.00 G" }, evaluatedWith: app)
+        wait(for: [reset], timeout: 16)
+        XCTAssertEqual(force.label, "0.01 G")
+        capture(app, "Recent G-force peak reset after ten quiet seconds")
+    }
+
     func testGForceTrailWithMovingTelemetry() {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

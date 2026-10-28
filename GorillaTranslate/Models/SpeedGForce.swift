@@ -4,6 +4,8 @@ import simd
 struct SpeedGForce: Equatable {
     let lateral: Double
     let longitudinal: Double
+    // Clockwise rotation around gravity is a right turn, in radians/second.
+    var turnRate: Double? = nil
 
     var magnitude: Double { hypot(lateral, longitudinal) }
     var plotRange: Double {
@@ -19,7 +21,8 @@ struct SpeedGForce: Equatable {
 
     // Project gravity-free device acceleration onto the horizontal screen-right /
     // forward plane. No visual gain, dead zone or clamping is applied to readings.
-    static func project(acceleration: SIMD3<Double>, gravity: SIMD3<Double>, rotation: Double) -> Self? {
+    static func project(acceleration: SIMD3<Double>, gravity: SIMD3<Double>, rotation: Double,
+                        angularVelocity: SIMD3<Double>? = nil) -> Self? {
         guard acceleration.x.isFinite, acceleration.y.isFinite, acceleration.z.isFinite,
               gravity.x.isFinite, gravity.y.isFinite, gravity.z.isFinite,
               rotation.isFinite, simd_length(gravity) > 0.5 else { return nil }
@@ -29,13 +32,18 @@ struct SpeedGForce: Equatable {
         guard simd_length(horizontalRight) > 0.15 else { return nil }
         let right = simd_normalize(horizontalRight)
         let forward = simd_cross(right, down)
-        return validated(lateral: simd_dot(acceleration, right),
-                         longitudinal: simd_dot(acceleration, forward))
+        var result = validated(lateral: simd_dot(acceleration, right),
+                               longitudinal: simd_dot(acceleration, forward))
+        if let angularVelocity, angularVelocity.x.isFinite, angularVelocity.y.isFinite, angularVelocity.z.isFinite {
+            result?.turnRate = simd_dot(angularVelocity, down)
+        }
+        return result
     }
 
     func smoothed(towards next: Self, alpha: Double) -> Self {
         Self(lateral: lateral + (next.lateral - lateral) * alpha,
-             longitudinal: longitudinal + (next.longitudinal - longitudinal) * alpha)
+             longitudinal: longitudinal + (next.longitudinal - longitudinal) * alpha,
+             turnRate: next.turnRate.map { (turnRate ?? 0) + ($0 - (turnRate ?? 0)) * alpha })
     }
 }
 
@@ -67,6 +75,35 @@ struct SpeedGForceTrail {
     }
 }
 
+/// A maneuver-session peak, independent of the trip's recorded maximum.
+struct SpeedGForceRecentPeak {
+    static let quietDuration: TimeInterval = 10
+    static let activityThreshold = 0.04
+    private(set) var peak = 0.0
+    private var quietSince: TimeInterval?
+    private var previousTime: TimeInterval?
+
+    mutating func update(_ reading: SpeedGForce?, at now: TimeInterval) {
+        guard now.isFinite, let reading,
+              SpeedGForce.validated(lateral: reading.lateral, longitudinal: reading.longitudinal) != nil else {
+            self = Self()
+            return
+        }
+        if let previousTime {
+            guard now > previousTime else { return }
+            if now - previousTime > 0.75 { self = Self() }
+        }
+        previousTime = now
+        if reading.magnitude >= Self.activityThreshold {
+            quietSince = nil
+            peak = max(peak, reading.magnitude)
+        } else {
+            if quietSince == nil { quietSince = now }
+            if let quietSince, now - quietSince >= Self.quietDuration { peak = 0 }
+        }
+    }
+}
+
 struct SpeedGForceFilter {
     private var first = SpeedGForce(lateral: 0, longitudinal: 0)
     private var second = SpeedGForce(lateral: 0, longitudinal: 0)
@@ -91,7 +128,8 @@ struct SpeedGForceFilter {
         second = second.smoothed(towards: first, alpha: alpha)
         guard let startedAt, now - startedAt >= 0.35 else { return nil }
         return SpeedGForce(lateral: abs(second.lateral) < 0.015 ? 0 : second.lateral,
-                           longitudinal: abs(second.longitudinal) < 0.015 ? 0 : second.longitudinal)
+                           longitudinal: abs(second.longitudinal) < 0.015 ? 0 : second.longitudinal,
+                           turnRate: second.turnRate)
     }
 }
 
@@ -173,6 +211,7 @@ private struct SpeedActionSamples {
     var previous: (force: Double, time: TimeInterval)?
     var jerkEnergy = 0.0
     var observedTime = 0.0
+    var turnAngle = 0.0
 
     mutating func record(_ reading: SpeedGForce, at now: TimeInterval) {
         let force = action.signedForce(reading)
@@ -183,6 +222,7 @@ private struct SpeedActionSamples {
                 let jerk = min(5, abs(force - previous.force) / dt)
                 jerkEnergy += jerk * jerk * dt
                 observedTime += dt
+                if let rate = reading.turnRate { turnAngle += rate * dt }
             }
         }
         previous = (force, now)
@@ -213,6 +253,7 @@ struct SpeedActionTracker {
     private var pending: SpeedActionSamples?
     private var quietSince: TimeInterval?
     private var previous: (reading: SpeedGForce, time: TimeInterval)?
+    private var unsupportedSince: TimeInterval?
 
     var peak: Double { active?.peak ?? 0 }
 
@@ -236,6 +277,7 @@ struct SpeedActionTracker {
         active = nil
         action = .steady
         quietSince = nil
+        unsupportedSince = nil
     }
 
     mutating func update(_ reading: SpeedGForce?, at now: TimeInterval) {
@@ -254,10 +296,25 @@ struct SpeedActionTracker {
         let strongest = max(abs(reading.lateral), abs(reading.longitudinal))
         let next: SpeedDrivingAction
         if strongest < (action == .steady ? 0.06 : 0.04) { next = .steady }
-        else {
-            next = abs(reading.lateral) > abs(reading.longitudinal)
-                ? (reading.lateral < 0 ? .left : .right)
-                : (reading.longitudinal < 0 ? .braking : .accelerating)
+        else if abs(reading.lateral) > abs(reading.longitudinal) * 1.15 {
+            if let rate = reading.turnRate {
+                next = abs(rate) >= 0.025 ? (rate < 0 ? .left : .right) : .steady
+            } else {
+                // Simulator telemetry has no device gyro; retain its vehicle-axis force.
+                next = reading.lateral < 0 ? .left : .right
+            }
+        } else if abs(reading.longitudinal) >= abs(reading.lateral) * 1.15 {
+            next = reading.longitudinal < 0 ? .braking : .accelerating
+        } else {
+            next = .steady
+        }
+        if active != nil, next != action {
+            if unsupportedSince == nil { unsupportedSince = now }
+            if let unsupportedSince, now - unsupportedSince >= 0.25 {
+                finish(at: unsupportedSince)
+            }
+        } else {
+            unsupportedSince = nil
         }
         if next == .steady {
             pending = nil
@@ -280,7 +337,9 @@ struct SpeedActionTracker {
                     previous: previous.map { (next.signedForce($0.reading), $0.time) })
             }
             pending?.record(reading, at: now)
-            if let pending, now - pending.startedAt >= 0.2 {
+            let confirmation = (next == .left || next == .right) ? 0.45 : 0.3
+            if let pending, now - pending.startedAt >= confirmation,
+               next != .left && next != .right || reading.turnRate == nil || abs(pending.turnAngle) >= 0.018 {
                 finish(at: pending.startedAt)
                 active = pending
                 action = next

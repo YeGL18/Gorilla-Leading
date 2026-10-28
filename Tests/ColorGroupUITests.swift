@@ -1,6 +1,25 @@
 import XCTest
 
 final class ColorGroupUITests: XCTestCase {
+    func testOriginalLaunchToggleRemainsWithoutTheRemovedDotStyle() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US", "-launchAnimationStyle", "1"]
+        app.launch()
+        let toggle = app.switches["launchAnimationEnabled"]
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        if toggle.value as? String == "0" {
+            toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        }
+        XCTAssertFalse(app.buttons["launchAnimationStyle"].exists)
+        XCTAssertFalse(app.buttons["previewLaunchAnimation"].exists)
+        toggle.coordinate(withNormalizedOffset: CGVector(dx: 0.94, dy: 0.5)).tap()
+        app.terminate()
+        app.launch()
+        XCTAssertTrue(toggle.waitForExistence(timeout: 10))
+        XCTAssertEqual(toggle.value as? String, "0")
+        XCTAssertFalse(app.buttons["launchAnimationStyle"].exists)
+    }
+
     func testTimelineIsAFirstClassVisualTheme() {
         let app = XCUIApplication()
         app.launchArguments = ["-resetColorGroup", "-AppleLanguages", "(en)", "-AppleLocale", "en_US"]

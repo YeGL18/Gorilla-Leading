@@ -81,6 +81,7 @@ struct SettingsView: View {
             List {
                 // ── 車藍牙：認住「我嘅車」 ──
                 Section {
+                    DisclosureGroup("我嘅車藍牙") {
                     if let car = locationManager.myCarBluetooth {
                         LabeledContent(String(localized: "我嘅車藍牙")) {
                             Text(car.name).foregroundStyle(.primary)
@@ -120,10 +121,10 @@ struct SettingsView: View {
                             }
                         }
                     }
-                } header: {
-                    Label(String(localized: "我嘅車藍牙"), systemImage: "car.bluetooth")
-                } footer: {
                     Text(String(localized: "選定之後，只有呢部車嘅藍牙斷線先會計入落車判定，藍牙耳機／家用音響斷線唔會誤判。未選定就用「啱啱揸緊車」推斷落車。"))
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
                 // ── 1. 語言 ──
                 Section {
@@ -157,6 +158,11 @@ struct SettingsView: View {
 
                 // ── 2. 目的地 ──
                 Section {
+                    NavigationLink { TrafficCameraSettingsView() } label: {
+                        Label("交通相機", systemImage: "camera.fill")
+                    }
+                }
+                Section {
                     DisclosureGroup(isExpanded: $destinationsExpanded) {
                         destinationRows
                     } label: {
@@ -171,6 +177,7 @@ struct SettingsView: View {
 
                 // ── 3. 外觀 ──
                 Section {
+                    DisclosureGroup("外觀") {
                     GorillaColorGroupPicker()
                     Picker(String(localized: "外觀模式"), selection: $appearanceMode) {
                         Text(String(localized: "System")).tag(0)
@@ -185,17 +192,15 @@ struct SettingsView: View {
                         Text(String(localized: "標準")).tag(0)
                         Text(String(localized: "提升縮放")).tag(1)
                     }
-                    Toggle(isOn: $launchAnimationEnabled) {
-                        Label(String(localized: "啟動動畫"), systemImage: "play.rectangle.on.rectangle")
-                    }
+                    LaunchAnimationSettingsSection()
                     if colorGroup.showsOrbControls {
                         NavigationLink { orbEffectsPage } label: {
                             Label(String(localized: "光球效果"), systemImage: "sparkles")
                         }
                         .accessibilityIdentifier("orbEffectsSettings")
                     }
-                } header: {
-                    Label(String(localized: "外觀"), systemImage: "paintpalette")
+                    }
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
 
                 SoundSettingsSection()
@@ -214,6 +219,7 @@ struct SettingsView: View {
 
                 // ── 4. 自定義顏色 ──
                 Section {
+                    DisclosureGroup("自定義顏色") {
                     HStack {
                         Text("泊車記憶顏色")
                             .foregroundStyle(.primary)
@@ -240,12 +246,12 @@ struct SettingsView: View {
                         .foregroundStyle(.blue)
                         .buttonStyle(.plain)
                     }
-                } header: {
-                    Label("自定義顏色", systemImage: "paintpalette.fill")
+                    }
                 }
 
                 // ── 5. 地圖 ──
                 Section {
+                    DisclosureGroup("地圖") {
                     Toggle(isOn: $highFrequencyTracking) {
                         Label(String(localized: "高頻率地圖追蹤"), systemImage: "location.fill")
                     }
@@ -262,12 +268,13 @@ struct SettingsView: View {
                     Text(String(localized: "開啟後時速顯示會更平滑，數字輪播動畫更連續。關閉則使用原始 GPS 數據。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } header: {
-                    Label(String(localized: "地圖"), systemImage: "map")
+                    }
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
 
                 // ── 6. 泊車功能 ──
                 Section {
+                    DisclosureGroup("泊車功能") {
                     Picker(String(localized: "地點樓層判定"), selection: Binding(
                         get: { parkingFloorStore.floorMode }, set: { parkingFloorStore.setFloorMode($0) }
                     )) {
@@ -301,14 +308,15 @@ struct SettingsView: View {
                         : String(localized: "根據 GPS 位置自動判斷。"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
-                } header: {
-                    Label(String(localized: "泊車功能"), systemImage: "car")
+                    }
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
 
                 MeterSettingsSection()
 
                 // ── 6.5 時速顯示效果 ──
                 Section {
+                    DisclosureGroup("時速顯示效果") {
                     SpeedUnitPicker()
                     Toggle(isOn: $speedBlurEnabled) {
                         Label(String(localized: "時速模糊光暈"), systemImage: "aqi.medium")
@@ -319,10 +327,10 @@ struct SettingsView: View {
                     Toggle(isOn: $speedNumberHidden) {
                         Label(String(localized: "隱藏時速數字"), systemImage: "eye.slash")
                     }
-                } header: {
-                    Text("時速顯示效果")
-                } footer: {
                     Text("模糊光暈：時速數字底下嘅模糊發光層。\n陀螺儀動畫：傾斜手機或加速時數字會跟隨擺動。\n隱藏時速數字：連單位一齊隱藏，其他顯示照舊。")
+                        .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
                 }
 
 
@@ -349,7 +357,9 @@ struct SettingsView: View {
                     Text("關於 Gorilla")
                 }
             }
+            .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
+            .background(Color(uiColor: .systemGroupedBackground))
             .environment(\.defaultMinListHeaderHeight, 36)
             .listRowSpacing(0)
             .navigationTitle(String(localized: "Settings"))
@@ -658,6 +668,7 @@ private struct SoundSettingsSection: View {
 
     var body: some View {
         Section {
+            DisclosureGroup("音效與觸感") {
             Picker(String(localized: "App 啟動音效"), selection: $launchVersion) {
                 Text("Default Launch Sound").tag(0)
                 Text("Gentle Sound").tag(1)
@@ -693,10 +704,10 @@ private struct SoundSettingsSection: View {
             Toggle(isOn: $accelerationEnabled) {
                 Label(String(localized: "加速音效"), systemImage: "speaker.wave.2")
             }
-        } header: {
-            Label(String(localized: "音效"), systemImage: "speaker.wave.2")
-        } footer: {
             Text(String(localized: "逗留與開車音效會成組切換。泊車時間提醒使用獨立通知音效。"))
+                .font(.caption).foregroundStyle(.secondary)
+            }
+            .listRowBackground(Color(uiColor: .secondarySystemGroupedBackground))
         }
         .onChange(of: launchVersion) { _, _ in preview.stopPreviews() }
         .onChange(of: movementVersion) { _, _ in preview.stopPreviews() }

@@ -1,5 +1,16 @@
 import SwiftUI
 
+struct LaunchAnimationSettingsSection: View {
+    @AppStorage("launchAnimationEnabled") private var enabled = true
+
+    var body: some View {
+        Toggle(isOn: $enabled) {
+            Label("啟動動畫", systemImage: "play.rectangle.on.rectangle")
+        }
+        .accessibilityIdentifier("launchAnimationEnabled")
+    }
+}
+
 // MARK: - Morphing Transition Modifier
 
 struct MorphingTransitionModifier: ViewModifier, Animatable {

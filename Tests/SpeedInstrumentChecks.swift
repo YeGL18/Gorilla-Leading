@@ -4,6 +4,28 @@ import Foundation
 struct SpeedInstrumentChecks {
     static func main() {
         func near(_ value: Double, _ expected: Double) { precondition(abs(value - expected) < 0.000001) }
+        var recentPeak = SpeedGForceRecentPeak()
+        recentPeak.update(SpeedGForce(lateral: 0.3, longitudinal: 0.4), at: 0)
+        near(recentPeak.peak, 0.5)
+        for tick in 1...299 {
+            recentPeak.update(SpeedGForce(lateral: 0.01, longitudinal: -0.01), at: Double(tick) / 30)
+        }
+        near(recentPeak.peak, 0.5)
+        recentPeak.update(SpeedGForce(lateral: -0.6, longitudinal: 0), at: 10)
+        near(recentPeak.peak, 0.6)
+        for tick in 301...600 {
+            recentPeak.update(SpeedGForce(lateral: 0.01, longitudinal: 0), at: Double(tick) / 30)
+        }
+        near(recentPeak.peak, 0.6)
+        recentPeak.update(SpeedGForce(lateral: 0, longitudinal: 0), at: 20.1)
+        near(recentPeak.peak, 0)
+        recentPeak.update(SpeedGForce(lateral: 0.1, longitudinal: 0), at: 20.2)
+        near(recentPeak.peak, 0.1)
+        recentPeak.update(nil, at: 20.3)
+        near(recentPeak.peak, 0)
+        recentPeak.update(SpeedGForce(lateral: 0.8, longitudinal: 0), at: 21)
+        recentPeak.update(SpeedGForce(lateral: 0.2, longitudinal: 0), at: 23)
+        near(recentPeak.peak, 0.2)
         precondition(SpeedDrivingAction.accelerating.symbol == "chevron.up.2")
         precondition(SpeedDrivingAction.braking.symbol == "brakesignal")
         var trail = SpeedGForceTrail()
@@ -54,7 +76,9 @@ struct SpeedInstrumentChecks {
                     if t - lastPublished >= 1 / 30 - 0.001 {
                         lastPublished = t
                         tracker.update(output, at: t)
+                        recentPeak.update(output, at: t)
                         precondition(tracker.action == .steady && tracker.lastCompleted == nil)
+                        precondition(recentPeak.peak == 0)
                     }
                     if t > 1, let output { maxResidual = max(maxResidual, output.magnitude) }
                 }
@@ -129,14 +153,18 @@ struct SpeedInstrumentChecks {
         action.update(leftTurn, at: 10.1)
         precondition(action.action == .steady)
         action.update(leftTurn, at: 10.21)
+        precondition(action.action == .steady)
+        action.update(leftTurn, at: 10.46)
         precondition(action.action == .left)
         near(action.duration(at: 10.4), 0.4)
-        action.update(SpeedGForce(lateral: -0.43, longitudinal: 0), at: 10.4)
+        action.update(SpeedGForce(lateral: -0.43, longitudinal: 0), at: 10.48)
         near(action.peak, 0.43)
         action.update(leftTurn, at: 10.5)
         near(action.peak, 0.43)
         action.update(SpeedGForce(lateral: 0.4, longitudinal: 0), at: 11)
         action.update(SpeedGForce(lateral: 0.4, longitudinal: 0), at: 11.3)
+        precondition(action.action == .steady)
+        action.update(SpeedGForce(lateral: 0.4, longitudinal: 0), at: 11.5)
         precondition(action.action == .right)
         near(action.peak, 0.4)
         near(action.duration(at: 11.5), 0.5)
@@ -183,7 +211,7 @@ struct SpeedInstrumentChecks {
             precondition((result.score >= 85) == (result.feedback == "整體平順"))
         }
         action = SpeedActionTracker()
-        action.update(leftTurn, at: 0); action.update(leftTurn, at: 0.3)
+        action.update(leftTurn, at: 0); action.update(leftTurn, at: 0.5)
         action.update(leftTurn, at: 2)
         precondition(action.action == .steady && action.lastCompleted == nil)
         precondition(!action.isFresh(at: 3))
@@ -194,6 +222,42 @@ struct SpeedInstrumentChecks {
         precondition(action.lastCompleted == nil)
         action.update(SpeedGForce(lateral: .nan, longitudinal: 0), at: 0.7)
         precondition(action.action == .steady && action.lastCompleted == nil)
-        print("PASS: G projection, 0.12G vibration rejection, gentle maneuvers, filter reset, action completion, smoothness scores, sample rates, gaps and card layout")
+        // Straight-line launch with a lateral spike must not become a turn.
+        var verified = SpeedActionTracker()
+        for i in 0...90 {
+            let t = Double(i) / 30
+            verified.update(SpeedGForce(lateral: i < 8 ? -0.2 : 0.09,
+                longitudinal: i < 8 ? 0.02 : 0.12, turnRate: 0), at: t)
+            precondition(verified.action != .left && verified.action != .right)
+        }
+        // Gyro direction takes precedence over misleading lateral sign on a mount.
+        verified = SpeedActionTracker()
+        for i in 0...60 {
+            verified.update(SpeedGForce(lateral: -0.12, longitudinal: 0.02, turnRate: 0.09), at: Double(i) / 30)
+        }
+        precondition(verified.action == .right)
+        var launchTurn = SpeedActionTracker()
+        for i in 0...60 {
+            let spike = i < 7
+            launchTurn.update(SpeedGForce(lateral: spike ? -0.12 : 0.12, longitudinal: 0.02,
+                turnRate: spike ? -0.08 : 0.08), at: Double(i) / 30)
+            precondition(launchTurn.action != .left)
+        }
+        precondition(launchTurn.action == .right)
+        // Alternating candidates cannot keep a stale right turn on screen forever.
+        for i in 61...90 {
+            let force = i % 2 == 0
+                ? SpeedGForce(lateral: -0.1, longitudinal: 0, turnRate: -0.09)
+                : SpeedGForce(lateral: 0, longitudinal: 0.1, turnRate: 0)
+            verified.update(force, at: Double(i) / 30)
+            if i >= 72 { precondition(verified.action != .right) }
+        }
+        // The same gyro rotation projects correctly with upright and flat phones.
+        for gravity in [SIMD3<Double>(0, -1, 0), SIMD3<Double>(0, 0, -1)] {
+            let projected = SpeedGForce.project(acceleration: SIMD3(0.1, 0, 0), gravity: gravity,
+                rotation: 0, angularVelocity: gravity * 0.09)!
+            near(projected.turnRate!, 0.09)
+        }
+        print("PASS: G projection, vibration rejection, gyro turn direction, launch spikes, stale-action release, scores, gaps and card layout")
     }
 }

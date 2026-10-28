@@ -190,8 +190,14 @@ enum ParkingRangeFade {
 }
 
 final class ParkingRangeRenderer: MKCircleRenderer {
+    var revealProgress: CGFloat = 1
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
         context.saveGState()
+        let center = point(for: MKMapPoint(circle.coordinate))
+        let scale = 0.86 + 0.14 * revealProgress
+        context.translateBy(x: center.x, y: center.y)
+        context.scaleBy(x: scale, y: scale)
+        context.translateBy(x: -center.x, y: -center.y)
         context.setShadow(offset: .zero, blur: 8, color: parkingBoundaryGreen.withAlphaComponent(0.35).cgColor)
         super.draw(mapRect, zoomScale: zoomScale, in: context)
         context.restoreGState()
@@ -266,6 +272,8 @@ final class HomeMapHost: UIView {
 }
 
 struct MapView: UIViewRepresentable {
+    @AppStorage("trafficCameraEnabled") private var trafficCameraEnabled = true
+    @ObservedObject private var markerOverview = MapMarkerOverviewState.shared
     @ObservedObject private var meterManager = ParkingMeterManager.shared
     @Binding var savedRegion: MKCoordinateRegion?
     @Binding var savedCamera: MKMapCamera?
@@ -680,12 +688,19 @@ struct MapView: UIViewRepresentable {
         }
         
         context.coordinator.syncParkingAnnotations(parkingPoints: parkingPoints, titlePrefixesByID: parkingPointTitlePrefixesByID, revision: parkingPointsRevision)
-        var displayedMeters = meterManager.visibleMeters
+        var displayedMeters = markerOverview.mode == .nearby ? meterManager.visibleMeters : []
         if let overviewMeter = context.coordinator.meterOverviewMeter,
            !displayedMeters.contains(where: { $0.id == overviewMeter.id }) {
             displayedMeters.append(overviewMeter)
         }
-        context.coordinator.meterLayer.sync(map: mapView, meters: displayedMeters, manager: meterManager)
+        if markerOverview.mode == .meters {
+            context.coordinator.meterLayer.syncOverview(map: mapView, meters: meterManager.allMeters, manager: meterManager)
+        } else {
+            context.coordinator.meterLayer.sync(map: mapView, meters: displayedMeters, manager: meterManager)
+        }
+        context.coordinator.trafficCameraLayer.sync(mapView, enabled: trafficCameraEnabled,
+                                                  location: locationManager.lastLocation,
+                                                  mode: markerOverview.mode)
         context.coordinator.updateMeterNavigationTarget(
             id: meterNavigationTargetID,
             coordinate: meterNavigationTargetCoordinate
@@ -701,8 +716,10 @@ struct MapView: UIViewRepresentable {
         }
 
         // 香港地圖細覽模式：飛到香港、停用自動追蹤
-        if !context.coordinator.isBoundaryDrawing && hkDetailMode != context.coordinator.lastHkDetailMode {
+        if !context.coordinator.isBoundaryDrawing &&
+            (hkDetailMode != context.coordinator.lastHkDetailMode || markerOverview.mode != context.coordinator.lastMarkerOverviewMode) {
             context.coordinator.lastHkDetailMode = hkDetailMode
+            context.coordinator.lastMarkerOverviewMode = markerOverview.mode
             if hkDetailMode {
                 context.coordinator.enterHkDetailMode(mapView: mapView)
             } else {
@@ -740,6 +757,7 @@ struct MapView: UIViewRepresentable {
 
     class Coordinator: NSObject, MKMapViewDelegate, UIGestureRecognizerDelegate {
         let meterLayer = MeterMapLayer()
+        let trafficCameraLayer = TrafficCameraMapLayer()
         var parent: MapView
         weak var mapView: NonAdjustingMapView?
         weak var container: UIView?
@@ -799,6 +817,7 @@ struct MapView: UIViewRepresentable {
         var hasAppliedMapLayout = false
         var lastMapContainerSize: CGSize = .zero
         var lastHkDetailMode = false
+        var lastMarkerOverviewMode = MapMarkerOverviewMode.nearby
         private var hkAnnotations: [MKPointAnnotation] = []
 
         // Custom route color from settings
@@ -833,7 +852,7 @@ struct MapView: UIViewRepresentable {
         var meterDetailTracking = MeterDetailTrackingGate()
 
         private var automaticCameraPaused: Bool {
-            isUserInteracting || manualCameraControl || meterOverviewID != nil ||
+            TrafficCameraStore.shared.selected != nil || isUserInteracting || manualCameraControl || meterOverviewID != nil ||
                 meterDetailTracking.isPaused || parent.hkDetailMode || isBoundaryDrawing ||
                 parent.selectedParkingPointID != nil ||
                 (parent.homeMapContext.session != nil && parent.homeMapContext.session?.activeHost == nil)
@@ -1205,7 +1224,7 @@ struct MapView: UIViewRepresentable {
         private var isParkingPointDragging = false
         private var parkingDragGrabOffset = CGPoint.zero
         private var draggingParkingPointID: UUID?
-        private weak var heldParkingMarker: ScaledMarkerAnnotationView?
+        private weak var heldParkingMarker: ParkingRecordMarkerView?
         private weak var draggingParkingAnnotation: ParkingPointAnnotation?
         private var dragTargetCoordinate: CLLocationCoordinate2D?
         private var parkingDragTimer: Timer?
@@ -1391,6 +1410,7 @@ struct MapView: UIViewRepresentable {
         // MARK: - 香港地圖細覽模式
 
         func enterHkDetailMode(mapView: MKMapView) {
+            removeHkAnnotations(mapView: mapView)
             // 停止所有追蹤
             endMeterOverview()
             freezeAutomaticCamera()
@@ -1399,24 +1419,34 @@ struct MapView: UIViewRepresentable {
             isUserInteracting = false
 
             // 飛到香港
-            let hkCenter = CLLocationCoordinate2D(latitude: 22.3200, longitude: 114.1700)
             if let nm = mapView as? NonAdjustingMapView { nm.allowCameraChange = true }
-            let camera = MKMapCamera()
-            camera.centerCoordinate = hkCenter
-            camera.centerCoordinateDistance = 80000
+            let camera = mapView.camera.copy() as! MKMapCamera
             camera.heading = 0
             camera.pitch = 0
-            mapView.setCamera(camera, animated: true)
+            mapView.setCamera(camera, animated: false)
+            let west = MKMapPoint(CLLocationCoordinate2D(latitude: 22.14, longitude: 113.82))
+            let east = MKMapPoint(CLLocationCoordinate2D(latitude: 22.58, longitude: 114.46))
+            let bounds = MKMapRect(x: west.x, y: east.y, width: east.x - west.x, height: west.y - east.y)
+            mapView.setVisibleMapRect(bounds, edgePadding: UIEdgeInsets(
+                top: mapView.bounds.height * 0.14, left: 24,
+                bottom: mapView.bounds.height * 0.20, right: 24), animated: true)
             if let nm = mapView as? NonAdjustingMapView { nm.allowCameraChange = false }
 
-            // 加入香港地點標注
-            addHkAnnotations(mapView: mapView)
+            if MapMarkerOverviewState.shared.mode == .landmarks {
+                addHkAnnotations(mapView: mapView)
+            }
         }
 
         func exitHkDetailMode() {
             guard let mapView else { return }
             removeHkAnnotations(mapView: mapView)
             pendingAutoZoom = true
+            isDriving = parent.locationManager.speed >= drivingSpeedThreshold
+            manualCameraControl = false
+            isUserInteracting = false
+            mapView.allowsUserCameraChanges = false
+            meterDetailTracking.resume()
+            startTracking(useHongKongFallback: true)
         }
 
         private static let hkOverridesKey = "HKLocationOverrides"
@@ -1471,6 +1501,11 @@ struct MapView: UIViewRepresentable {
                 .dropFirst()
                 .compactMap { $0 }
                 .sink { [weak self] location in
+                    if let self, let mapView = self.mapView {
+                        self.trafficCameraLayer.sync(mapView,
+                            enabled: UserDefaults.standard.object(forKey: "trafficCameraEnabled") as? Bool ?? true,
+                            location: location, mode: MapMarkerOverviewState.shared.mode)
+                    }
                     guard let self = self, self.isDriving, !self.isFlying,
                           !self.automaticCameraPaused else { return }
                     let now = Date().timeIntervalSince1970
@@ -1902,7 +1937,7 @@ struct MapView: UIViewRepresentable {
         private func parkingAnnotation(at point: CGPoint) -> ParkingPointAnnotation? {
             guard let mapView else { return nil }
             return mapView.annotations.compactMap { $0 as? ParkingPointAnnotation }.filter {
-                guard let view = mapView.view(for: $0) as? ScaledMarkerAnnotationView else { return false }
+                guard let view = mapView.view(for: $0) as? ParkingRecordMarkerView else { return false }
                 return view.containsVisibleContent(mapView.convert(point, to: view))
             }.min {
                 guard let a = mapView.view(for: $0), let b = mapView.view(for: $1) else { return false }
@@ -2031,6 +2066,12 @@ struct MapView: UIViewRepresentable {
         @objc func handleParkingTap(_ gesture: UITapGestureRecognizer) {
             guard gesture.state == .ended, !isParkingPointDragging, !isBoundaryDrawing, let mapView,
                   let annotation = parkingAnnotation(at: gesture.location(in: mapView)) else { return }
+            mapView.allowAnnotationTap()
+            isApplyingParkingSelection = true
+            mapView.deselectAnnotation(annotation, animated: false)
+            (mapView.view(for: annotation) as? ParkingRecordMarkerView)?.locksDragAppearance = false
+            mapView.selectAnnotation(annotation, animated: true)
+            isApplyingParkingSelection = false
             ParkingMeterManager.shared.selectedMeter = nil
             parent.onSelectParkingPoint(annotation.pointID)
         }
@@ -2114,7 +2155,7 @@ struct MapView: UIViewRepresentable {
                     isParkingPointDragging = true
                     parkingDragReleaseTime = nil
                     mapView.beginAnnotationDrag()
-                    (mapView.view(for: anno) as? ScaledMarkerAnnotationView)?.locksDragAppearance = true
+                    (mapView.view(for: anno) as? ParkingRecordMarkerView)?.locksDragAppearance = true
                     parent.onSelectParkingPoint(nil)
                     isApplyingParkingSelection = true
                     mapView.deselectAnnotation(anno, animated: false)
@@ -2237,8 +2278,10 @@ struct MapView: UIViewRepresentable {
             endParkingHold()
             guard !isBoundaryDrawing, let mapView,
                   let annotation = parkingAnnotation(at: point),
-                  let marker = mapView.view(for: annotation) as? ScaledMarkerAnnotationView else { return }
+                  let marker = mapView.view(for: annotation) as? ParkingRecordMarkerView else { return }
             heldParkingMarker = marker
+            mapView.beginAnnotationHold()
+            marker.locksDragAppearance = true
             marker.animateHold(true)
         }
 
@@ -2254,9 +2297,6 @@ struct MapView: UIViewRepresentable {
             parkingDragReleaseTime = nil
             let movedID = draggingParkingPointID
             let coordinate = draggingParkingAnnotation?.coordinate
-            if let annotation = draggingParkingAnnotation {
-                (mapView?.view(for: annotation) as? ScaledMarkerAnnotationView)?.locksDragAppearance = false
-            }
             draggingParkingPointID = nil
             draggingParkingAnnotation = nil
             dragTargetCoordinate = nil
@@ -2490,6 +2530,10 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+            if MapMarkerOverviewState.shared.mode == .meters {
+                meterLayer.syncOverview(map: mapView, meters: ParkingMeterManager.shared.allMeters,
+                                        manager: .shared)
+            }
 #if DEBUG
             updateCameraCheckValue()
 #endif
@@ -2623,7 +2667,7 @@ struct MapView: UIViewRepresentable {
                 }
                 anno.subtitle = group.records.count > 1
                     ? String(format: String(localized: "%d 次記錄"), group.records.count) : (p.address.isEmpty ? nil : p.address)
-                if let view = mapView.view(for: anno) as? ScaledMarkerAnnotationView {
+                if let view = mapView.view(for: anno) as? ParkingRecordMarkerView {
                     configureParkingMarker(view, annotation: anno)
                 }
                 next[p.id] = anno
@@ -2635,25 +2679,19 @@ struct MapView: UIViewRepresentable {
         }
 
         private func configureParkingMarker(
-            _ view: ScaledMarkerAnnotationView,
+            _ view: ParkingRecordMarkerView,
             annotation: ParkingPointAnnotation
         ) {
             view.canShowCallout = false
             let tint: UIColor = annotation.isAutomotive ? .systemOrange : .systemTeal
             let glyph = annotation.recordCount > 1 ? "\(annotation.recordCount)" : (annotation.isAutomotive ? "P" : "S")
             let scale: CGFloat = annotation.isLatest ? 1.30 : 1
-            let signature = "\(annotation.title ?? "")|\(annotation.subtitle ?? "")|\(glyph)|\(annotation.isAutomotive)|\(scale)|\(annotation.displayOffset)"
-            let changed = view.snapshotSignature != signature
-            view.snapshotSignature = signature
-            if view.markerTintColor != tint { view.markerTintColor = tint }
-            if view.glyphText != glyph { view.glyphText = glyph }
-            view.titleVisibility = .visible
-            view.subtitleVisibility = .visible
+            view.configure(tint: tint, glyph: glyph, title: annotation.title, subtitle: annotation.subtitle, scale: scale)
             view.isDraggable = false
-            if view.centerOffset != annotation.displayOffset { view.centerOffset = annotation.displayOffset }
-            view.displayPriority = annotation.isLatest ? .required : .defaultHigh
+            let offset = CGPoint(x: annotation.displayOffset.x, y: annotation.displayOffset.y - 12)
+            if view.centerOffset != offset { view.centerOffset = offset }
+            view.displayPriority = (view.isHolding || annotation.isLatest) ? .required : .defaultHigh
             view.sizeScale = scale
-            if changed { view.refreshAppearanceSnapshot() }
 
         }
 
@@ -2759,6 +2797,7 @@ struct MapView: UIViewRepresentable {
             parkingRangeRenderer = renderer
             guard parkingRangeAppearQueued else { return }
             renderer.alpha = 0
+            (renderer as? ParkingRangeRenderer)?.revealProgress = 0
             parkingRangeAppearQueued = false
             beginParkingRangeFade(renderer: renderer, appear: true, removing: nil)
         }
@@ -2766,7 +2805,7 @@ struct MapView: UIViewRepresentable {
         private func beginParkingRangeFade(renderer: MKOverlayPathRenderer, appear: Bool, removing: MKOverlay?) {
             parkingRangeFadeJobs[ObjectIdentifier(renderer)] = ParkingRangeFadeJob(
                 renderer: renderer, appear: appear, removing: removing,
-                start: CACurrentMediaTime(), duration: appear ? 0.38 : 0.26,
+                start: CACurrentMediaTime(), duration: appear ? 0.6 : 0.4,
                 startAlpha: renderer.alpha)
             guard parkingRangeFadeTimer == nil else { return }
             let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
@@ -2782,6 +2821,7 @@ struct MapView: UIViewRepresentable {
                 let t = CGFloat(min(1, (now - job.start) / job.duration))
                 let targetAlpha: CGFloat = job.appear ? 1 : 0
                 job.renderer.alpha = job.startAlpha + (targetAlpha - job.startAlpha) * ParkingRangeFade.opacity(t)
+                (job.renderer as? ParkingRangeRenderer)?.revealProgress = job.renderer.alpha
                 job.renderer.setNeedsDisplay()
                 if t >= 1 {
                     parkingRangeFadeJobs.removeValue(forKey: id)
@@ -2818,6 +2858,14 @@ struct MapView: UIViewRepresentable {
 
         func mapView(_ mapView: MKMapView, didSelect view: MKAnnotationView) {
             if (mapView as? NonAdjustingMapView)?.rejectSelectionDuringAnnotationDrag(view) == true { return }
+            if let point = view.annotation as? TrafficCameraAnnotation {
+                parent.onSelectParkingPoint(nil)
+                parent.onSelectHKLocation(nil)
+                ParkingMeterManager.shared.selectedMeter = nil
+                withAnimation(.smooth(duration: 0.25)) { TrafficCameraStore.shared.selected = point.camera }
+                mapView.deselectAnnotation(point, animated: false)
+                return
+            }
             if view.annotation is MKUserLocation {
                 // 藍點唔應該俾選中：萬一 MapKit 幾何 hit test 揀中咗，即刻退選，
                 // 有開緊停車彈窗就搶返停車點嘅 selection
@@ -2826,6 +2874,18 @@ struct MapView: UIViewRepresentable {
                 return
             }
             let meterMembers = MeterMapLayer.members(view.annotation)
+            if MapMarkerOverviewState.shared.mode == .meters, meterMembers.count > 1 {
+                let points = meterMembers.map { MKMapPoint($0.coordinate.wgs84ToGCJ02) }
+                let rect = points.reduce(MKMapRect.null) {
+                    $0.union(MKMapRect(x: $1.x, y: $1.y, width: 1, height: 1))
+                }
+                if let map = mapView as? NonAdjustingMapView { map.allowCameraChange = true }
+                mapView.setVisibleMapRect(rect.insetBy(dx: -100, dy: -100),
+                    edgePadding: UIEdgeInsets(top: 100, left: 45, bottom: 100, right: 45), animated: true)
+                if let map = mapView as? NonAdjustingMapView { map.allowCameraChange = false }
+                if let annotation = view.annotation { mapView.deselectAnnotation(annotation, animated: false) }
+                return
+            }
             if let meter = ParkingMeterManager.shared.representative(meterMembers) {
                 updateMeterDetailSelection(meter, forceOverview: true)
                 parent.onSelectParkingPoint(nil)
@@ -2905,6 +2965,7 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let camera = TrafficCameraMapLayer.view(mapView, annotation: annotation) { return camera }
             if let view = MeterMapLayer.view(
                 map: mapView,
                 annotation: annotation,
@@ -2922,7 +2983,7 @@ struct MapView: UIViewRepresentable {
             }
             if let parking = annotation as? ParkingPointAnnotation {
                 let reuseID = "ParkingPointAnnotationView"
-                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? ScaledMarkerAnnotationView) ?? ScaledMarkerAnnotationView(annotation: parking, reuseIdentifier: reuseID)
+                let view = (mapView.dequeueReusableAnnotationView(withIdentifier: reuseID) as? ParkingRecordMarkerView) ?? ParkingRecordMarkerView(annotation: parking, reuseIdentifier: reuseID)
                 view.annotation = parking
                 configureParkingMarker(view, annotation: parking)
                 return view
