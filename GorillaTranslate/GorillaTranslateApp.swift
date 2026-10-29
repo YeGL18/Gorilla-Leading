@@ -10,7 +10,22 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         } else {
             _ = prepareAppStoresIfAvailable()
         }
+        UNUserNotificationCenter.current().delegate = self
         return true
+    }
+
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        CommunityPushCoordinator.shared.didRegister(deviceToken)
+    }
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        CommunityPushCoordinator.shared.didFail()
+    }
+    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse,
+                                withCompletionHandler completionHandler: @escaping () -> Void) {
+        if let thread = response.notification.request.content.userInfo["threadId"] as? String {
+            CommunityPushCoordinator.shared.route(threadID: thread)
+        }
+        completionHandler()
     }
 
     func applicationProtectedDataDidBecomeAvailable(_ application: UIApplication) {

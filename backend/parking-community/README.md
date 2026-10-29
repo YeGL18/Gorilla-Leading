@@ -1,6 +1,6 @@
 # Shared parking-community API
 
-Python 3.11+ standard library; no package installation required. This is an
+Python 3.11+; the API uses the standard library, with optional push dependencies. This is an
 implemented single-instance backend, not a deployed or production-certified service.
 SQLite schema is installed at startup. No fake login and no OTP-returning endpoint.
 
@@ -38,8 +38,7 @@ configuration disables login and send; it never falls back to a demo server.
 `POST /auth/verify {email,code}` creates or signs into that account and returns
 `{token,userId,expiresAt}`. Tokens are opaque, 30-day sessions; only keyed digests
 are stored. OTPs are keyed digests, single-use, ten-minute expiry, five attempts.
-`POST /auth/logout` revokes the current session. Bearer auth is required everywhere
-else. The iOS token is held in Keychain, scoped by API URL, device-only.
+`POST /auth/logout` revokes the current session. Bearer auth is required for user data; `/capabilities` is also public. The iOS token is held in Keychain, scoped by API URL, device-only.
 
 Each account may bind up to 20 plates; binding mutations are rate-limited.
 Auth/send/reply rate limits are testable initial limits, not calibrated production
@@ -63,9 +62,14 @@ Reports are stored pending moderation and expire with the thread; no moderation
 console or emergency support exists yet.
 
 A transaction writes both message and notification-outbox rows. **There is no
-APNs/FCM delivery worker or provider credential configuration yet.** Responses say
-`pushStatus: not_configured`; the app says push is unavailable and requires manual
-inbox refresh. Device registration alone never claims delivery. Unbinding removes
+APNs/FCM delivery without provider credentials.** The optional worker now sends
+through APNs HTTP/2 or FCM HTTP v1, with per-device retries and invalid-token cleanup.
+Responses use `queued` only when a provider is configured, otherwise `not_configured`;
+neither means delivered. `GET /capabilities` is public and lists enabled providers.
+Device snapshots are taken at message creation, so a later installation receives
+no stale alerts. Session expiry/logout, unbinding and blocks cancel pending jobs.
+Notification payloads carry opaque thread/message IDs and a generic alert, with
+no plate or message body. Device registration alone never claims delivery. Unbinding removes
 queued notices. Block relationships prevent new delivery and hide blocked content.
 
 Latest-list limits are 100 threads and 200 messages; pagination is not implemented.
@@ -82,3 +86,78 @@ OTP attempt limits/replay, sessions, multiple recipients/shared replies, access
 control, unbind/rebind, idempotency conflicts, no-match enumeration quotas, blocking,
 account deletion and seven-day cascade deletion. They do not prove mail delivery,
 push delivery, bank interoperability, or public-hosting security.
+
+## Free local iPhone trial
+
+Run `python3 backend/parking-community/run_local.py --init` to create the ignored,
+0600-permission `.env.local.json`. Fill only `gmailAddress` and `gmailAppPassword`
+locally; preserve `serverSecret`. A Gmail app password is 16 characters (spaces
+between groups are accepted), requires two-step verification, and must not be
+shared in chat or committed. `--check-smtp` verifies authentication without sending
+an email. `--wait-for-config` waits for saved configuration, then starts the API.
+
+A Cloudflare Quick Tunnel may expose only port 8787 for development. Its temporary
+HTTPS address changes when recreated; the Mac, backend and tunnel must stay running.
+Build the phone app with `PARKING_COMMUNITY_API_BASE_URL=https://YOUR-TEMP-HOST/v1/parking-community`.
+Info.plist expands this build setting; no temporary host needs to be committed.
+Without a configured address the normal build keeps login/send disabled. This
+setup tests account/binding/conversation flows. Real push also needs the configuration below.
+
+
+## Remote push setup
+
+Install dependencies in an isolated environment:
+
+```
+python3 -m venv backend/parking-community/.venv
+backend/parking-community/.venv/bin/pip install -r backend/parking-community/requirements-push.txt
+```
+
+Store private keys only in the ignored `backend/parking-community/.push/` directory,
+with directory permission 0700 and file permission 0600. Never put them in the APK,
+iOS bundle, screenshots, logs, or Git. Use a dedicated FCM-only service account for
+production; a Firebase Admin SDK private key has broader access than messaging.
+The local runner automatically loads `.push/config.json` if present. Direct service
+launches instead set `COMMUNITY_PUSH_CONFIG` to its absolute path.
+
+Example config (omit any unconfigured provider):
+
+```json
+{
+  "fcm": {"serviceAccountFile": "/absolute/path/to/firebase-service-account.json"},
+  "apns": {
+    "keyFile": "/absolute/path/to/AuthKey.p8",
+    "keyId": "APPLE_KEY_ID",
+    "teamId": "APPLE_TEAM_ID",
+    "bundleId": "com.gorilla.translation"
+  }
+}
+```
+
+Restart the backend after adding credentials. `/capabilities` should then show the
+configured provider as true; this is configuration detection, not a delivery test.
+Do not generate replacement keys repeatedly when a browser download fails: retain
+only a successfully saved key and revoke inaccessible/unused keys in Google Cloud.
+
+Android: register package `com.gorilla.leading` in the same Firebase project,
+place its downloaded `google-services.json` at `android/app/google-services.json`
+(ignored), then rebuild. The JSON project ID must match the server credential.
+The APK uses Firebase Messaging only, no Firebase Analytics. Login, allow system
+notifications, then use the notification button in feature settings to register.
+The current debug APK is for internal testing, not store distribution.
+
+Apple: enable Push Notifications for App ID `com.gorilla.translation`, sign into
+Xcode with the owning developer account, and regenerate the provisioning profile.
+Create/download an APNs signing key and configure its key ID/team ID above. Debug
+builds register in the sandbox, Release in production. The app routes a tapped
+notification into the referenced shared conversation, including cold launch.
+
+Verify with two actual signed-in devices/accounts: bind one plate to both owner
+accounts, send from a third account, receive background alerts on both platforms,
+tap through to the same thread, reply, and test logout/unbind/block cancellation.
+The automated queue tests use fake transports; they do not prove APNs/FCM delivery.
+The Mac must stay awake with both service and tunnel running during this trial.
+
+Primary integration references: [FCM HTTP v1](https://firebase.google.com/docs/cloud-messaging/send/v1-api),
+[Android message handling](https://firebase.google.com/docs/cloud-messaging/android/receive),
+[APNs provider requests](https://developer.apple.com/documentation/usernotifications/sending-notification-requests-to-apns).

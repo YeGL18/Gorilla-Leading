@@ -1557,6 +1557,12 @@ struct ContentView: View {
                 showingGorillaPage = true
             }
         }
+        .onReceive(NotificationCenter.default.publisher(for: CommunityPushCoordinator.openThread)) { _ in
+            showingParkingCommunity = true
+        }
+        .onAppear {
+            if CommunityPushCoordinator.shared.pendingThreadID != nil { showingParkingCommunity = true }
+        }
         .fullScreenCover(isPresented: $showingParkingCommunity) {
             ParkingCommunityView()
                 .environment(\.colorScheme, effectiveColorScheme)

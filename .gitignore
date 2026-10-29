@@ -117,3 +117,14 @@ Temporary Items
 backend/parking-community/*.sqlite3*
 backend/parking-community/.env*
 backend/parking-community/__pycache__/
+
+# Android local configuration / build products
+android/.gradle/
+android/local.properties
+android/app/google-services.json
+android/app/build/
+android/build/
+backend/parking-community/.push/
+backend/parking-community/.venv/
+
+android/dist/

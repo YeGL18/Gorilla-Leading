@@ -1,7 +1,7 @@
 """Parking community reference API. SQLite, email OTP, opaque bearer sessions.
 
-Use a TLS reverse proxy and a single service instance. APNs/FCM delivery workers
-are not wired: responses explicitly distinguish storage from push delivery.
+Use a TLS reverse proxy and a single service instance. Optional APNs/FCM workers
+require local credentials; storage and provider acceptance are not delivery receipts.
 """
 import argparse
 import hashlib
@@ -56,9 +56,10 @@ def request_key(value):
 
 
 class Service:
-    def __init__(self, database, secret, deliver, clock=time.time):
+    def __init__(self, database, secret, deliver, clock=time.time, providers=None):
         require(len(secret) >= 32, 'server_secret_too_short', 500)
         self.database, self.secret, self.deliver, self.clock = str(database), secret.encode(), deliver, clock
+        self.providers = providers or {}
         self.lock = threading.RLock()
         with self.db() as db:
             db.executescript(Path(__file__).with_name('schema.sql').read_text())
@@ -144,6 +145,7 @@ class Service:
             now = self.clock()
             db.execute('DELETE FROM threads WHERE expires<=?', (now,))
             db.execute('DELETE FROM sessions WHERE expires<=?', (now,))
+            db.execute('DELETE FROM devices WHERE id NOT IN (SELECT device_id FROM device_sessions)')
             db.execute('DELETE FROM challenges WHERE expires<=?', (now,))
             db.execute('DELETE FROM rate_limits WHERE started<?', (now - 86400,))
 
@@ -164,14 +166,22 @@ class Service:
         members.update(r['user_id'] for r in db.execute('SELECT user_id FROM recipients WHERE thread_id=?', (thread['id'],)))
         for uid in members - {author}:
             if not self.blocked(db, author, uid) and not self.blocked(db, uid, thread['sender_id']):
+                outbox_id = str(uuid.uuid4())
                 db.execute('INSERT INTO outbox VALUES (?,?,?,?,?,?)',
-                           (str(uuid.uuid4()), thread['id'], mid, uid, self.clock(), thread['expires']))
+                           (outbox_id, thread['id'], mid, uid, self.clock(), thread['expires']))
+                # Snapshot devices at message creation; later installations receive no stale alerts.
+                devices = db.execute('SELECT d.id FROM devices d JOIN device_sessions ds ON ds.device_id=d.id JOIN sessions s ON s.digest=ds.session_digest WHERE d.user_id=? AND s.expires>?', (uid, self.clock())).fetchall()
+                db.executemany('INSERT INTO push_jobs(id,outbox_id,device_id) VALUES (?,?,?)',
+                               [(str(uuid.uuid4()), outbox_id, device['id']) for device in devices])
+                db.execute('INSERT INTO outbox_prepared VALUES (?)', (outbox_id,))
 
     def message_result(self, row):
         return {'id': row['id'], 'authorId': row['author_id'], 'text': row['body'], 'createdAt': row['created']}
 
     def dispatch(self, method, path, body, token='', ip='local'):
         require(isinstance(body, dict))
+        if method == 'GET' and path == '/capabilities':
+            return {'push': {p: p in self.providers for p in ['apns','fcm']}}
         if method == 'POST' and path == '/auth/start':
             return self.start_login(body, ip)
         if method == 'POST' and path == '/auth/verify':
@@ -188,6 +198,7 @@ class Service:
                     self.limit(db, 'reply:' + uid, 60, 3600)
         with self.db() as db:
             if path == '/auth/logout' and method == 'POST':
+                db.execute('DELETE FROM devices WHERE id IN (SELECT device_id FROM device_sessions WHERE session_digest=?)', (self.digest(token),))
                 db.execute('DELETE FROM sessions WHERE digest=?', (self.digest(token),))
                 return {'status': 'signed_out'}
             if path == '/me' and method == 'DELETE':
@@ -219,7 +230,7 @@ class Service:
                 if old:
                     first = db.execute('SELECT body FROM messages WHERE thread_id=? ORDER BY rowid LIMIT 1', (old['id'],)).fetchone()
                     require(old['plate'] == plate and first and first['body'] == text, 'idempotency_conflict', 409)
-                    return {'threadId': old['id'], 'expiresAt': old['expires'], 'status': 'accepted', 'pushStatus': 'not_configured'}
+                    return {'threadId': old['id'], 'expiresAt': old['expires'], 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
                 recipients = [r['user_id'] for r in db.execute('SELECT user_id FROM bindings WHERE plate_key=? AND user_id<>?', (key, uid)) if not self.blocked(db, uid, r['user_id'])]
                 require(recipients, 'recipient_unavailable', 404)
                 tid, mid, now = str(uuid.uuid4()), str(uuid.uuid4()), self.clock()
@@ -228,7 +239,7 @@ class Service:
                 db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)', (mid, tid, uid, req, text, now))
                 thread = db.execute('SELECT * FROM threads WHERE id=?', (tid,)).fetchone()
                 self.enqueue(db, thread, mid, uid)
-                return {'threadId': tid, 'expiresAt': now + WEEK, 'status': 'accepted', 'pushStatus': 'not_configured'}
+                return {'threadId': tid, 'expiresAt': now + WEEK, 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
             if path == '/threads' and method == 'GET':
                 rows = db.execute('SELECT DISTINCT t.* FROM threads t LEFT JOIN recipients r ON r.thread_id=t.id WHERE (t.sender_id=? OR r.user_id=?) AND t.expires>? ORDER BY t.created DESC,t.id LIMIT 100', (uid, uid, self.clock())).fetchall()
                 result = []
@@ -249,11 +260,11 @@ class Service:
                     old = db.execute('SELECT * FROM messages WHERE author_id=? AND request_key=?', (uid, req)).fetchone()
                     if old:
                         require(old['thread_id'] == thread['id'] and old['body'] == text, 'idempotency_conflict', 409)
-                        return {'id': old['id'], 'status': 'accepted', 'pushStatus': 'not_configured'}
+                        return {'id': old['id'], 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
                     mid = str(uuid.uuid4())
                     db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)', (mid, thread['id'], uid, req, text, self.clock()))
                     self.enqueue(db, thread, mid, uid)
-                    return {'id': mid, 'status': 'accepted', 'pushStatus': 'not_configured'}
+                    return {'id': mid, 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
             if len(parts) == 3 and parts[0] == 'threads' and parts[2] == 'reports' and method == 'POST':
                 self.visible(db, parts[1], uid)
                 self.limit(db, 'report:' + uid, 10, 3600)
@@ -283,9 +294,12 @@ class Service:
                 if method == 'PUT':
                     provider, device_token = body.get('provider'), body.get('token')
                     require(provider in ['apns', 'fcm'] and isinstance(device_token, str) and 1 <= len(device_token) <= 4096)
-                    db.execute('DELETE FROM devices WHERE provider=? AND token=?', (provider, device_token))
-                    db.execute('INSERT OR REPLACE INTO devices VALUES (?,?,?,?)', (device_id, uid, provider, device_token))
-                    return {'status': 'registered', 'pushStatus': 'not_configured'}
+                    db.execute('DELETE FROM devices WHERE provider=? AND token=? AND id<>?', (provider, device_token, device_id))
+                    db.execute('INSERT INTO devices VALUES (?,?,?,?) ON CONFLICT(id) DO UPDATE SET provider=excluded.provider,token=excluded.token', (device_id, uid, provider, device_token))
+                    environment = body.get('environment', 'production')
+                    require(environment in ['sandbox','production'])
+                    db.execute('INSERT INTO device_sessions VALUES (?,?,?) ON CONFLICT(device_id) DO UPDATE SET session_digest=excluded.session_digest,environment=excluded.environment', (device_id, self.digest(token), environment))
+                    return {'status': 'registered', 'pushStatus': 'queued' if self.providers else 'not_configured'}
         raise APIError(404, 'not_found')
 
 
@@ -350,7 +364,12 @@ def main():
     if not os.environ.get('COMMUNITY_SMTP_HOST') or not os.environ.get('COMMUNITY_MAIL_FROM'):
         parser.error('Configure COMMUNITY_SMTP_HOST and COMMUNITY_MAIL_FROM before enabling login')
     os.umask(0o077)
-    service = Service(args.db, secret, smtp_deliver)
+    from push import load_transports, Worker
+    try:
+        transports = load_transports(os.environ.get('COMMUNITY_PUSH_CONFIG', ''))
+    except Exception:
+        parser.error('Push configuration could not be loaded; check local key paths and dependencies. No key values logged.')
+    service = Service(args.db, secret, smtp_deliver, providers=transports)
     service.cleanup()
     stop = threading.Event()
     def cleanup_worker():
@@ -360,6 +379,15 @@ def main():
             except sqlite3.Error:
                 print('Retention cleanup failed', flush=True)
     threading.Thread(target=cleanup_worker, daemon=True).start()
+    worker = Worker(service, transports)
+    def push_worker():
+        while not stop.wait(2):
+            try:
+                worker.tick()
+            except Exception:
+                print('Push worker iteration failed; no private payload logged', flush=True)
+    if transports:
+        threading.Thread(target=push_worker, daemon=True).start()
     server = ThreadingHTTPServer((args.host, args.port), make_handler(service))
     try:
         server.serve_forever()

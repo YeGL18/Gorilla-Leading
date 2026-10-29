@@ -43,6 +43,7 @@ Full base URL: `https://YOUR-HOST/v1/parking-community`. JSON requests, JSON err
 | POST /auth/start | `{email}`; sends OTP, never returns it |
 | POST /auth/verify | `{email,code}` → `{token,userId,expiresAt}` |
 | POST /auth/logout | Revoke current token |
+| GET /capabilities | Public provider configuration flags; never a delivery receipt |
 | GET /me/plates | `{plates:[{plate,consentedAt}]}` |
 | POST /me/plates | `{plate,authorisedDriver:true}` |
 | DELETE /me/plates/{key} | Remove only caller's binding and revoke recipient history |
@@ -52,7 +53,7 @@ Full base URL: `https://YOUR-HOST/v1/parking-community`. JSON requests, JSON err
 | POST /threads/{id}/messages | `{text,idempotencyKey}` |
 | POST /threads/{id}/reports | `{reason}`, requires visible thread |
 | POST /blocks | `{userId}`, requires shared visible conversation |
-| PUT /me/devices/{installationUUID} | `{provider:"apns"|"fcm",token}`; delivery is not enabled |
+| PUT /me/devices/{installationUUID} | `{provider:"apns"|"fcm",token,environment?}`; session-bound registration |
 | DELETE /me/devices/{installationUUID} | Caller-owned registration only |
 | DELETE /me | Delete bindings, sessions, authored content, memberships and devices |
 
@@ -75,17 +76,18 @@ iOS also caps its editor length and surfaces server validation failures.
 ## Still required before public release
 
 - Provision trusted HTTPS hosting, SMTP and stable secret storage. Validate actual
-  OTP delivery; configure Info.plist base URL. No accounts were created externally.
-- Implement APNs/FCM workers, device-token lifecycle and app push registration,
-  expiry-aware delivery and failure/retry handling. The outbox alone does not send.
+  OTP delivery; configure Info.plist base URL. Firebase Spark project was created for trial.
+- Configure APNs/FCM private credentials and Apple push-capable provisioning, then
+  test real delivery. Transport workers, session-bound registration, device snapshots,
+  expiry checks and retry handling are implemented; credentials are not bundled.
 - Complete moderation operations, operational monitoring, backup retention and
   deletion verification. UI reports are recorded, not automatically adjudicated.
 - Test camera/permissions and complete multi-device acceptance testing on hardware.
 - Add recipient-controlled FPS display/jumps and separate developer sponsorship;
   evaluate their platform requirements before activation. No money is processed.
 
-Current UI explicitly says push is unavailable. Connected users can refresh the
-shared inbox; there is no claim of real-time receipt. If no API is configured,
+Current UI detects missing push configuration and explains manual refresh.
+Configured queues/provider acceptance do not prove device receipt. If no API is configured,
 login/send stay unavailable. Failed network lookups never become "not registered".
 No payment state exists: the advance-payment template is only the sender's claim.
 Conversations expire seven days after creation without reply extensions. Logs omit

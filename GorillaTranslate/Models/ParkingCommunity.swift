@@ -81,7 +81,7 @@ enum CommunityPlateOCR {
         result = result.filter { short in
             !result.contains { long in
                 long.plate.count > short.plate.count && long.bounds.contains(short.bounds)
-                    && long.plate.hasPrefix(short.plate)
+                    && long.plate.prefix(while: { $0.isLetter }) == short.plate.prefix(while: { $0.isLetter })
             }
         }
         var seen = Set<String>()
@@ -133,6 +133,9 @@ struct CommunityPlateDraft: Codable, Identifiable {
     }
     func remove(_ id: String) { drafts.removeAll { $0.id == id }; persist() }
     func refresh() async {
+        #if canImport(UIKit)
+        Task { await CommunityPushCoordinator.shared.sync() }
+        #endif
         let generation = UUID()
         refreshGeneration = generation
         errorMessage = nil
@@ -161,7 +164,14 @@ struct CommunityPlateDraft: Codable, Identifiable {
         catch { handle(error) }
     }
     func logout() async {
-        do { try await api.logout(); await refresh() } catch { handle(error) }
+        do {
+            try await api.logout()
+            #if canImport(UIKit)
+            CommunityPushCoordinator.shared.reset()
+            UNUserNotificationCenter.current().removeAllDeliveredNotifications()
+            #endif
+            await refresh()
+        } catch { handle(error) }
     }
     func deleteAccount() async {
         do {
@@ -274,6 +284,12 @@ final class CommunityHTTPClient: Sendable {
         }
         return data
     }
+    func capabilities() async throws -> CommunityCapabilities {
+        try JSONDecoder().decode(CommunityCapabilities.self, from: await request("GET", "capabilities", authenticated: false))
+    }
+    func registerDevice(id: String, token: String, environment: String) async throws {
+        _ = try await request("PUT", "me/devices/\(id)", body: ["provider": "apns", "token": token, "environment": environment])
+    }
     func startLogin(email: String) async throws {
         _ = try await request("POST", "auth/start", body: ["email": email], authenticated: false)
     }
@@ -310,3 +326,70 @@ final class CommunityHTTPClient: Sendable {
     }
     func block(user: String) async throws { _ = try await request("POST", "blocks", body: ["userId": user]) }
 }
+
+struct CommunityCapabilities: Decodable {
+    struct Push: Decodable { let apns: Bool; let fcm: Bool }
+    let push: Push
+}
+#if canImport(UIKit)
+import UIKit
+import UserNotifications
+
+@MainActor final class CommunityPushCoordinator: ObservableObject {
+    static let shared = CommunityPushCoordinator()
+    @Published private(set) var status = "正在檢查遠端推送設定…"
+    @Published private(set) var registered = false
+    @Published var pendingThreadID: String?
+    private var deviceToken: Data?
+    private var registering = false
+    private var requested = false
+    private var available = false
+    private let api = CommunityHTTPClient()
+    static let openThread = Notification.Name("parkingCommunity.openThread")
+    private var installationID: String {
+        if let value = UserDefaults.standard.string(forKey: "parkingCommunity.installationID") { return value }
+        let value = UUID().uuidString
+        UserDefaults.standard.set(value, forKey: "parkingCommunity.installationID")
+        return value
+    }
+    func sync() async {
+        guard api.baseURL != nil else { status = "提醒服務未設定。"; return }
+        do {
+            let capabilities = try await api.capabilities()
+            available = capabilities.push.apns
+            guard available else { registered = false; status = "遠端推送等待 Apple 金鑰設定；可重新整理對話。"; return }
+            guard api.signedIn else { registered = false; status = "登入後可啟用手機推送。"; return }
+            let settings = await UNUserNotificationCenter.current().notificationSettings()
+            guard [.authorized, .provisional, .ephemeral].contains(settings.authorizationStatus) else {
+                registered = false; status = "請在此頁開啟通知權限，以接收手機提醒。"; return
+            }
+            if let deviceToken { await upload(deviceToken) }
+            else if !requested { requested = true; status = "正在登記手機推送…"; UIApplication.shared.registerForRemoteNotifications() }
+        } catch { status = "未能連接推送服務，請稍後重新整理。" }
+    }
+    func didRegister(_ token: Data) {
+        deviceToken = token
+        Task { await upload(token) }
+    }
+    func didFail() { requested = false; registered = false; status = "手機推送登記未完成，請檢查網絡及簽署設定。" }
+    private func upload(_ token: Data) async {
+        guard available, api.signedIn, !registering else { return }
+        registering = true
+        defer { registering = false }
+        #if DEBUG
+        let environment = "sandbox"
+        #else
+        let environment = "production"
+        #endif
+        do {
+            try await api.registerDevice(id: installationID, token: token.map { String(format: "%02x", $0) }.joined(), environment: environment)
+            registered = true; status = "手機已登記推送；通知仍受網絡及系統設定影響。"
+        } catch { registered = false; status = "推送登記未完成，請重新整理重試。" }
+    }
+    func reset() { registered = false; requested = false; status = "登入後可啟用手機推送。" }
+    func route(threadID: String) {
+        pendingThreadID = threadID
+        NotificationCenter.default.post(name: Self.openThread, object: threadID)
+    }
+}
+#endif

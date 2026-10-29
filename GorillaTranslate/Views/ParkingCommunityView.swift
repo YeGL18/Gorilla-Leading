@@ -10,6 +10,7 @@ struct ParkingCommunityView: View {
     @Environment(\.scenePhase) private var scenePhase
     @AppStorage("parkingCommunity.didOnboard.v1") private var didOnboard = false
     @StateObject private var store = ParkingCommunityStore()
+    @ObservedObject private var push = CommunityPushCoordinator.shared
     @State private var settings = false
     @State private var inbox = false
     @State private var manual = false
@@ -81,7 +82,13 @@ struct ParkingCommunityView: View {
             .navigationDestination(isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } })) {
                 if let target { CommunityMessageComposer(plate: target, store: store) }
             }
-            .task(id: didOnboard) { if didOnboard { await prepareCamera() }; await store.refresh() }
+            .onReceive(NotificationCenter.default.publisher(for: CommunityPushCoordinator.openThread)) { note in
+                if note.object is String { inbox = true }
+            }
+            .task(id: didOnboard) {
+                if push.pendingThreadID != nil { inbox = true }
+                if didOnboard { await prepareCamera() }; await store.refresh()
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active && didOnboard { Task { await prepareCamera() } }
             }
@@ -139,7 +146,7 @@ struct ParkingCommunityView: View {
             }.buttonStyle(.bordered).frame(maxWidth: .infinity)
             Text("自訂車牌請手動輸入。辨識後仍需確認車牌。")
                 .font(.footnote).foregroundStyle(.secondary)
-            Text(store.configured ? "發送前需登入；未綁定自己的車牌亦可提醒別人。遠端推送尚未啟用，請在提醒對話內查看。" : "服務尚未設定：目前可掃牌及預覽訊息，未能查詢或發送提醒。")
+            Text(store.configured ? push.status : "服務尚未設定：目前可掃牌及預覽訊息，未能查詢或發送提醒。")
                 .font(.footnote).foregroundStyle(.secondary)
         }.padding()
     }
@@ -169,6 +176,7 @@ struct ParkingCommunityView: View {
 
 private struct CommunityPlateSettings: View {
     @ObservedObject var store: ParkingCommunityStore
+    @ObservedObject private var push = CommunityPushCoordinator.shared
     let introductory: Bool
     let onContinue: () -> Void
     @State private var adding = false
@@ -232,9 +240,10 @@ private struct CommunityPlateSettings: View {
                     Task {
                         _ = try? await UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge, .sound])
                         await refreshNotifications()
+                        await push.sync()
                     }
                 }
-                Text("遠端推送尚未啟用。現時請進入「提醒對話」查看及重新整理訊息，勿依賴即時通知。")
+                Text(push.status)
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("私隱與使用說明") {
@@ -325,6 +334,7 @@ private struct CommunityPlateEntry: View {
 private struct CommunityMessageComposer: View {
     let plate: String
     @ObservedObject var store: ParkingCommunityStore
+    @ObservedObject private var push = CommunityPushCoordinator.shared
     @State private var login = false
     @State private var busy = false
     @State private var result: CommunitySendResult?
@@ -353,7 +363,7 @@ private struct CommunityMessageComposer: View {
             Section("通知預覽") { Text(selected == "自由輸入文字" ? custom : selected) }
             Section {
                 if let result {
-                    Label("提醒已儲存，遠端推送尚未啟用", systemImage: "checkmark.circle")
+                    Label(result.pushStatus == "queued" ? "提醒已儲存並加入推送佇列" : "提醒已儲存，推送尚未設定", systemImage: "checkmark.circle")
                     NavigationLink("查看提醒對話") { CommunityThreadDetail(store: store, threadID: result.threadId, plate: plate) }
                 } else {
                     Button(store.signedIn ? "發送提醒" : "登入後發送") {
@@ -364,7 +374,7 @@ private struct CommunityMessageComposer: View {
                 }
                 if let error { Text(error).foregroundStyle(.red) }
                 if !store.configured { Text("提醒服務尚未設定，暫時無法查詢或發送。").font(.footnote) }
-                Text("所有已綁定者共用同一條對話。現時只可在 App 內查看訊息，不能保證對方及時看到。").font(.footnote).foregroundStyle(.secondary)
+                Text("所有已綁定者共用同一條對話。推送不代表對方已閱讀，仍可在對話內查看。").font(.footnote).foregroundStyle(.secondary)
             }
             Section {
                 Text("「我幫你墊錢入咗咪錶」只代表發送者的陳述，並非平台核實付款。所有咪錶操作由用戶在 App 外獨立完成。")
@@ -549,6 +559,7 @@ private enum CommunityPhotoOCR {
 private struct CommunityLoginView: View {
     @Environment(\.dismiss) private var dismiss
     @ObservedObject var store: ParkingCommunityStore
+    @ObservedObject private var push = CommunityPushCoordinator.shared
     @State private var email = ""
     @State private var code = ""
     @State private var requested = false
@@ -604,11 +615,13 @@ private struct CommunityLoginView: View {
 
 private struct CommunityInbox: View {
     @ObservedObject var store: ParkingCommunityStore
+    @ObservedObject private var push = CommunityPushCoordinator.shared
     @State private var login = false
+    @State private var notificationThread: String?
     var body: some View {
         List {
             Section {
-                Text("遠端推送尚未啟用。向下拉可重新整理；顯示最近 100 條未過期對話，建立後 7 日刪除。")
+                Text(push.status + " 向下拉可重新整理；顯示最近 100 條未過期對話，建立後 7 日刪除。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if !store.signedIn {
@@ -631,7 +644,24 @@ private struct CommunityInbox: View {
             if let error = store.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
         }
         .navigationTitle("提醒對話")
-        .task { await store.refresh() }
+        .navigationDestination(isPresented: Binding(get: { notificationThread != nil }, set: { if !$0 { notificationThread = nil } })) {
+            if let id = notificationThread {
+                CommunityThreadDetail(store: store, threadID: id, plate: store.threads.first(where: { $0.id == id })?.plate ?? "提醒對話")
+            }
+        }
+        .task {
+            await store.refresh()
+            if let id = push.pendingThreadID, store.signedIn {
+                notificationThread = id
+                push.pendingThreadID = nil
+            }
+        }
+        .onChange(of: push.pendingThreadID) { _, id in
+            if let id, store.signedIn { notificationThread = id; push.pendingThreadID = nil }
+        }
+        .onChange(of: store.signedIn) { _, signedIn in
+            if signedIn, let id = push.pendingThreadID { notificationThread = id; push.pendingThreadID = nil }
+        }
         .refreshable { await store.refresh() }
         .sheet(isPresented: $login) { CommunityLoginView(store: store) }
     }
@@ -639,6 +669,7 @@ private struct CommunityInbox: View {
 
 private struct CommunityThreadDetail: View {
     @ObservedObject var store: ParkingCommunityStore
+    @ObservedObject private var push = CommunityPushCoordinator.shared
     let threadID: String
     let plate: String
     @State private var messages: [CommunityMessage] = []
@@ -650,7 +681,7 @@ private struct CommunityThreadDetail: View {
     var body: some View {
         List {
             Section {
-                Text("所有綁定者共用對話；顯示最近 200 則訊息。遠端推送尚未啟用，向下拉可重新整理。")
+                Text("所有綁定者共用對話；顯示最近 200 則訊息。" + push.status)
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("訊息") {
@@ -696,7 +727,7 @@ private struct CommunityThreadDetail: View {
         do {
             try await store.api.reply(thread: threadID, text: text, key: key)
             text = ""; key = UUID(); await refresh()
-            status = "回覆已儲存；遠端推送尚未啟用。"
+            status = "回覆已儲存。" + push.status
         } catch { status = error.localizedDescription; store.handle(error) }
     }
     @MainActor private func report() async {

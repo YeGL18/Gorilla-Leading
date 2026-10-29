@@ -14,6 +14,9 @@ import Foundation
         let groupedDigits = CommunityPlateOCR.candidates([
             segment("AB", 10, 10, 40, 20), segment("12", 58, 10, 30, 20), segment("34", 94, 10, 30, 20)])
         precondition(groupedDigits.map(\.plate) == ["AB1234"])
+        let closeDigitGroups = CommunityPlateOCR.candidates([
+            segment("AB", 10, 10, 40, 20), segment("12", 55, 10, 25, 20), segment("34", 85, 10, 25, 20)])
+        precondition(closeDigitGroups.map(\.plate) == ["AB1234"])
         let twoLine = CommunityPlateOCR.candidates([
             segment("AB", 35, 10, 40, 20), segment("1234", 20, 35, 70, 20)])
         precondition(twoLine.map(\.plate) == ["AB1234"])

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
 	<key>ParkingCommunityAPIBaseURL</key>
-	<string></string>
+	<string>$(PARKING_COMMUNITY_API_BASE_URL)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

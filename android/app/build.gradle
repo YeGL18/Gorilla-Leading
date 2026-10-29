@@ -1,0 +1,34 @@
+plugins { id 'com.android.application' }
+def firebaseConfig = file('google-services.json')
+def config = firebaseConfig.exists() ? new groovy.json.JsonSlurper().parse(firebaseConfig) : null
+def androidClient = config?.client?.find { it.client_info?.android_client_info?.package_name == 'com.gorilla.leading' }
+def apiUrl = providers.gradleProperty('communityApiUrl').getOrElse('')
+android {
+    namespace 'com.gorilla.leading'
+    compileSdk 35
+    defaultConfig {
+        applicationId 'com.gorilla.leading'
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName '0.1-test'
+        buildConfigField 'String', 'API_BASE_URL', groovy.json.JsonOutput.toJson(apiUrl)
+        buildConfigField 'boolean', 'FIREBASE_CONFIGURED', androidClient != null ? 'true' : 'false'
+        resValue 'string', 'google_app_id', androidClient?.client_info?.mobilesdk_app_id ?: ''
+        resValue 'string', 'gcm_defaultSenderId', config?.project_info?.project_number ?: ''
+        resValue 'string', 'google_api_key', androidClient?.api_key?.getAt(0)?.current_key ?: ''
+        resValue 'string', 'project_id', config?.project_info?.project_id ?: ''
+    }
+    buildFeatures { buildConfig true }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+}
+dependencies {
+    implementation 'androidx.activity:activity:1.10.1'
+    implementation 'androidx.camera:camera-camera2:1.4.2'
+    implementation 'androidx.camera:camera-lifecycle:1.4.2'
+    implementation 'androidx.camera:camera-view:1.4.2'
+    implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation platform('com.google.firebase:firebase-bom:33.12.0')
+    implementation 'com.google.firebase:firebase-messaging'
+    testImplementation 'junit:junit:4.13.2'
+}

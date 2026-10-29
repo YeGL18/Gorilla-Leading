@@ -58,3 +58,20 @@ CREATE TABLE IF NOT EXISTS rate_limits (
  scope TEXT PRIMARY KEY, started REAL NOT NULL, count INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS thread_expiry ON threads(expires);
+-- Device ownership is tied to the session that registered it. Logout revokes it.
+CREATE TABLE IF NOT EXISTS device_sessions (
+ device_id TEXT PRIMARY KEY REFERENCES devices(id) ON DELETE CASCADE,
+ session_digest TEXT NOT NULL REFERENCES sessions(digest) ON DELETE CASCADE,
+ environment TEXT NOT NULL DEFAULT 'production' CHECK(environment IN ('sandbox','production'))
+);
+CREATE TABLE IF NOT EXISTS outbox_prepared (
+ outbox_id TEXT PRIMARY KEY REFERENCES outbox(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS push_jobs (
+ id TEXT PRIMARY KEY,
+ outbox_id TEXT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,
+ device_id TEXT NOT NULL REFERENCES devices(id) ON DELETE CASCADE,
+ state TEXT NOT NULL DEFAULT 'pending' CHECK(state IN ('pending','sent','failed')),
+ attempts INTEGER NOT NULL DEFAULT 0, next_attempt REAL NOT NULL DEFAULT 0,
+ last_code TEXT, UNIQUE(outbox_id,device_id)
+);
