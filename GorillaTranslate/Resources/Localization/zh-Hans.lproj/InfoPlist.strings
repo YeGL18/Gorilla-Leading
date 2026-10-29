@@ -1,5 +1,5 @@
 "NSAppleIntelligenceUsageDescription" = "此 App 使用 Apple Intelligence 在设备端进行翻译。";
-"NSCameraUsageDescription" = "此 App 需要使用相机拍摄停车位置照片。";
+"NSCameraUsageDescription" = "此 App 使用相机拍摄停车位置，并扫描车牌以发送停车互助提醒。";
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "此 App 需要持续获取位置，以记录到访和停车位置。";
 "NSLocationWhenInUseUsageDescription" = "此 App 使用位置信息显示当前车速。";
 "NSMicrophoneUsageDescription" = "此 App 需要使用麦克风接收语音输入。";

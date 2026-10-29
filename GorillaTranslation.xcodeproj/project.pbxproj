@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		PC021001 /* ParkingCommunity.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC022001; };
+		PC011001 /* ParkingCommunityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC012001; };
 		CP10001 /* GorillaCarPlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP20001; };
 		TC10001 /* TrafficCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = TC20001; };
 		TC10002 /* traffic_cameras.json in Resources */ = {isa = PBXBuildFile; fileRef = TC20002; };
@@ -110,6 +112,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		PC022001 /* ParkingCommunity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingCommunity.swift; sourceTree = "<group>"; };
+		PC012001 /* ParkingCommunityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingCommunityView.swift; sourceTree = "<group>"; };
 		CP20001 /* GorillaCarPlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaCarPlay.swift; sourceTree = "<group>"; };
 		TC20001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficCamera.swift; sourceTree = "<group>"; };
 		TC20002 = {isa = PBXFileReference; lastKnownFileType = text.json; path = traffic_cameras.json; sourceTree = "<group>"; };
@@ -301,6 +305,7 @@
 				BACC2001 /* GorillaBackup.swift */,
 				ME20001 /* MeterData.swift */,
 				MC20001 /* MapCameraMotion.swift */,
+				PC022001 /* ParkingCommunity.swift */,
 				ME20002 /* ParkingMeterManager.swift */,
 				A20021 /* AppLanguage.swift */,
 				A20022 /* LanguageManager.swift */,
@@ -332,6 +337,7 @@
 				MI20001 /* MapInteraction.swift */,
 				0B2000010B2000010B200001 /* GorillaOnboardingView.swift */,
 				0B2000020B2000020B200002 /* GorillaPageView.swift */,
+				PC012001 /* ParkingCommunityView.swift */,
 				ME20003 /* ParkingMeterViews.swift */,
 				A20014 /* AnimatedBackground.swift */,
 				A20016 /* SettingsView.swift */,
@@ -576,6 +582,8 @@
 				MC10001 /* MapCameraMotion.swift in Sources */,
 				MI10001 /* MapInteraction.swift in Sources */,
 				ME10002 /* ParkingMeterManager.swift in Sources */,
+				PC011001 /* ParkingCommunityView.swift in Sources */,
+				PC021001 /* ParkingCommunity.swift in Sources */,
 				ME10003 /* ParkingMeterViews.swift in Sources */,
 				A10001 /* GorillaTranslateApp.swift in Sources */,
 				A10002 /* ContentView.swift in Sources */,
@@ -865,7 +873,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to photograph your parking location and scan vehicle registration marks for parking reminders.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "連接同一區域網絡內的 Windows 電腦，接收 Assetto Corsa 遊戲遙測。";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";
@@ -912,7 +920,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
 				INFOPLIST_KEY_NSAppleIntelligenceUsageDescription = "This app uses Apple Intelligence for on-device translation.";
-				INFOPLIST_KEY_NSCameraUsageDescription = "This app needs camera access to take photos of your parking location.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "This app uses the camera to photograph your parking location and scan vehicle registration marks for parking reminders.";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "連接同一區域網絡內的 Windows 電腦，接收 Assetto Corsa 遊戲遙測。";
 				INFOPLIST_KEY_NSLocationAlwaysAndWhenInUseUsageDescription = "This app needs always-on location access to track your visits and parking location.";
 				INFOPLIST_KEY_NSLocationWhenInUseUsageDescription = "This app uses your location to display your current speed.";

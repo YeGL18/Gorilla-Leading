@@ -1,5 +1,5 @@
 "NSAppleIntelligenceUsageDescription" = "このアプリは Apple Intelligence を使って端末上で翻訳します。";
-"NSCameraUsageDescription" = "駐車位置の写真を撮るためにカメラを使用します。";
+"NSCameraUsageDescription" = "駐車位置の撮影と、駐車に関する通知のためのナンバープレートの読み取りにカメラを使用します。";
 "NSLocationAlwaysAndWhenInUseUsageDescription" = "訪問した場所と駐車位置を記録するために、常時位置情報を使用します。";
 "NSLocationWhenInUseUsageDescription" = "現在の速度を表示するために位置情報を使用します。";
 "NSMicrophoneUsageDescription" = "音声入力のためにマイクを使用します。";

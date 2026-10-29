@@ -844,6 +844,7 @@ struct ContentView: View {
     
     @State private var selectedTab: Int = 1
     @State private var showingGorillaPage = false
+    @State private var showingParkingCommunity = false
     @State private var settingsSheetVisible = false
     @State private var showVehiclePicker: Bool = false
     @State private var selectedVehicleBrand: String = "BMW"
@@ -1384,6 +1385,14 @@ struct ContentView: View {
                     }
                     .toolbar {
                             mapCompassToolbarItem
+                            if usesDuoToolbar {
+                                ToolbarItem(placement: .bottomBar) {
+                                    Button { showingParkingCommunity = true } label: {
+                                        Label("泊車互助", systemImage: "viewfinder")
+                                    }
+                                    .modifier(GorillaMapControlAppearance())
+                                }
+                            }
 
                         if #available(iOS 27.1, *), usesDuoToolbar {
                             ToolbarItem(placement: .bottomBar) {
@@ -1547,6 +1556,10 @@ struct ContentView: View {
                 selectedTab = 1
                 showingGorillaPage = true
             }
+        }
+        .fullScreenCover(isPresented: $showingParkingCommunity) {
+            ParkingCommunityView()
+                .environment(\.colorScheme, effectiveColorScheme)
         }
         .sheet(isPresented: $showingGorillaPage) {
             NavigationStack {
@@ -2370,6 +2383,15 @@ struct ContentView: View {
                     HStack {
                         if !hkDetailMode && !usesDuoToolbar {
                             VStack(spacing: 10) {
+                                Button { showingParkingCommunity = true } label: {
+                                    Image(systemName: "viewfinder")
+                                        .font(.system(size: 20, weight: .medium))
+                                        .foregroundStyle(capsuleTextColor())
+                                        .frame(width: 44, height: 44)
+                                }
+                                .accessibilityLabel("泊車互助：掃描車牌")
+                                .buttonStyle(.glass)
+                                .modifier(GorillaMapControlAppearance())
                                 if showMap || showSatellite {
                                     Button {
                                         withAnimation(.easeInOut(duration: 0.2)) {
