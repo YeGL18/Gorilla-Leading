@@ -9,6 +9,7 @@ struct ParkingCommunityView: View {
     @AppStorage("parkingCommunity.didOnboard.v1") private var didOnboard = false
     @StateObject private var store = ParkingCommunityStore()
     @State private var settings = false
+    @State private var inbox = false
     @State private var manual = false
     @State private var target: String?
     @State private var cameraAllowed = false
@@ -29,9 +30,18 @@ struct ParkingCommunityView: View {
                 ToolbarItem(placement: .topBarLeading) { Button("關閉") { dismiss() } }
                 if didOnboard {
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { settings = true } label: { Image(systemName: "car.side.and.exclamationmark") }
-                            .accessibilityLabel("車牌與提醒設定")
+                        Menu {
+                            Button("提醒對話", systemImage: "bubble.left.and.bubble.right") { inbox = true }
+                            Button("車牌與提醒設定", systemImage: "car.side") { settings = true }
+                        } label: { Image(systemName: "ellipsis.circle") }
+                        .accessibilityLabel("泊車互助選單")
                     }
+                }
+            }
+            .sheet(isPresented: $inbox) {
+                NavigationStack {
+                    CommunityInbox(store: store)
+                        .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("完成") { inbox = false } } }
                 }
             }
             .sheet(isPresented: $settings) {
@@ -51,9 +61,9 @@ struct ParkingCommunityView: View {
                 }
             }
             .navigationDestination(isPresented: Binding(get: { target != nil }, set: { if !$0 { target = nil } })) {
-                if let target { CommunityMessageComposer(plate: target) }
+                if let target { CommunityMessageComposer(plate: target, store: store) }
             }
-            .task(id: didOnboard) { if didOnboard { await prepareCamera() } }
+            .task(id: didOnboard) { if didOnboard { await prepareCamera() }; await store.refresh() }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .active && didOnboard { Task { await prepareCamera() } }
             }
@@ -63,7 +73,7 @@ struct ParkingCommunityView: View {
     private var scanner: some View {
         VStack(spacing: 16) {
             ZStack(alignment: .bottom) {
-                if cameraAllowed && DataScannerViewController.isSupported && DataScannerViewController.isAvailable && scenePhase == .active && !settings && !manual && target == nil {
+                if cameraAllowed && DataScannerViewController.isSupported && DataScannerViewController.isAvailable && scenePhase == .active && !settings && !inbox && !manual && target == nil {
                     CommunityPlateScanner(onPlate: { target = $0 }, onError: { cameraError = $0; cameraAllowed = false })
                 } else {
                     Rectangle().fill(.quaternary)
@@ -84,7 +94,7 @@ struct ParkingCommunityView: View {
             }.buttonStyle(.borderedProminent)
             Text("自訂車牌請手動輸入。辨識後仍需確認車牌。")
                 .font(.footnote).foregroundStyle(.secondary)
-            Text("服務準備中：目前可掃牌及預覽訊息，尚未連接帳號或遠端通知。")
+            Text(store.configured ? "發送前需登入；未綁定自己的車牌亦可提醒別人。遠端推送尚未啟用，請在提醒對話內查看。" : "服務尚未設定：目前可掃牌及預覽訊息，未能查詢或發送提醒。")
                 .font(.footnote).foregroundStyle(.secondary)
         }.padding()
     }
@@ -105,6 +115,8 @@ private struct CommunityPlateSettings: View {
     let introductory: Bool
     let onContinue: () -> Void
     @State private var adding = false
+    @State private var login = false
+    @State private var deleting = false
     @State private var notificationStatus = "尚未檢查"
 
     var body: some View {
@@ -114,18 +126,47 @@ private struct CommunityPlateSettings: View {
                 Text("先設定自己駕駛的車牌，亦可略過，直接幫其他車主發提醒。相同車牌可以多人綁定，所有綁定者共用提醒對話。")
                     .font(.subheadline).foregroundStyle(.secondary)
             }
+            Section("帳號") {
+                if store.signedIn {
+                    Label("已登入泊車互助", systemImage: "person.crop.circle.badge.checkmark")
+                    Button("登出") { Task { await store.logout() } }
+                    Button("刪除帳號與資料", role: .destructive) { deleting = true }
+                } else {
+                    Button("登入／註冊") { login = true }.disabled(!store.configured)
+                    if !store.configured { Text("提醒服務尚未設定，請稍後再試。").font(.footnote) }
+                }
+                if let error = store.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
+            }
+            if !store.boundPlates.isEmpty {
+                Section("已綁定車牌") {
+                    ForEach(store.boundPlates) { binding in
+                        HStack {
+                            Text(binding.plate).font(.system(.title3, design: .monospaced).bold())
+                            Spacer()
+                            Text("已綁定").font(.caption).foregroundStyle(.secondary)
+                        }.swipeActions {
+                            Button("解除綁定", role: .destructive) { Task { await store.unbind(binding.plate) } }
+                        }
+                    }
+                    Text("同一車牌可以多人綁定，共同接收提醒。解除綁定後不能再查看該車牌過往收到的對話。").font(.footnote)
+                }
+            }
             Section("我的車牌（本機草稿）") {
                 ForEach(store.drafts) { draft in
                     HStack {
                         Text(draft.plate).font(.system(.title3, design: .monospaced).bold())
                         Spacer()
-                        Text("待連接帳號").font(.caption).foregroundStyle(.secondary)
+                        if store.signedIn {
+                            Button("綁定") { Task { await store.bindDraft(draft) } }
+                        } else {
+                            Text("待登入綁定").font(.caption).foregroundStyle(.secondary)
+                        }
                     }.swipeActions {
                         Button("刪除", role: .destructive) { store.remove(draft.id) }
                     }
                 }
                 Button("新增車牌", systemImage: "plus") { adding = true }
-                Text("草稿只儲存在此裝置，尚未完成綁定，不能接收遠端提醒。可向左掃刪除。")
+                Text("草稿只儲存在此裝置，需登入後按「綁定」同步至服務。可向左掃刪除。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("推送通知") {
@@ -136,13 +177,13 @@ private struct CommunityPlateSettings: View {
                         await refreshNotifications()
                     }
                 }
-                Text("開啟權限後，仍需完成帳號綁定及接通通知服務，才可收到提醒。")
+                Text("遠端推送尚未啟用。現時請進入「提醒對話」查看及重新整理訊息，勿依賴即時通知。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("私隱與使用說明") {
                 Text("只用於自願泊車互助；不是抄牌預警工具，不保證資訊準確。不得騷擾、起底或爭執。")
                 Text("本 App 不提供咪錶付款或代繳。墊款、還錢與酬謝屬雙方自願私人安排，平台不介入金錢糾紛。")
-                Text("本機版本不儲存對話。正式服務的訊息將於 7 日後自動刪除；上線前需完成後端刪除機制。")
+                Text("對話於建立後 7 日到期，回覆不會延長期限；不在手機永久儲存對話。車牌只用於泊車提醒，不作出售用途。")
             }.font(.footnote)
             if introductory {
                 Section {
@@ -151,7 +192,12 @@ private struct CommunityPlateSettings: View {
                 }
             }
         }
-        .task { await refreshNotifications() }
+        .task { await refreshNotifications(); await store.refresh() }
+        .refreshable { await store.refresh(); await refreshNotifications() }
+        .confirmationDialog("刪除帳號、車牌綁定及訊息？此操作無法復原。", isPresented: $deleting, titleVisibility: .visible) {
+            Button("永久刪除", role: .destructive) { Task { await store.deleteAccount() } }
+        }
+        .sheet(isPresented: $login) { CommunityLoginView(store: store) }
         .sheet(isPresented: $adding) {
             NavigationStack {
                 CommunityPlateEntry(title: "新增我的車牌", requiresConsent: true) {
@@ -221,6 +267,12 @@ private struct CommunityPlateEntry: View {
 
 private struct CommunityMessageComposer: View {
     let plate: String
+    @ObservedObject var store: ParkingCommunityStore
+    @State private var login = false
+    @State private var busy = false
+    @State private var result: CommunitySendResult?
+    @State private var error: String?
+    @State private var requestKey = UUID()
     @State private var selected = "留意入返咪錶"
     @State private var custom = ""
     private let templates = ["小心違例泊車", "留意入返咪錶", "我幫你墊錢入咗咪錶", "自由輸入文字"]
@@ -243,15 +295,37 @@ private struct CommunityMessageComposer: View {
             }
             Section("通知預覽") { Text(selected == "自由輸入文字" ? custom : selected) }
             Section {
-                Label("帳號及通知服務尚未接通", systemImage: "network.slash")
-                Text("目前無法查詢車牌是否已綁定，亦不會發出訊息。正式版首次發送前需要登入，無需綁定自己的車牌。")
-                    .font(.footnote).foregroundStyle(.secondary)
-                Button("登入後發送（尚未開放）") {}.disabled(true)
+                if let result {
+                    Label("提醒已儲存，遠端推送尚未啟用", systemImage: "checkmark.circle")
+                    NavigationLink("查看提醒對話") { CommunityThreadDetail(store: store, threadID: result.threadId, plate: plate) }
+                } else {
+                    Button(store.signedIn ? "發送提醒" : "登入後發送") {
+                        if !store.signedIn { login = true }
+                        else { Task { await send() } }
+                    }.disabled(!store.configured || busy || message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    if busy { ProgressView() }
+                }
+                if let error { Text(error).foregroundStyle(.red) }
+                if !store.configured { Text("提醒服務尚未設定，暫時無法查詢或發送。").font(.footnote) }
+                Text("所有已綁定者共用同一條對話。現時只可在 App 內查看訊息，不能保證對方及時看到。").font(.footnote).foregroundStyle(.secondary)
             }
             Section {
                 Text("「我幫你墊錢入咗咪錶」只代表發送者的陳述，並非平台核實付款。所有咪錶操作由用戶在 App 外獨立完成。")
             }.font(.footnote)
         }.navigationTitle("發送提醒")
+        .sheet(isPresented: $login) { CommunityLoginView(store: store) }
+        .onChange(of: selected) { _, _ in requestKey = UUID(); result = nil; error = nil }
+        .onChange(of: custom) { _, _ in requestKey = UUID(); result = nil; error = nil }
+        .disabled(busy)
+    }
+    private var message: String { selected == "自由輸入文字" ? custom : selected }
+    @MainActor private func send() async {
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            result = try await store.api.send(plate: plate, text: message, key: requestKey)
+            await store.refresh()
+        } catch { self.error = error.localizedDescription; store.handle(error) }
     }
 }
 
@@ -285,5 +359,168 @@ private struct CommunityPlateScanner: UIViewControllerRepresentable {
         func dataScanner(_ dataScanner: DataScannerViewController, becameUnavailableWithError error: DataScannerViewController.ScanningUnavailable) {
             onError("即時辨識暫時不可用，請使用手動輸入。")
         }
+    }
+}
+
+private struct CommunityLoginView: View {
+    @Environment(\.dismiss) private var dismiss
+    @ObservedObject var store: ParkingCommunityStore
+    @State private var email = ""
+    @State private var code = ""
+    @State private var requested = false
+    @State private var busy = false
+    @State private var error: String?
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("電郵登入／註冊") {
+                    TextField("電郵地址", text: $email)
+                        .textContentType(.emailAddress).keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .onChange(of: email) { _, _ in requested = false; code = "" }
+                    Button(requested ? "重新寄出驗證碼" : "取得驗證碼") {
+                        Task { await requestCode() }
+                    }.disabled(busy || email.isEmpty)
+                    if requested {
+                        TextField("6 位驗證碼", text: $code).keyboardType(.numberPad).textContentType(.oneTimeCode)
+                            .onChange(of: code) { _, value in code = String(value.filter { $0.isASCII && $0.isNumber }.prefix(6)) }
+                        Button("登入") { Task { await verify() } }.disabled(busy || code.count != 6)
+                        Text("驗證碼 10 分鐘內有效，重新寄出需相隔至少 60 秒。").font(.footnote)
+                    }
+                }
+                Section {
+                    Text("只為帳號驗證使用電郵。無需綁定車牌亦可發提醒。請勿與他人分享驗證碼。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                    if let error { Text(error).foregroundStyle(.red) }
+                    if busy { ProgressView() }
+                }
+            }
+            .disabled(busy)
+            .navigationTitle("泊車互助帳號")
+            .toolbar { ToolbarItem(placement: .topBarTrailing) { Button("關閉") { dismiss() } } }
+        }
+    }
+    @MainActor private func requestCode() async {
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            try await store.api.startLogin(email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+            requested = true
+        } catch { self.error = error.localizedDescription }
+    }
+    @MainActor private func verify() async {
+        busy = true; error = nil
+        defer { busy = false }
+        do {
+            try await store.api.verify(email: email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(), code: code)
+            await store.refresh(); dismiss()
+        } catch { self.error = error.localizedDescription }
+    }
+}
+
+private struct CommunityInbox: View {
+    @ObservedObject var store: ParkingCommunityStore
+    @State private var login = false
+    var body: some View {
+        List {
+            Section {
+                Text("遠端推送尚未啟用。向下拉可重新整理；顯示最近 100 條未過期對話，建立後 7 日刪除。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if !store.signedIn {
+                Button("登入查看提醒") { login = true }.disabled(!store.configured)
+            } else if store.threads.isEmpty {
+                ContentUnavailableView("暫時沒有提醒", systemImage: "bubble.left.and.bubble.right")
+            }
+            ForEach(store.threads) { thread in
+                NavigationLink {
+                    CommunityThreadDetail(store: store, threadID: thread.id, plate: thread.plate)
+                } label: {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(thread.plate).font(.system(.headline, design: .monospaced))
+                        Text(thread.lastMessage?.text ?? "提醒對話").lineLimit(2).font(.subheadline)
+                        Text("到期：\(Date(timeIntervalSince1970: thread.expiresAt).formatted())")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
+            if let error = store.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
+        }
+        .navigationTitle("提醒對話")
+        .task { await store.refresh() }
+        .refreshable { await store.refresh() }
+        .sheet(isPresented: $login) { CommunityLoginView(store: store) }
+    }
+}
+
+private struct CommunityThreadDetail: View {
+    @ObservedObject var store: ParkingCommunityStore
+    let threadID: String
+    let plate: String
+    @State private var messages: [CommunityMessage] = []
+    @State private var text = ""
+    @State private var key = UUID()
+    @State private var busy = false
+    @State private var status: String?
+    @State private var blockedUser: String?
+    var body: some View {
+        List {
+            Section {
+                Text("所有綁定者共用對話；顯示最近 200 則訊息。遠端推送尚未啟用，向下拉可重新整理。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("訊息") {
+                ForEach(messages) { message in
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(message.text)
+                        Text(Date(timeIntervalSince1970: message.createdAt).formatted())
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .contextMenu {
+                        Button("舉報不當訊息", role: .destructive) { Task { await report() } }
+                        Button("封鎖此發送者", role: .destructive) { blockedUser = message.authorId }
+                    }
+                }
+            }
+            Section("快捷回覆") {
+                ForEach(["感謝師兄", "唔該", "多謝提醒"], id: \.self) { template in
+                    Button(template) { text = template }
+                }
+                TextField("自由輸入文字（最多 200 字）", text: $text, axis: .vertical)
+                    .onChange(of: text) { _, value in text = String(value.prefix(200)); key = UUID() }
+                Button("回覆") { Task { await reply() } }
+                    .disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                if busy { ProgressView() }
+                if let status { Text(status).font(.footnote) }
+            }
+        }
+        .navigationTitle(plate)
+        .disabled(busy)
+        .task { await refresh() }
+        .refreshable { await refresh() }
+        .confirmationDialog("封鎖後不會再互相接收提醒。", isPresented: Binding(get: { blockedUser != nil }, set: { if !$0 { blockedUser = nil } }), titleVisibility: .visible) {
+            Button("封鎖", role: .destructive) { if let user = blockedUser { Task { await block(user) } } }
+        }
+    }
+    @MainActor private func refresh() async {
+        do { messages = try await store.api.messages(threadID) }
+        catch { messages = []; status = error.localizedDescription; store.handle(error) }
+    }
+    @MainActor private func reply() async {
+        busy = true; status = nil
+        defer { busy = false }
+        do {
+            try await store.api.reply(thread: threadID, text: text, key: key)
+            text = ""; key = UUID(); await refresh()
+            status = "回覆已儲存；遠端推送尚未啟用。"
+        } catch { status = error.localizedDescription; store.handle(error) }
+    }
+    @MainActor private func report() async {
+        do { try await store.api.report(thread: threadID); status = "舉報已記錄，等待處理。" }
+        catch { status = error.localizedDescription }
+    }
+    @MainActor private func block(_ user: String) async {
+        do { try await store.api.block(user: user); blockedUser = nil; messages = []; status = "已封鎖。"; await store.refresh() }
+        catch { status = error.localizedDescription }
     }
 }

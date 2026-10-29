@@ -25,6 +25,12 @@ import Foundation
         precondition(restored.drafts.first?.plate == "AB 1234")
         restored.remove("AB1234")
         precondition(ParkingCommunityStore(defaults: defaults).drafts.isEmpty)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let binding = try! decoder.decode(CommunityPlateDraft.self, from: Data(#"{"plate":"AB 1234","consentedAt":"2027-01-15T08:00:00Z"}"#.utf8))
+        precondition(binding.id == "AB1234")
+        let thread = try! JSONDecoder().decode(CommunityThread.self, from: Data(#"{"id":"thread","plate":"AB1234","expiresAt":1800604800.0,"lastMessage":{"id":"msg","authorId":"driver","text":"唔該","createdAt":1800000000.0}}"#.utf8))
+        precondition(thread.lastMessage?.text == "唔該")
         print("Parking community plate and draft persistence checks passed")
     }
 }

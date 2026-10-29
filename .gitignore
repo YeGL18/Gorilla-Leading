@@ -112,3 +112,8 @@ iOSInjectionProject/
 Network Trash Folder
 Temporary Items
 .apdisk
+
+# Parking community runtime data and credentials
+backend/parking-community/*.sqlite3*
+backend/parking-community/.env*
+backend/parking-community/__pycache__/
