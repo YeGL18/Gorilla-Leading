@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		CP10001 /* GorillaCarPlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP20001; };
 		TC10001 /* TrafficCamera.swift in Sources */ = {isa = PBXBuildFile; fileRef = TC20001; };
 		TC10002 /* traffic_cameras.json in Resources */ = {isa = PBXBuildFile; fileRef = TC20002; };
 		TC10003 /* camera_alert.wav in Resources */ = {isa = PBXBuildFile; fileRef = TC20003; };
@@ -109,6 +110,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		CP20001 /* GorillaCarPlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaCarPlay.swift; sourceTree = "<group>"; };
 		TC20001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrafficCamera.swift; sourceTree = "<group>"; };
 		TC20002 = {isa = PBXFileReference; lastKnownFileType = text.json; path = traffic_cameras.json; sourceTree = "<group>"; };
 		TC20003 = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = camera_alert.wav; sourceTree = "<group>"; };
@@ -292,6 +294,7 @@
 		A40003 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				CP20001 /* GorillaCarPlay.swift */,
 				TC20001,
 				TR20001 /* TripReplay.swift */,
 				TR20002 /* TripReplayStore.swift */,
@@ -568,6 +571,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				CP10001 /* GorillaCarPlay.swift in Sources */,
 				ME10001 /* MeterData.swift in Sources */,
 				MC10001 /* MapCameraMotion.swift in Sources */,
 				MI10001 /* MapInteraction.swift in Sources */,
@@ -869,7 +873,7 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion history to identify driving and walking journeys, and altitude data to detect parking floor level.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;
@@ -916,7 +920,7 @@
 				INFOPLIST_KEY_NSMotionUsageDescription = "This app uses motion history to identify driving and walking journeys, and altitude data to detect parking floor level.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "This app uses speech recognition to convert your voice to text for translation.";
 				INFOPLIST_KEY_NSSupportsLiveActivities = YES;
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = NO;
 				INFOPLIST_KEY_UIApplicationSupportsDocumentBrowser = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIFileSharingEnabled = YES;

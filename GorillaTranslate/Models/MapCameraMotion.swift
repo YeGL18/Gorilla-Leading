@@ -131,12 +131,19 @@ struct MapCameraMotion {
         atan2(sin((to - from) * .pi / 180), cos((to - from) * .pi / 180)) * 180 / .pi
     }
 
-    static func overviewRect(user: CLLocationCoordinate2D, meter: CLLocationCoordinate2D) -> MKMapRect {
+    static func overviewRect(user: CLLocationCoordinate2D, meter: CLLocationCoordinate2D,
+                             routeBounds: MKMapRect? = nil) -> MKMapRect {
         let a = MKMapPoint(user), b = MKMapPoint(meter)
         let padding = 100 / MKMetersPerMapPointAtLatitude(user.latitude)
-        return MKMapRect(x: min(a.x, b.x), y: min(a.y, b.y),
-                         width: abs(a.x - b.x), height: abs(a.y - b.y))
-            .insetBy(dx: -padding, dy: -padding)
+        var rect = MKMapRect(x: min(a.x, b.x), y: min(a.y, b.y),
+                             width: abs(a.x - b.x), height: abs(a.y - b.y))
+        if let routeBounds, !routeBounds.isNull,
+           routeBounds.origin.x.isFinite, routeBounds.origin.y.isFinite,
+           routeBounds.width.isFinite, routeBounds.height.isFinite,
+           routeBounds.width >= 0, routeBounds.height >= 0 {
+            rect = rect.union(routeBounds)
+        }
+        return rect.insetBy(dx: -padding, dy: -padding)
     }
 
     private static func bearing(from: CLLocationCoordinate2D, to: CLLocationCoordinate2D) -> Double {

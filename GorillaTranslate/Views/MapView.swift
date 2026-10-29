@@ -169,7 +169,6 @@ final class ParkingPointAnnotation: NSObject, MKAnnotation {
     var isAutomotive: Bool
     var isLatest = false
     var recordCount = 1
-    var displayOffset = CGPoint(x: 0, y: -10)
 
     init(pointID: UUID, coordinate: CLLocationCoordinate2D, title: String?, subtitle: String?, isAutomotive: Bool = true) {
         self.pointID = pointID
@@ -543,6 +542,7 @@ struct MapView: UIViewRepresentable {
         if flyTrigger > 0 && flyTrigger != context.coordinator.lastFlyTrigger {
             context.coordinator.lastFlyTrigger = flyTrigger
             if routePriorityToken == nil {
+                if !landscapeChanged { context.coordinator.endMeterRouteOverview() }
                 if landscapeChanged {
                     let coordinator = context.coordinator
                     let generation = coordinator.cameraAnimationGeneration
@@ -582,7 +582,9 @@ struct MapView: UIViewRepresentable {
                     mapView.addOverlay(animOverlay)
                 }
 
-                if shouldAnimateRouteZoom && !coordinator.meterDetailTracking.isPresented && !coordinator.isBoundaryDrawing {
+                if shouldAnimateRouteZoom && meterNavigationTargetID != nil && !coordinator.isBoundaryDrawing {
+                    coordinator.fitMeterNavigationRoute(overlay)
+                } else if shouldAnimateRouteZoom && !coordinator.meterDetailTracking.isPresented && !coordinator.isBoundaryDrawing {
                     coordinator.endMeterOverview()
                     coordinator.manualCameraControl = false
                     mapView.allowsUserCameraChanges = false
@@ -686,12 +688,24 @@ struct MapView: UIViewRepresentable {
             context.coordinator.pendingAutoZoom = true
             context.coordinator.prepareRouteDrawAnimation(shouldAnimate: false)
         }
+
+        if landscapeChanged, context.coordinator.isMeterRouteOverviewActive, let routeOverlay {
+            context.coordinator.fitMeterNavigationRoute(routeOverlay)
+        }
         
         context.coordinator.syncParkingAnnotations(parkingPoints: parkingPoints, titlePrefixesByID: parkingPointTitlePrefixesByID, revision: parkingPointsRevision)
+        context.coordinator.updateMeterNavigationTarget(
+            id: meterNavigationTargetID,
+            coordinate: meterNavigationTargetCoordinate
+        )
         var displayedMeters = markerOverview.mode == .nearby ? meterManager.visibleMeters : []
         if let overviewMeter = context.coordinator.meterOverviewMeter,
            !displayedMeters.contains(where: { $0.id == overviewMeter.id }) {
             displayedMeters.append(overviewMeter)
+        }
+        if let targetMeter = context.coordinator.meterNavigationTargetMeter,
+           !displayedMeters.contains(where: { $0.id == targetMeter.id }) {
+            displayedMeters.append(targetMeter)
         }
         if markerOverview.mode == .meters {
             context.coordinator.meterLayer.syncOverview(map: mapView, meters: meterManager.allMeters, manager: meterManager)
@@ -701,10 +715,6 @@ struct MapView: UIViewRepresentable {
         context.coordinator.trafficCameraLayer.sync(mapView, enabled: trafficCameraEnabled,
                                                   location: locationManager.lastLocation,
                                                   mode: markerOverview.mode)
-        context.coordinator.updateMeterNavigationTarget(
-            id: meterNavigationTargetID,
-            coordinate: meterNavigationTargetCoordinate
-        )
         context.coordinator.applyParkingSelection(selectedParkingPointID: selectedParkingPointID)
         context.coordinator.updateParkingPopupCameraFreeze(selectedParkingPointID)
 
@@ -842,6 +852,17 @@ struct MapView: UIViewRepresentable {
         private var handledMeterNoticeID: UUID?
         private var selectedMeterOverviewID: String?
         private var lastOverviewFit: Date = .distantPast
+        private var meterRouteOverviewToken: UUID?
+        private(set) var meterNavigationTargetMeter: ParkingMeter?
+
+        var isMeterRouteOverviewActive: Bool {
+            meterRouteOverviewToken != nil && meterRouteOverviewToken == currentRouteToken &&
+                currentRouteOverlay != nil && parent.meterNavigationTargetID != nil
+        }
+
+        func endMeterRouteOverview() {
+            meterRouteOverviewToken = nil
+        }
         private var drivingDisplayLink: CADisplayLink?
         private var drivingMotion = MapCameraMotion()
         private var lastTrackingFrame: CFTimeInterval = 0
@@ -852,7 +873,7 @@ struct MapView: UIViewRepresentable {
         var meterDetailTracking = MeterDetailTrackingGate()
 
         private var automaticCameraPaused: Bool {
-            TrafficCameraStore.shared.selected != nil || isUserInteracting || manualCameraControl || meterOverviewID != nil ||
+            TrafficCameraStore.shared.selected != nil || isUserInteracting || manualCameraControl || meterOverviewID != nil || isMeterRouteOverviewActive ||
                 meterDetailTracking.isPaused || parent.hkDetailMode || isBoundaryDrawing ||
                 parent.selectedParkingPointID != nil ||
                 (parent.homeMapContext.session != nil && parent.homeMapContext.session?.activeHost == nil)
@@ -923,9 +944,25 @@ struct MapView: UIViewRepresentable {
             return viewport.insetBy(dx: horizontal, dy: min(vertical, viewport.height * 0.28))
         }
 
+        func fitMeterNavigationRoute(_ route: MKPolyline) {
+            guard let mapView, let container, container.bounds.width > 0, container.bounds.height > 0,
+                  let target = parent.meterNavigationTargetCoordinate,
+                  let user = (validTrackingLocation ?? parent.locationManager.mapReferenceLocation)?.coordinate
+                    ?? parent.routePriorityAnchor else { return }
+            endMeterOverview()
+            manualCameraControl = false
+            mapView.allowsUserCameraChanges = false
+            meterDetailTracking.resume()
+            // Route overview owns the camera until explicitly resumed or navigation ends.
+            meterRouteOverviewToken = currentRouteToken
+            fitMeterOverview(user: user.wgs84ToGCJ02, targetCoordinate: target.wgs84ToGCJ02,
+                             route: route, mapView: mapView, container: container)
+        }
+
         private func fitMeterOverview(user: CLLocationCoordinate2D, meter: ParkingMeter? = nil,
+                                      targetCoordinate: CLLocationCoordinate2D? = nil, route: MKPolyline? = nil,
                                       mapView: NonAdjustingMapView, container: UIView) {
-            guard let meter = meter ?? meterOverviewMeter else { return }
+            guard let targetCoordinate = targetCoordinate ?? (meter ?? meterOverviewMeter)?.coordinate.wgs84ToGCJ02 else { return }
             let viewport = overviewVisibleRect(mapView: mapView, container: container)
             let padding = UIEdgeInsets(
                 top: max(0, viewport.minY), left: max(0, viewport.minX),
@@ -936,7 +973,7 @@ struct MapView: UIViewRepresentable {
             let generation = cameraAnimationGeneration
             let start = mapView.camera.copy() as! MKMapCamera
             let target = mapView.cameraFitting(
-                MapCameraMotion.overviewRect(user: user, meter: meter.coordinate.wgs84ToGCJ02),
+                MapCameraMotion.overviewRect(user: user, meter: targetCoordinate, routeBounds: route?.boundingMapRect),
                 edgePadding: padding
             )
             lastOverviewFit = Date()
@@ -975,6 +1012,7 @@ struct MapView: UIViewRepresentable {
             guard !meterDetailTracking.isPresented, !isBoundaryDrawing,
                   parent.selectedParkingPointID == nil else { return }
             manualCameraControl = false
+            meterRouteOverviewToken = nil
             mapView?.allowsUserCameraChanges = false
             meterDetailTracking.resume()
             endMeterOverview()
@@ -1558,6 +1596,10 @@ struct MapView: UIViewRepresentable {
             guard id != meterNavigationTargetID else { return }
 
             meterNavigationTargetID = id
+            meterNavigationTargetMeter = id.flatMap { targetID in
+                parent.meterManager.allMeters.first(where: { $0.id == targetID })
+            }
+            if id == nil { meterRouteOverviewToken = nil }
             meterNavigationTrackingDistance = nil
             forceMeterAnnotationsApart = false
             if let mapView {
@@ -1608,7 +1650,7 @@ struct MapView: UIViewRepresentable {
         private func updateMapPosition() {
             guard let mapView = mapView,
                   let location = mapView.userLocation.location,
-                  !isFlying else { return }
+                  !isFlying, !automaticCameraPaused else { return }
             
             let targetCenter = CLLocationCoordinate2D(
                 latitude: location.coordinate.latitude,
@@ -2009,6 +2051,18 @@ struct MapView: UIViewRepresentable {
                     let canvas = BoundaryDrawCanvas(frame: mapView.bounds)
                     canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
                     canvas.mapView = mapView
+                    canvas.onVertexMove = { [weak bridge] index, coordinate in
+                        guard bridge?.sessionID == sessionID, bridge?.isReady == true else { return }
+                        bridge?.onVertexMove?(index, coordinate.gcj02ToWGS84)
+                    }
+                    canvas.onVertexInsert = { [weak bridge] index, coordinate in
+                        guard bridge?.sessionID == sessionID, bridge?.isReady == true else { return }
+                        bridge?.onVertexInsert?(index, coordinate.gcj02ToWGS84)
+                    }
+                    canvas.onVertexDragChanged = { [weak bridge] dragging in
+                        guard bridge?.sessionID == sessionID, bridge?.isDraggingVertex != dragging else { return }
+                        bridge?.isDraggingVertex = dragging
+                    }
                     mapView.addSubview(canvas)
                     self.boundaryCanvas = canvas
                     self.refreshBoundaryCanvas()
@@ -2036,7 +2090,9 @@ struct MapView: UIViewRepresentable {
             if parent.boundaryDrawBridge?.sessionID == boundaryDrawSessionID {
                 parent.boundaryDrawBridge?.centerCoordinateProvider = nil
                 parent.boundaryDrawBridge?.isReady = false
+                parent.boundaryDrawBridge?.isDraggingVertex = false
             }
+            boundaryCanvas?.cancelVertexDrag()
             boundaryCanvas?.removeFromSuperview()
             boundaryCanvas = nil
             if let gestures = boundaryMapGestures {
@@ -2057,6 +2113,7 @@ struct MapView: UIViewRepresentable {
             guard let canvas = boundaryCanvas else { return }
             canvas.frame = canvas.superview?.bounds ?? canvas.frame
             canvas.superview?.bringSubviewToFront(canvas)
+            guard !canvas.isDraggingVertex else { return }
             let vertices = parent.boundaryDrawVertices ?? []
             canvas.vertices = vertices.map { $0.coordinate.wgs84ToGCJ02 }
             canvas.shapeIsValid = ParkingBoundaryGeometry.isValid(vertices)
@@ -2371,19 +2428,19 @@ struct MapView: UIViewRepresentable {
         func scheduleAutoZoom() {
             guard mapView != nil, !meterDetailTracking.isPresented, !isBoundaryDrawing,
                   parent.selectedParkingPointID == nil,
-                  meterOverviewID == nil, !isFlying,
+                  meterOverviewID == nil, !isMeterRouteOverviewActive, !isFlying,
                   (!isDriving || meterDetailTracking.isWaiting || manualCameraControl), !isUserInteracting else { return }
             autoZoomTimer?.invalidate()
             let generation = cameraAnimationGeneration
             autoZoomTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { [weak self] _ in
                 guard let self = self, !self.meterDetailTracking.isPresented,
-                      self.meterOverviewID == nil, !self.isFlying,
+                      self.meterOverviewID == nil, !self.isMeterRouteOverviewActive, !self.isFlying,
                       self.parent.selectedParkingPointID == nil,
                       (!self.isDriving || self.meterDetailTracking.isWaiting || self.manualCameraControl),
                       !self.isUserInteracting else { return }
                 DispatchQueue.main.async {
                     guard self.cameraAnimationGeneration == generation,
-                          !self.meterDetailTracking.isPresented, self.meterOverviewID == nil,
+                          !self.meterDetailTracking.isPresented, self.meterOverviewID == nil, !self.isMeterRouteOverviewActive,
                           self.parent.selectedParkingPointID == nil,
                           !self.isUserInteracting else { return }
                     self.resumeAutomaticCamera()
@@ -2633,21 +2690,12 @@ struct MapView: UIViewRepresentable {
                 anno.isAutomotive = p.isAutomotive
                 anno.recordCount = group.records.count
                 anno.isLatest = group.records.contains { $0.id == latestPointID }
-                // Separate coincident floor groups in screen space, never by changing GPS coordinates.
-                let neighbours = groups.filter {
-                    $0.id.lotID == group.id.lotID &&
-                    CLLocation(latitude: $0.mapCoordinate.latitude, longitude: $0.mapCoordinate.longitude).distance(
-                        from: CLLocation(latitude: group.mapCoordinate.latitude, longitude: group.mapCoordinate.longitude)) < 12
-                }.sorted { ($0.id.floor ?? Int.min) < ($1.id.floor ?? Int.min) }
-                if neighbours.count > 1, let rank = neighbours.firstIndex(where: { $0.id == group.id }) {
-                    anno.displayOffset = CGPoint(x: (CGFloat(rank) - CGFloat(neighbours.count - 1) / 2) * 48, y: -10)
-                } else {
-                    anno.displayOffset = CGPoint(x: 0, y: -10)
-                }
-                let baseLabel = p.isAutomotive ? String(localized: "停車點") : String(localized: "逗留點")
+                let baseLabel = p.isAutomotive
+                    ? (p.isManualEntry == true ? String(localized: "手動停車點") : String(localized: "停車點"))
+                    : String(localized: "逗留點")
                 if p.isAutomotive {
-                    let floor = p.displayFloor ?? String(localized: "未知")
-                    let suffix = (floor == String(localized: "未知")) ? String(localized: "未知") : (floor.contains("/") ? floor : "\(floor)/F")
+                    let floor = p.displayFloor ?? String(localized: "未識別樓層")
+                    let suffix = p.displayFloor == nil ? floor : (floor.contains("/") ? floor : "\(floor)/F")
                     let prefix = (titlePrefixesByID[p.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
                     if let meterTag = p.meterTag {
                         // 咪錶標注延伸：「HKMU - 牧愛街 7802A咪錶 停車點 3/F」
@@ -2666,7 +2714,7 @@ struct MapView: UIViewRepresentable {
                     anno.title = prefix.isEmpty ? baseLabel : "\(prefix) \(baseLabel)"
                 }
                 anno.subtitle = group.records.count > 1
-                    ? String(format: String(localized: "%d 次記錄"), group.records.count) : (p.address.isEmpty ? nil : p.address)
+                    ? String(format: String(localized: "%d 次記錄"), group.records.count) : nil
                 if let view = mapView.view(for: anno) as? ParkingRecordMarkerView {
                     configureParkingMarker(view, annotation: anno)
                 }
@@ -2688,7 +2736,7 @@ struct MapView: UIViewRepresentable {
             let scale: CGFloat = annotation.isLatest ? 1.30 : 1
             view.configure(tint: tint, glyph: glyph, title: annotation.title, subtitle: annotation.subtitle, scale: scale)
             view.isDraggable = false
-            let offset = CGPoint(x: annotation.displayOffset.x, y: annotation.displayOffset.y - 12)
+            let offset = CGPoint(x: 0, y: -22)
             if view.centerOffset != offset { view.centerOffset = offset }
             view.displayPriority = (view.isHolding || annotation.isLatest) ? .required : .defaultHigh
             view.sizeScale = scale

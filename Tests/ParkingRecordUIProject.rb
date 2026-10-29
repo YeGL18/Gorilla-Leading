@@ -6,10 +6,34 @@ root = '/private/tmp/GorillaParkingRecordUI'
 FileUtils.mkdir_p(root)
 models = File.read('/private/tmp/gorilla-parking-level-tests/Models.swift')
 views = File.read("#{repo}/GorillaTranslate/Views/ParkingRecordViews.swift")
+content = File.read("#{repo}/GorillaTranslate/ContentView.swift")
+repeat_control = content[content.index('private struct ParkingTimeRepeatControl:')...content.index('@available(iOS 27.1, *)')]
+shared = File.read("#{repo}/Shared/GorillaActivityAttributes.swift")
+clock = shared[shared.index('enum ParkingEntryClock {')...shared.index('enum GorillaActivityLocalization {')]
 fixture = <<~SWIFT
   import SwiftUI
+  import UIKit
   #{models}
   #{views}
+  #{clock}
+  #{repeat_control}
+  struct RepeatControlFixture: View {
+    @State private var value = 0
+    @State private var saves = 0
+    var body: some View {
+      VStack {
+        Text("\\(value)").accessibilityIdentifier("repeatValue")
+        Text("\\(saves)").accessibilityIdentifier("repeatSaves")
+        HStack {
+          ForEach([-1, 1], id: \\.self) { direction in
+            ParkingTimeRepeatControl(symbol: direction < 0 ? "minus" : "plus", iconSize: 20, tint: .label,
+              onStep: { value += direction }, onFinish: { saves += 1 }).frame(width: 60, height: 50)
+              .accessibilityIdentifier(direction < 0 ? "repeatMinus" : "repeatPlus")
+          }
+        }
+      }
+    }
+  }
   struct ParkingPointDiagnosticsView: View {
     let pointID: UUID
     var body: some View { Text(pointID.uuidString) }
@@ -24,6 +48,7 @@ fixture = <<~SWIFT
         Text(selected).accessibilityIdentifier("selectedRecord")
         Text("\\(store.recordGroups.count)").accessibilityIdentifier("groupCount")
         Text("\\(store.allPoints.filter(\\.isFloorConfirmed).count)").accessibilityIdentifier("confirmedCount")
+        Text("\\(store.allPoints.count)").accessibilityIdentifier("recordCount")
       }.sheet(isPresented: $showing) {
         ParkingRecordListView(store: store, lotID: store.lots[0].id, groupID: nil) { id in selected = id.uuidString }
       }
@@ -48,7 +73,10 @@ fixture = <<~SWIFT
       store.prepare()
       _store = StateObject(wrappedValue: store)
     }
-    var body: some Scene { WindowGroup { FixtureView(store: store) } }
+    var body: some Scene { WindowGroup {
+      if ProcessInfo.processInfo.arguments.contains("--repeat-control") { RepeatControlFixture() }
+      else { FixtureView(store: store) }
+    } }
   }
 SWIFT
 File.write("#{root}/RecordFixture.swift", fixture)

@@ -34,6 +34,18 @@ struct ParkingEntryClockChecks {
                      "A new visit inherited a previous parking adjustment")
         ParkingEntryClock.save(arrival: nextArrival, entry: nextArrival, defaults: reopened)
         precondition(ParkingEntryClock.restoredEntry(for: nextArrival, defaults: reopened) == nextArrival)
+        let manualStart = nextArrival.addingTimeInterval(900)
+        defaults.set(manualStart, forKey: "manualParkingStartedAt")
+        defaults.set(manualStart, forKey: "parkingVisitsDismissedThrough")
+        ParkingEntryClock.save(arrival: manualStart, entry: manualStart, defaults: defaults)
+        let relaunched = UserDefaults(suiteName: suite)!
+        let dismissed = relaunched.object(forKey: "parkingVisitsDismissedThrough") as? Date
+        precondition(ParkingEntryClock.ignoresVisit(arrival: arrival, dismissedThrough: dismissed))
+        precondition(ParkingEntryClock.ignoresVisit(arrival: nextArrival, dismissedThrough: dismissed))
+        precondition(!ParkingEntryClock.ignoresVisit(arrival: manualStart.addingTimeInterval(60), dismissedThrough: dismissed))
+        precondition(ParkingEntryClock.restoredEntry(for: manualStart, defaults: relaunched) == manualStart)
+        precondition(ParkingEntryClock.repeatInterval(heldFor: 0.5) > ParkingEntryClock.repeatInterval(heldFor: 2))
+        precondition(ParkingEntryClock.repeatInterval(heldFor: 2) > ParkingEntryClock.repeatInterval(heldFor: 4))
         print("PASS: adjusted timer persistence, reload, repeated foreground refresh, inverse correction, new visit and unchanged actual arrival")
     }
 }

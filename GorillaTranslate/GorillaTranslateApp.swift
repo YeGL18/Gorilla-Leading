@@ -31,7 +31,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
 /// Foreground UI and background location launches share the same protected-data gate.
 @MainActor
-private func prepareAppStoresIfAvailable() -> Bool {
+func prepareAppStoresIfAvailable() -> Bool {
     guard UIApplication.shared.isProtectedDataAvailable else { return false }
     LanguageManager.refresh()
     do { try BackupController.transaction.recoverIfNeeded() }

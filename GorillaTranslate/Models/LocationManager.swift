@@ -1569,6 +1569,8 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
     var barometerReferenceFloorIndex: Int?
     var barometerCalibrationEligible: Bool?
     var lotAssignedByUser: Bool?
+    var isDetachedFromGroup: Bool?
+    var isManualEntry: Bool?
     var floorConfirmedByUser: Bool?
     var predictedFromLotLearned: Bool?
     /// 離場時自動認定：用戶泊車期間從未手動調過樓層，
@@ -1610,7 +1612,7 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         case barometerAltitudeDeltaMeters, barometerSampleCount
         case barometerReferenceAltitude, barometerFinalAltitude, barometerPressureKPa
         case barometerReferenceFloorIndex, barometerCalibrationEligible
-        case lotAssignedByUser
+        case lotAssignedByUser, isDetachedFromGroup, isManualEntry
         case floorConfirmedByUser
         case predictedFromLotLearned, llmSpotNumber, llmAreaCode, llmFloorText
         case isAutomotive, departureConfirmed
@@ -1627,7 +1629,8 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         isAutomotive: Bool = true, departureConfirmed: Bool? = nil,
         meterID: String? = nil, meterStreet: String? = nil, meterMatchKind: String? = nil,
         barometerReferenceFloorIndex: Int? = nil, lotAssignedByUser: Bool? = nil,
-        floorConfirmedByUser: Bool? = nil, barometerCalibrationEligible: Bool? = nil
+        floorConfirmedByUser: Bool? = nil, barometerCalibrationEligible: Bool? = nil,
+        isDetachedFromGroup: Bool? = nil, isManualEntry: Bool? = nil
     ) {
         self.id = id
         self.address = address
@@ -1645,6 +1648,8 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         self.barometerReferenceFloorIndex = barometerReferenceFloorIndex
         self.barometerCalibrationEligible = barometerCalibrationEligible
         self.lotAssignedByUser = lotAssignedByUser
+        self.isDetachedFromGroup = isDetachedFromGroup
+        self.isManualEntry = isManualEntry
         self.floorConfirmedByUser = floorConfirmedByUser
         self.predictedFromLotLearned = predictedFromLotLearned
         self.departureConfirmed = departureConfirmed
@@ -1675,6 +1680,8 @@ struct ParkingPointRecord: Identifiable, Codable, Hashable {
         barometerReferenceFloorIndex = try c.decodeIfPresent(Int.self, forKey: .barometerReferenceFloorIndex)
         barometerCalibrationEligible = try c.decodeIfPresent(Bool.self, forKey: .barometerCalibrationEligible)
         lotAssignedByUser = try c.decodeIfPresent(Bool.self, forKey: .lotAssignedByUser)
+        isDetachedFromGroup = try c.decodeIfPresent(Bool.self, forKey: .isDetachedFromGroup)
+        isManualEntry = try c.decodeIfPresent(Bool.self, forKey: .isManualEntry)
         floorConfirmedByUser = try c.decodeIfPresent(Bool.self, forKey: .floorConfirmedByUser)
         predictedFromLotLearned = try c.decodeIfPresent(Bool.self, forKey: .predictedFromLotLearned)
         departureConfirmed = try c.decodeIfPresent(Bool.self, forKey: .departureConfirmed)
@@ -2164,6 +2171,7 @@ struct ParkingRecordGroup: Identifiable {
         let lotID: UUID
         let floor: Int?
         let isAutomotive: Bool
+        var separatedPointID: UUID? = nil
     }
     let id: ID
     let records: [ParkingPointRecord]
@@ -2181,12 +2189,14 @@ struct ParkingRecordGroup: Identifiable {
             var groups: [ID: [ParkingPointRecord]] = [:]
             for point in lot.points where pointIDs?.contains(point.id) ?? true {
                 let floor: Int? = mode == .perVisit && point.isAutomotive ? point.effectiveFloorIndex : nil
-                let key = ID(lotID: lot.id, floor: floor, isAutomotive: point.isAutomotive)
+                let key = ID(lotID: lot.id, floor: floor, isAutomotive: point.isAutomotive,
+                             separatedPointID: point.isDetachedFromGroup == true ? point.id : nil)
                 groups[key, default: []].append(point)
             }
             for (key, points) in groups {
                 let sorted = points.sorted(by: newer)
-                let anchor = lot.groupAnchors?[anchorKey(floor: key.floor, isAutomotive: key.isAutomotive, mode: mode)]
+                let anchor = key.separatedPointID == nil
+                    ? lot.groupAnchors?[anchorKey(floor: key.floor, isAutomotive: key.isAutomotive, mode: mode)] : nil
                 result.append(Self(id: key, records: sorted, mapCoordinate: anchor?.coordinate ?? sorted[0].coordinate))
             }
         }
@@ -2196,53 +2206,6 @@ struct ParkingRecordGroup: Identifiable {
     private static func newer(_ a: ParkingPointRecord, _ b: ParkingPointRecord) -> Bool {
         if a.createdAt != b.createdAt { return a.createdAt > b.createdAt }
         return a.id.uuidString < b.id.uuidString
-    }
-}
-
-enum ParkingLevelLayout {
-    struct Site {
-        var anchor: CLLocationCoordinate2D
-        var points: [ParkingPointRecord]
-    }
-
-    static func eastOffsets(for points: [ParkingPointRecord]) -> [UUID: Double] {
-        var sites: [Site] = []
-        var cells: [String: [Int]] = [:]
-        func cell(_ c: CLLocationCoordinate2D) -> (Int, Int) {
-            (Int(floor(c.latitude * 111_000 / 20)), Int(floor(c.longitude * 111_000 / 20)))
-        }
-        for point in points.sorted(by: { $0.id.uuidString < $1.id.uuidString }) {
-            guard point.isAutomotive, point.manualFloorIndex != nil || point.predictedFloorIndex != nil else { continue }
-            let (x, y) = cell(point.coordinate)
-            let location = CLLocation(latitude: point.latitude, longitude: point.longitude)
-            var nearby: [Int] = []
-            for dx in -1...1 { for dy in -1...1 { nearby += cells["\(x + dx):\(y + dy)"] ?? [] } }
-            if let index = nearby.first(where: {
-                location.distance(from: CLLocation(latitude: sites[$0].anchor.latitude,
-                                                   longitude: sites[$0].anchor.longitude)) < 12
-            }) {
-                sites[index].points.append(point)
-            } else {
-                cells["\(x):\(y)", default: []].append(sites.count)
-                sites.append(Site(anchor: point.coordinate, points: [point]))
-            }
-        }
-        var result: [UUID: Double] = [:]
-        for site in sites {
-            let floors = Set(site.points.compactMap { $0.manualFloorIndex ?? $0.predictedFloorIndex }).sorted()
-            guard floors.count > 1 else { continue }
-            for point in site.points {
-                guard let floor = point.manualFloorIndex ?? point.predictedFloorIndex,
-                      let rank = floors.firstIndex(of: floor) else { continue }
-                result[point.id] = (Double(rank) - Double(floors.count - 1) / 2) * 10
-            }
-        }
-        return result
-    }
-
-    static func offset(_ coordinate: CLLocationCoordinate2D, eastMeters: Double) -> CLLocationCoordinate2D {
-        CLLocationCoordinate2D(latitude: coordinate.latitude,
-            longitude: coordinate.longitude + eastMeters / (111_000 * max(0.2, cos(coordinate.latitude * .pi / 180))))
     }
 }
 
@@ -2669,10 +2632,10 @@ final class ParkingFloorStore: ObservableObject {
     private func applyCapturedFloor(_ result: ParkingAltitudeResult) {
         let matchedPoint: ParkingPointRecord?
         if let pointID = result.pointID {
-            matchedPoint = allPoints.first { $0.id == pointID && $0.isAutomotive }
+            matchedPoint = allPoints.first { $0.id == pointID && $0.isAutomotive && ($0.isManualEntry != true || result.userConfirmed) }
         } else {
             matchedPoint = allPoints.filter {
-                $0.isAutomotive && result.matches(arrival: $0.createdAt, coordinate: $0.coordinate)
+                $0.isAutomotive && $0.isManualEntry != true && result.matches(arrival: $0.createdAt, coordinate: $0.coordinate)
             }.min { abs($0.createdAt.timeIntervalSince(result.arrivalDate))
                 < abs($1.createdAt.timeIntervalSince(result.arrivalDate)) }
         }
@@ -2725,7 +2688,8 @@ final class ParkingFloorStore: ObservableObject {
         manualFloorIndex: Int?,
         confidence: Double?,
         isAutomotive: Bool = true,
-        defaultLotName: String? = nil
+        defaultLotName: String? = nil,
+        isManualEntry: Bool = false
     ) {
         recordParkingPoint(
             coordinate: coordinate,
@@ -2741,7 +2705,8 @@ final class ParkingFloorStore: ObservableObject {
             pressure: nil,
             predictedFromLotLearned: nil,
             isAutomotive: isAutomotive,
-            defaultLotName: defaultLotName
+            defaultLotName: defaultLotName,
+            isManualEntry: isManualEntry
         )
     }
 
@@ -2760,7 +2725,8 @@ final class ParkingFloorStore: ObservableObject {
         predictedFromLotLearned: Bool?,
         isAutomotive: Bool = true,
         defaultLotName: String? = nil,
-        meter: ParkingPointMeterAnnotation? = nil
+        meter: ParkingPointMeterAnnotation? = nil,
+        isManualEntry: Bool = false
     ) {
         let now = Date()
         let inserting = ParkingPointRecord(
@@ -2781,7 +2747,9 @@ final class ParkingFloorStore: ObservableObject {
             isAutomotive: isAutomotive,
             meterID: (isAutomotive && meter != nil) ? meter?.meterID : nil,
             meterStreet: (isAutomotive && meter != nil) ? meter?.street : nil,
-            meterMatchKind: (isAutomotive && meter != nil) ? meter?.kind : nil
+            meterMatchKind: (isAutomotive && meter != nil) ? meter?.kind : nil,
+            isDetachedFromGroup: isManualEntry ? true : nil,
+            isManualEntry: isManualEntry ? true : nil
         )
         
         if let idx = findLotIndex(near: coordinate, radiusMeters: Self.defaultRadiusMeters,
@@ -2791,7 +2759,7 @@ final class ParkingFloorStore: ObservableObject {
                 abs(p.createdAt.timeIntervalSince(createdAt)) < 30 &&
                 CLLocation(latitude: p.latitude, longitude: p.longitude).distance(from: CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)) < 10
             }
-            if let dup {
+            if let dup, !isManualEntry {
                 if dup.isAutomotive { barometer.bindActiveCapture(pointID: dup.id, arrival: dup.createdAt, coordinate: dup.coordinate) }
                 return
             }
@@ -2820,7 +2788,7 @@ final class ParkingFloorStore: ObservableObject {
         }
         
         persist()
-        if isAutomotive {
+        if isAutomotive && !isManualEntry {
             barometer.bindActiveCapture(pointID: inserting.id, arrival: createdAt, coordinate: coordinate)
             if let result = barometer.completedResult, result.pointID == inserting.id { applyCapturedFloor(result) }
         }
@@ -2836,6 +2804,9 @@ final class ParkingFloorStore: ObservableObject {
         for i in lots.indices {
             if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID && $0.isAutomotive }) {
                 lots[i].points[pIndex].manualFloorIndex = floorIndex
+                if floorIndex != nil {
+                    lots[i].points[pIndex].isDetachedFromGroup = false
+                }
                 lots[i].points[pIndex].floorConfirmedByUser = floorIndex != nil
                 if floorMode == .fixed {
                     lots[i].fixedFloorIndex = floorIndex ?? lots[i].points.filter { $0.manualFloorIndex != nil }
@@ -3036,22 +3007,42 @@ final class ParkingFloorStore: ObservableObject {
     }
 
     func setPointCoordinate(pointID: UUID, coordinate: CLLocationCoordinate2D) {
+        guard CLLocationCoordinate2DIsValid(coordinate) else { return }
+        let destinationID = findLotIndex(near: coordinate, radiusMeters: .greatestFiniteMagnitude, respectFloorScope: false)
+            .map { lots[$0].id }
         for i in lots.indices {
             if let pIndex = lots[i].points.firstIndex(where: { $0.id == pointID }) {
                 let point = lots[i].points[pIndex]
                 let floor = floorMode == .perVisit && point.isAutomotive ? point.effectiveFloorIndex : nil
                 let key = ParkingRecordGroup.anchorKey(floor: floor, isAutomotive: point.isAutomotive, mode: floorMode)
-                if lots[i].groupAnchors == nil { lots[i].groupAnchors = [:] }
-                lots[i].groupAnchors?[key] = ParkingGroupAnchor(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                let sourceID = lots[i].id
+                if point.isDetachedFromGroup != true && (destinationID == nil || destinationID == sourceID) {
+                    if lots[i].groupAnchors == nil { lots[i].groupAnchors = [:] }
+                    lots[i].groupAnchors?[key] = ParkingGroupAnchor(latitude: coordinate.latitude, longitude: coordinate.longitude)
+                }
                 lots[i].points[pIndex].latitude = coordinate.latitude
                 lots[i].points[pIndex].longitude = coordinate.longitude
+                lots[i].points[pIndex].lotAssignedByUser = true
+                lots[i].points[pIndex].removeMeterAnnotation()
                 lots[i].updatedAt = Date()
+                if let destinationID, destinationID != sourceID {
+                    _ = movePoint(pointID, toLotID: destinationID)
+                    return
+                }
                 recomputeLotGeometry(at: i)
                 objectWillChange.send()
                 persist()
                 return
             }
         }
+    }
+
+    func separatePointFromGroup(_ pointID: UUID) {
+        guard let i = lots.firstIndex(where: { $0.points.contains { $0.id == pointID } }),
+              let p = lots[i].points.firstIndex(where: { $0.id == pointID }) else { return }
+        lots[i].points[p].isDetachedFromGroup = true
+        lots[i].updatedAt = Date()
+        persist()
     }
 
     func removeMeterAnnotation(pointID: UUID) {
@@ -3124,7 +3115,10 @@ final class ParkingFloorStore: ObservableObject {
 
         let sourceID = lots[sourceIndex].id
         var point = lots[sourceIndex].points.remove(at: pointIndex)
-        if manuallyAssigned { point.lotAssignedByUser = true }
+        if manuallyAssigned {
+            point.lotAssignedByUser = true
+            point.isDetachedFromGroup = false
+        }
         let movedLearning = (lots[sourceIndex].floorLearningHistory ?? []).filter { $0.pointID == pointID }
         lots[sourceIndex].floorLearningHistory?.removeAll { $0.pointID == pointID }
 
@@ -3423,7 +3417,8 @@ final class ParkingFloorStore: ObservableObject {
         }
     }
     
-    func findLotIndex(near coordinate: CLLocationCoordinate2D, radiusMeters: Double, floorIndex: Int? = nil) -> Int? {
+    func findLotIndex(near coordinate: CLLocationCoordinate2D, radiusMeters: Double, floorIndex: Int? = nil,
+                      respectFloorScope: Bool = true) -> Int? {
         let loc = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
         let candidates = lots.enumerated().compactMap { idx, lot -> (index: Int, distance: Double, floorMatch: Bool, customBoundary: Bool)? in
             let c = CLLocation(latitude: lot.centerLatitude, longitude: lot.centerLongitude)
@@ -3434,12 +3429,12 @@ final class ParkingFloorStore: ObservableObject {
             } else {
                 guard distance <= min(radiusMeters, lot.radiusMeters) else { return nil }
             }
-            if floorMode == .perVisit, let floorIndex, let scope = lot.floorScopeIndex, scope != floorIndex {
+            if respectFloorScope, floorMode == .perVisit, let floorIndex, let scope = lot.floorScopeIndex, scope != floorIndex {
                 return nil
             }
             return (idx, distance, floorIndex != nil && lot.floorScopeIndex == floorIndex, hasCustomBoundary)
         }
-        if floorMode == .perVisit, floorIndex == nil,
+        if respectFloorScope, floorMode == .perVisit, floorIndex == nil,
            candidates.filter({ lots[$0.index].floorScopeIndex != nil }).count > 1 {
             return candidates.filter { lots[$0.index].floorScopeIndex == nil }
                 .min(by: { $0.distance < $1.distance })?.index
@@ -3541,7 +3536,8 @@ final class ParkingFloorStore: ObservableObject {
     private func seedGroupAnchors() {
         for mode in [ParkingFloorMode.fixed, .perVisit] {
             for group in ParkingRecordGroup.make(lots: lots, mode: mode) {
-                guard let index = lots.firstIndex(where: { $0.id == group.id.lotID }) else { continue }
+                guard group.id.separatedPointID == nil,
+                      let index = lots.firstIndex(where: { $0.id == group.id.lotID }) else { continue }
                 let key = ParkingRecordGroup.anchorKey(floor: group.id.floor, isAutomotive: group.id.isAutomotive, mode: mode)
                 if lots[index].groupAnchors?[key] == nil {
                     if lots[index].groupAnchors == nil { lots[index].groupAnchors = [:] }

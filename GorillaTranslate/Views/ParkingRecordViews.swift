@@ -11,6 +11,8 @@ struct ParkingRecordListView: View {
     @State private var selecting = false
     @State private var selection: Set<UUID> = []
     @State private var showingFloorPicker = false
+    @State private var pendingDeletion: ParkingPointRecord?
+    @State private var confirmDeletion = false
 
     private var lot: ParkingLotRecord? { store.lots.first { $0.id == lotID } }
     private var selectedParkingIDs: Set<UUID> {
@@ -37,6 +39,7 @@ struct ParkingRecordListView: View {
                 }
                 Section {
                     ForEach(records) { point in
+                        Group {
                         if selecting {
                             recordRow(point).tag(point.id)
                                 .accessibilityIdentifier("parkingRecord-\(point.id)")
@@ -51,6 +54,27 @@ struct ParkingRecordListView: View {
                             NavigationLink {
                                 ParkingPointDiagnosticsView(pointID: point.id).environmentObject(store)
                             } label: { recordRow(point) }
+                        }
+                        }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            if !selecting {
+                                Button(role: .destructive) {
+                                    pendingDeletion = point
+                                    confirmDeletion = true
+                                } label: { Label(String(localized: "刪除"), systemImage: "trash") }
+                                .tint(.red)
+                                .accessibilityIdentifier("deleteParkingRecord")
+                                if point.isDetachedFromGroup != true,
+                                   (store.recordGroup(containing: point.id)?.records.count ?? 0) > 1 {
+                                    Button {
+                                        store.separatePointFromGroup(point.id)
+                                        onSelect?(point.id)
+                                        if onSelect != nil { dismiss() }
+                                    } label: { Label(String(localized: "分離聚合"), systemImage: "square.on.square.dashed") }
+                                    .tint(.orange)
+                                    .accessibilityIdentifier("separateParkingRecord")
+                                }
+                            }
                         }
                     }
                 } header: {
@@ -83,6 +107,14 @@ struct ParkingRecordListView: View {
                 }
             }
             .onChange(of: showAllFloors) { _, _ in selection = [] }
+            .alert(String(localized: "刪除這筆停車記錄？"), isPresented: $confirmDeletion, presenting: pendingDeletion) { point in
+                Button(String(localized: "刪除"), role: .destructive) {
+                    store.deletePoint(pointID: point.id)
+                    selection.remove(point.id)
+                    if records.isEmpty { showAllFloors = true }
+                }
+                Button(String(localized: "取消"), role: .cancel) {}
+            }
             .sheet(isPresented: $showingFloorPicker) {
                 ParkingBatchFloorView(store: store, lotID: lotID, pointIDs: selectedParkingIDs) {
                     selection = []
@@ -105,6 +137,9 @@ struct ParkingRecordListView: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(point.createdAt, format: .dateTime.year().month().day().hour().minute())
                     .font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
+                if point.isManualEntry == true {
+                    Text(String(localized: "手動停車點")).font(.caption).foregroundStyle(.secondary)
+                }
                 if point.isAutomotive {
                     HStack(spacing: 6) {
                         Text(point.displayFloor ?? String(localized: "未知"))

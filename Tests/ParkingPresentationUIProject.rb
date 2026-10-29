@@ -318,6 +318,7 @@ fixture = <<~SWIFT
           Button("Merge Areas") { merge = true }
           Button("Draw Boundary") { withAnimation(.spring(response: 0.6, dampingFraction: 0.78)) { draw.toggle(); editingEnabled = false } }
           if draw { Button("Finish Camera Flight") { editingEnabled = true } }
+          if draw { Button("Simulate Vertex Drag") { editingEnabled = false } }
           ZStack {
             if draw {
               BoundaryDrawToolbar(vertexCount: 3, canConfirm: true, editingEnabled: editingEnabled, onCancel: { draw = false }, onUndo: {}, onAdd: {}, onConfirm: { draw = false })
@@ -463,9 +464,194 @@ fixture = <<~SWIFT
       }
     }
   }
+  struct VertexDragFixture: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIView {
+      let root = UIView()
+      let map = MKMapView()
+      map.frame = root.bounds
+      map.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      root.addSubview(map)
+      let canvas = BoundaryDrawCanvas(frame: root.bounds)
+      canvas.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+      canvas.mapView = map
+      canvas.isAccessibilityElement = true
+      canvas.accessibilityIdentifier = "vertexDragSurface"
+      canvas.accessibilityLabel = "Editable boundary"
+      map.addSubview(canvas)
+      let label = UILabel()
+      label.accessibilityIdentifier = "vertexDragResult"
+      label.numberOfLines = 3
+      label.font = .monospacedSystemFont(ofSize: 12, weight: .medium)
+      label.backgroundColor = .systemBackground
+      label.translatesAutoresizingMaskIntoConstraints = false
+      root.addSubview(label)
+      NSLayoutConstraint.activate([label.topAnchor.constraint(equalTo: root.topAnchor, constant: 8),
+        label.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 8),
+        label.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -8)])
+      let coordinator = context.coordinator
+      coordinator.map = map
+      coordinator.label = label
+      map.delegate = coordinator
+      DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+        map.setCamera(MKMapCamera(lookingAtCenter: .init(latitude: 22.303, longitude: 114.174), fromDistance: 1200, pitch: 0, heading: 0), animated: false)
+        canvas.frame = map.bounds
+        let points = [CGPoint(x: map.bounds.width * 0.25, y: map.bounds.height * 0.3),
+          CGPoint(x: map.bounds.width * 0.75, y: map.bounds.height * 0.3),
+          CGPoint(x: map.bounds.width * 0.75, y: map.bounds.height * 0.7),
+          CGPoint(x: map.bounds.width * 0.25, y: map.bounds.height * 0.7)]
+        canvas.vertices = points.map { map.convert($0, toCoordinateFrom: canvas) }
+        let original = canvas.vertices
+        let center = map.centerCoordinate
+        canvas.onVertexMove = { index, coordinate in
+          coordinator.moves += 1
+          let moved = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude)
+            .distance(from: CLLocation(latitude: original[index].latitude, longitude: original[index].longitude)) > 5
+          let others = original.indices.filter { $0 != index }.allSatisfy {
+            abs(canvas.vertices[$0].latitude - original[$0].latitude) < 1e-9 &&
+            abs(canvas.vertices[$0].longitude - original[$0].longitude) < 1e-9
+          }
+          let stable = abs(map.centerCoordinate.latitude - center.latitude) < 1e-6 && abs(map.centerCoordinate.longitude - center.longitude) < 1e-6
+          coordinator.result = "moves=\\(coordinator.moves) moved=\\(moved) others=\\(others) camera=\\(stable)"
+          label.text = coordinator.result
+        }
+        canvas.onVertexInsert = { index, coordinate in
+          let previous = original[(index + original.count - 1) % original.count]
+          let next = original[index % original.count]
+          let midpoint = CLLocation(latitude: (previous.latitude + next.latitude) / 2,
+                                    longitude: (previous.longitude + next.longitude) / 2)
+          let moved = CLLocation(latitude: coordinate.latitude, longitude: coordinate.longitude).distance(from: midpoint) > 5
+          let others = original.indices.allSatisfy {
+            let updated = canvas.vertices[$0 >= index ? $0 + 1 : $0]
+            return abs(updated.latitude - original[$0].latitude) < 1e-9 && abs(updated.longitude - original[$0].longitude) < 1e-9
+          }
+          let stable = abs(map.centerCoordinate.latitude - center.latitude) < 1e-6 && abs(map.centerCoordinate.longitude - center.longitude) < 1e-6
+          coordinator.result = "insert=\\(index) count=\\(canvas.vertices.count) moved=\\(moved) others=\\(others) camera=\\(stable)"
+          label.text = coordinator.result
+        }
+        canvas.onVertexDragChanged = { dragging in
+          if dragging {
+            coordinator.dragBegan = canvas.isDraggingVertex && !map.isScrollEnabled
+            if ProcessInfo.processInfo.arguments.contains("--edge-cancel") {
+              DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) { canvas.cancelVertexDrag() }
+            }
+          } else {
+            if ProcessInfo.processInfo.arguments.contains("--edge-cancel") {
+              coordinator.result = "cancelled count=\\(canvas.vertices.count) uncommitted=\\(coordinator.result.isEmpty)"
+            }
+            coordinator.result += " restored=\\(map.isScrollEnabled && map.isZoomEnabled && !canvas.isDraggingVertex) dragBegan=\\(coordinator.dragBegan)"
+            label.text = coordinator.result
+          }
+        }
+        coordinator.initialCenter = center
+        label.text = "READY"
+        canvas.reveal()
+      }
+      return root
+    }
+    func updateUIView(_ view: UIView, context: Context) {}
+    final class Coordinator: NSObject, MKMapViewDelegate {
+      weak var map: MKMapView?
+      weak var label: UILabel?
+      var moves = 0
+      var dragBegan = false
+      var result = ""
+      var initialCenter: CLLocationCoordinate2D?
+      func mapView(_ mapView: MKMapView, regionDidChangeAnimated animated: Bool) {
+        guard moves > 0, let initialCenter,
+          abs(mapView.centerCoordinate.latitude - initialCenter.latitude) > 1e-5 else { return }
+        label?.text = result + " mapPan=true"
+      }
+    }
+  }
+  struct ToolbarFeedbackFixture: UIViewRepresentable {
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    func makeUIView(context: Context) -> UIView {
+      let root = UIView()
+      root.backgroundColor = .white
+      let coordinator = context.coordinator
+      let toolbar = BoundaryDrawToolbar(vertexCount: 4, canConfirm: true,
+        onCancel: {}, onUndo: {}, onAdd: {}, onConfirm: { [weak coordinator] in coordinator?.activated() })
+        .frame(width: 370, height: 56)
+        .glassEffect(.regular, in: .rect(cornerRadius: 34))
+        .highPriorityGesture(DragGesture(minimumDistance: 10), including: .subviews)
+      let host = UIHostingController(rootView: toolbar)
+      coordinator.host = host
+      host.view.backgroundColor = .clear
+      host.view.translatesAutoresizingMaskIntoConstraints = false
+      root.addSubview(host.view)
+      let label = UILabel()
+      label.accessibilityIdentifier = "toolbarFeedbackResult"
+      label.translatesAutoresizingMaskIntoConstraints = false
+      root.addSubview(label)
+      coordinator.label = label
+      NSLayoutConstraint.activate([host.view.centerXAnchor.constraint(equalTo: root.centerXAnchor),
+        host.view.centerYAnchor.constraint(equalTo: root.centerYAnchor),
+        host.view.widthAnchor.constraint(equalToConstant: 370), host.view.heightAnchor.constraint(equalToConstant: 56),
+        label.centerXAnchor.constraint(equalTo: root.centerXAnchor), label.topAnchor.constraint(equalTo: root.topAnchor, constant: 20)])
+      coordinator.timer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60, repeats: true) { [weak coordinator] timer in
+        guard let coordinator else { timer.invalidate(); return }
+        coordinator.sample()
+      }
+      return root
+    }
+    func updateUIView(_ view: UIView, context: Context) {}
+    final class Coordinator {
+      var host: UIViewController?
+      weak var label: UILabel?
+      var timer: Timer?
+      var baseline = 0, minimum = Int.max, stage = 0, count = 0
+      var holdPassed = false
+      func sample() {
+        guard stage >= 0, let view = host?.view, view.window != nil, view.bounds.width > 0 else { return }
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let image = UIGraphicsImageRenderer(size: view.bounds.size, format: format).image { _ in
+          view.drawHierarchy(in: view.bounds, afterScreenUpdates: false)
+        }
+        guard let cg = image.cgImage else { return }
+        let width = cg.width, height = cg.height
+        var pixels = [UInt8](repeating: 0, count: width * height * 4)
+        let green = pixels.withUnsafeMutableBytes { buffer -> Int in
+          guard let ctx = CGContext(data: buffer.baseAddress, width: width, height: height,
+            bitsPerComponent: 8, bytesPerRow: width * 4, space: CGColorSpaceCreateDeviceRGB(),
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return 0 }
+          ctx.draw(cg, in: CGRect(x: 0, y: 0, width: width, height: height))
+          let bytes = buffer.bindMemory(to: UInt8.self)
+          return stride(from: 0, to: bytes.count, by: 4).reduce(0) { result, i in
+            result + ((bytes[i] < 120 && bytes[i + 1] > 130 && bytes[i + 2] < 170) ? 1 : 0)
+          }
+        }
+        guard green > 20 else { return }
+        baseline = max(baseline, green)
+        minimum = min(minimum, green)
+        if label?.text == nil, baseline > 300 { label?.text = "READY" }
+      }
+      func activated() {
+        count += 1
+        let ratio = Double(minimum) / Double(max(1, baseline))
+        let passed = ratio > 0.4 && ratio < 0.8
+        if count == 1 {
+          holdPassed = passed
+          stage = -1
+          DispatchQueue.main.asyncAfter(deadline: .now() + 0.65) {
+            self.minimum = Int.max
+            self.stage = 1
+            self.label?.text = "READY2 holdPASS=\\(self.holdPassed)"
+          }
+        } else {
+          stage = -1
+          timer?.invalidate()
+          label?.text = "count=\\(count) holdPASS=\\(holdPassed) tapPASS=\\(passed)"
+        }
+      }
+    }
+  }
   @main struct ParkingPresentationCheckApp: App {
     var body: some Scene { WindowGroup {
-      if ProcessInfo.processInfo.arguments.contains("--drag-selection") { DragSelectionFixture() }
+      if ProcessInfo.processInfo.arguments.contains("--toolbar-feedback") { ToolbarFeedbackFixture() }
+      else if ProcessInfo.processInfo.arguments.contains("--vertex-drag") || ProcessInfo.processInfo.arguments.contains("--edge-insert") || ProcessInfo.processInfo.arguments.contains("--edge-cancel") { VertexDragFixture() }
+      else if ProcessInfo.processInfo.arguments.contains("--drag-selection") { DragSelectionFixture() }
       else if ProcessInfo.processInfo.arguments.contains("--toolbar-clearance") { ToolbarClearanceFixture() }
       else { PresentationFixture() }
     } }
@@ -476,7 +662,7 @@ project = Xcodeproj::Project.new("#{root}/PresentationChecks.xcodeproj")
 app = project.new_target(:application, 'PresentationChecks', :ios, '26.0')
 tests = project.new_target(:ui_test_bundle, 'ParkingPresentationUITests', :ios, '26.0')
 app.source_build_phase.add_file_reference(project.main_group.new_file("#{root}/Fixture.swift"))
-%w[GorillaTranslate/Views/ParkingAreaViews.swift GorillaTranslate/Views/MapInteraction.swift GorillaTranslate/Models/MapCameraMotion.swift].each do |file|
+%w[GorillaTranslate/Views/ParkingAreaViews.swift GorillaTranslate/Views/MapInteraction.swift GorillaTranslate/Models/MapCameraMotion.swift GorillaTranslate/Models/AnimationClock.swift GorillaTranslate/Extensions/AppHaptics.swift].each do |file|
   app.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/#{file}"))
 end
 tests.source_build_phase.add_file_reference(project.main_group.new_file("#{repo}/Tests/ParkingPresentationUITests.swift"))

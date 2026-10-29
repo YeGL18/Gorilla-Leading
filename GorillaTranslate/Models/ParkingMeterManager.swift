@@ -184,6 +184,17 @@ final class ParkingMeterManager: ObservableObject {
         MeterDisplayState.resolve(meter: meter, status: occupancies[meter.id], vehicle: vehicle, fetchedAt: lastStatusFetch, now: now)
     }
 
+    func carPlayAvailableMeters(near location: CLLocation?, now: Date = Date()) -> [ParkingMeter] {
+        guard isEnabled, vehicle != .unset, let location, location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100,
+              abs(now.timeIntervalSince(location.timestamp)) <= 120 else { return [] }
+        return Array(index.nearby(location, radius: radius)
+            .filter { state($0, now: now) == .vacant }
+            .sorted {
+                let a = location.distance(from: $0.location), b = location.distance(from: $1.location)
+                return a == b ? $0.id < $1.id : a < b
+            }.prefix(12))
+    }
+
     func representative(_ meters: [ParkingMeter]) -> ParkingMeter? {
         let ranked = meters.sorted { a, b in
             guard let location = currentLocation else { return a.id < b.id }

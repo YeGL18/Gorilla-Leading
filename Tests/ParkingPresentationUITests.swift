@@ -1,6 +1,80 @@
 import XCTest
 
 final class ParkingPresentationUITests: XCTestCase {
+    func testLongPressEdgeInsertsAndDragsNewVertexIncludingClosingEdge() {
+        for closing in [false, true] {
+            let app = XCUIApplication(bundleIdentifier: "com.gorilla.parking-presentation-checks")
+            app.launchArguments = ["--edge-insert"]
+            app.launch()
+            let status = app.staticTexts["vertexDragResult"]
+            XCTAssertTrue(status.waitForExistence(timeout: 10))
+            expectation(for: NSPredicate(format: "label == 'READY'"), evaluatedWith: status)
+            waitForExpectations(timeout: 10)
+            let canvas = app.otherElements["vertexDragSurface"]
+            let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: closing ? 0.25 : 0.5, dy: closing ? 0.5 : 0.3))
+            start.tap()
+            XCTAssertEqual(status.label, "READY", "A tap must not insert a vertex")
+            let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.45))
+            start.press(forDuration: 0.7, thenDragTo: end, withVelocity: .slow, thenHoldForDuration: 0.2)
+            XCTAssertEqual(status.label, "insert=\(closing ? 4 : 1) count=5 moved=true others=true camera=true restored=true dragBegan=true")
+            let shot = XCTAttachment(screenshot: app.screenshot())
+            shot.name = closing ? "Closing edge split" : "New vertex inserted and dragged"
+            shot.lifetime = .keepAlways
+            add(shot)
+        }
+    }
+
+    func testCancellingEdgeInsertionRestoresOriginalPolygon() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.parking-presentation-checks")
+        app.launchArguments = ["--edge-cancel"]
+        app.launch()
+        let status = app.staticTexts["vertexDragResult"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "label == 'READY'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+        let canvas = app.otherElements["vertexDragSurface"]
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).press(forDuration: 1)
+        XCTAssertEqual(status.label, "cancelled count=4 uncommitted=true restored=true dragBegan=true")
+    }
+    func testToolbarActuallyShrinksDuringHoldAndQuickTap() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.parking-presentation-checks")
+        app.launchArguments = ["--toolbar-feedback"]
+        app.launch()
+        let status = app.staticTexts["toolbarFeedbackResult"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "label == 'READY'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+        app.buttons["boundaryDrawConfirm"].press(forDuration: 0.6)
+        expectation(for: NSPredicate(format: "label BEGINSWITH 'READY2'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+        app.buttons["boundaryDrawConfirm"].tap()
+        expectation(for: NSPredicate(format: "label BEGINSWITH 'count=2'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+        XCTAssertEqual(status.label, "count=2 holdPASS=true tapPASS=true")
+    }
+    func testBoundaryVertexDragDoesNotPanMapAndOtherTouchesStillPan() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.parking-presentation-checks")
+        app.launchArguments = ["--vertex-drag"]
+        app.launch()
+        let status = app.staticTexts["vertexDragResult"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        expectation(for: NSPredicate(format: "label == 'READY'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+        let canvas = app.otherElements["vertexDragSurface"]
+        let start = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.25, dy: 0.3))
+        let end = canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.4))
+        start.press(forDuration: 0.1, thenDragTo: end)
+        XCTAssertTrue(status.label.contains("moves=1 moved=true others=true camera=true restored=true"), status.label)
+        XCTAssertTrue(status.label.contains("dragBegan=true"), status.label)
+        let screenshot = XCTAttachment(screenshot: app.screenshot())
+        screenshot.name = "Draggable boundary corners with white exterior arcs"
+        screenshot.lifetime = .keepAlways
+        add(screenshot)
+        canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.85))
+            .press(forDuration: 0.1, thenDragTo: canvas.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.65)))
+        expectation(for: NSPredicate(format: "label CONTAINS 'mapPan=true'"), evaluatedWith: status)
+        waitForExpectations(timeout: 10)
+    }
     func testParkingDragRejectsMeterSelectionThroughReleaseAndAllowsNextTouch() {
         let app = XCUIApplication()
         app.launchArguments = ["--drag-selection", "-AppleLanguages", "(en)"]
@@ -33,6 +107,13 @@ final class ParkingPresentationUITests: XCTestCase {
         screenshot.name = "Boundary toolbar using the address capsule glass"
         screenshot.lifetime = .keepAlways
         add(screenshot)
+        app.buttons["Simulate Vertex Drag"].tap()
+        XCTAssertFalse(app.buttons["boundaryDrawConfirm"].isEnabled)
+        XCTAssertFalse(app.buttons["boundaryDrawUndo"].isEnabled)
+        XCTAssertFalse(app.buttons["boundaryDrawAdd"].isEnabled)
+        XCTAssertTrue(app.buttons["boundaryDrawCancel"].isEnabled)
+        app.buttons["Finish Camera Flight"].tap()
+        XCTAssertTrue(app.buttons["boundaryDrawConfirm"].isEnabled)
         app.buttons["boundaryDrawCancel"].tap()
         XCTAssertTrue(app.staticTexts["Address"].waitForExistence(timeout: 5))
     }

@@ -69,7 +69,7 @@ final class MapGestureUITests: XCTestCase {
         app.launch()
         let status = app.staticTexts["fitStatus"]
         XCTAssertTrue(status.waitForExistence(timeout: 15))
-        XCTAssertEqual(status.label, "PASS: 34 padded camera checks")
+        XCTAssertEqual(status.label, "PASS: 132 padded camera checks")
         print(status.label)
     }
 

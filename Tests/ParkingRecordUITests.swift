@@ -1,6 +1,46 @@
 import XCTest
 
 final class ParkingRecordUITests: XCTestCase {
+    func testSwipeSeparatesRecordAndMakesIndependentMarker() {
+        let app = launch()
+        let row = app.buttons["parkingRecord-00000000-0000-0000-0000-000000000001"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.swipeLeft()
+        XCTAssertTrue(app.buttons["separateParkingRecord"].waitForExistence(timeout: 5))
+        app.buttons["separateParkingRecord"].tap()
+        XCTAssertTrue(app.buttons["History"].waitForExistence(timeout: 5))
+        XCTAssertEqual(app.staticTexts["groupCount"].label, "2")
+        XCTAssertEqual(app.staticTexts["recordCount"].label, "50")
+    }
+
+    func testSwipeDeletesOnlySelectedRecord() {
+        let app = launch()
+        let row = app.buttons["parkingRecord-00000000-0000-0000-0000-000000000001"]
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.swipeLeft()
+        app.buttons["deleteParkingRecord"].tap()
+        XCTAssertTrue(app.alerts.firstMatch.waitForExistence(timeout: 5))
+        app.alerts.firstMatch.buttons.matching(NSPredicate(format: "label IN %@", ["Delete", "刪除"])).firstMatch.tap()
+        app.buttons["Close"].tap()
+        XCTAssertEqual(app.staticTexts["recordCount"].label, "49")
+    }
+
+    func testTimeAdjustmentRepeatsAndStopsOnRelease() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--repeat-control"]
+        app.launch()
+        let plus = app.buttons["repeatPlus"]
+        XCTAssertTrue(plus.waitForExistence(timeout: 10))
+        plus.tap()
+        XCTAssertEqual(app.staticTexts["repeatValue"].label, "1")
+        plus.press(forDuration: 3.5)
+        let heldValue = Int(app.staticTexts["repeatValue"].label)!
+        XCTAssertGreaterThan(heldValue, 10)
+        XCTAssertEqual(app.staticTexts["repeatSaves"].label, "2")
+        app.buttons["repeatMinus"].tap()
+        XCTAssertEqual(Int(app.staticTexts["repeatValue"].label), heldValue - 1)
+        XCTAssertEqual(app.staticTexts["repeatSaves"].label, "3")
+    }
     private func launch(language: String = "en", landscape: Bool = false) -> XCUIApplication {
         XCUIDevice.shared.orientation = .portrait
         let app = XCUIApplication()

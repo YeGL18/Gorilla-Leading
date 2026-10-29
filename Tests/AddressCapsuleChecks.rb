@@ -3,14 +3,16 @@ repo = File.expand_path('..', __dir__)
 source = File.read("#{repo}/GorillaTranslate/ContentView.swift")
 geometry = source[source.index('struct AddressCapsuleDragGeometry {')...source.index('struct ParkingPreviewBreathingPhase {')]
 next_slot = source[source.index('    private func nextCompactSlot()')...source.index('    /// 每格時長')].sub('private func', 'func')
-advance = source[source.index('    private func advanceCompactSlot()')...source.index('    private func nextCompactSlot()')].sub('private func', 'func')
+advance = source[source.index('    private func advanceCompactSlot(')...source.index('    private func nextCompactSlot()')].sub('private func', 'func')
 root = '/private/tmp/gorilla-address-capsule-checks'
 FileUtils.mkdir_p(root)
 File.write("#{root}/Checks.swift", "import Foundation\n" + geometry + <<~SWIFT)
   struct TestAnimation {
-      static func timingCurve(_ a: Double, _ b: Double, _ c: Double, _ d: Double, duration: Double) -> Self { Self() }
+      let duration: Double
+      static func timingCurve(_ a: Double, _ b: Double, _ c: Double, _ d: Double, duration: Double) -> Self { Self(duration: duration) }
   }
-  func withAnimation(_ animation: TestAnimation, _ body: () -> Void) { body() }
+  var lastDuration = 0.0
+  func withAnimation(_ animation: TestAnimation, _ body: () -> Void) { lastDuration = animation.duration; body() }
   final class Carousel {
       enum CompactSlot { case speed, address, status }
       var compactSlot: CompactSlot = .speed
@@ -29,10 +31,12 @@ File.write("#{root}/Checks.swift", "import Foundation\n" + geometry + <<~SWIFT)
   }
   precondition(AddressCapsuleDragGeometry.height(expanded: true, direction: 1, offset: 138) == 44)
   let carousel = Carousel()
-  carousel.advanceCompactSlot()
+  carousel.advanceCompactSlot(manually: true)
   precondition(carousel.compactSlot == .address && carousel.addressRestarts == 1 && carousel.scheduled == 1)
+  precondition(lastDuration == 0.8)
   carousel.advanceCompactSlot()
   precondition(carousel.compactSlot == .status && carousel.scheduled == 2)
+  precondition(lastDuration == 1.6)
   carousel.advanceCompactSlot()
   precondition(carousel.compactSlot == .speed && carousel.scheduled == 3)
   carousel.isCapsuleExpanded = true

@@ -2,6 +2,8 @@ import Foundation
 import CoreLocation
 import MapKit
 
+enum LanguageManager { static let languageCode = "zh-Hant" }
+
 // Standalone macOS harness: the production Destination model imports iOS UI.
 struct Destination {
     let id: UUID
@@ -41,6 +43,30 @@ struct MeterNoticeChecks {
         let vacant = MeterStatus(isOperating: true, occupancy: "V", changedAt: "")
         let occupied = MeterStatus(isOperating: true, occupancy: "O", changedAt: "")
         let manager = ParkingMeterManager(defaults: defaults, initialMeters: [meter], initialStatuses: [meter.id: vacant], fetchedAt: now)
+        check(manager.carPlayAvailableMeters(near: location, now: now).map(\.id) == [meter.id], "CarPlay offers fresh nearby vacant meters")
+        check(manager.carPlayAvailableMeters(near: nil, now: now).isEmpty, "CarPlay needs a location")
+        check(manager.carPlayAvailableMeters(near: location, now: now.addingTimeInterval(181)).isEmpty, "CarPlay must not advertise expired availability")
+        let oldLocation = CLLocation(coordinate: location.coordinate, altitude: 0,
+            horizontalAccuracy: 5, verticalAccuracy: 5, timestamp: now.addingTimeInterval(-121))
+        check(manager.carPlayAvailableMeters(near: oldLocation, now: now).isEmpty, "CarPlay must not use a stale location")
+        let occupiedCarPlay = ParkingMeterManager(defaults: defaults, initialMeters: [meter], initialStatuses: [meter.id: occupied], fetchedAt: now)
+        check(occupiedCarPlay.carPlayAvailableMeters(near: location, now: now).isEmpty, "CarPlay must not list occupied meters")
+        defaults.set(false, forKey: "meterDetectionEnabled")
+        check(manager.carPlayAvailableMeters(near: location, now: now).isEmpty, "CarPlay respects disabled meter detection")
+        defaults.set(true, forKey: "meterDetectionEnabled")
+        defaults.set(MeterVehicle.unset.rawValue, forKey: "meterVehicle")
+        check(manager.carPlayAvailableMeters(near: location, now: now).isEmpty, "CarPlay cannot claim compatibility without a vehicle type")
+        defaults.set(MeterVehicle.privateCar.rawValue, forKey: "meterVehicle")
+        let staleCarPlay = ParkingMeterManager(defaults: defaults, initialMeters: [meter], initialStatuses: [meter.id: vacant], fetchedAt: now.addingTimeInterval(-181))
+        check(staleCarPlay.carPlayAvailableMeters(near: location, now: now).isEmpty, "Fresh GPS must not make stale meter data usable")
+        let manyMeters = (1...14).map { i in
+            ParkingMeter(id: String(i), poleId: String(i), district: "區", street: "街", streetKey: "street",
+                latitude: 22.3 + Double(i) * 0.00001, longitude: 114.17, bayType: .general, lpp: 120,
+                operatingPeriod: "D", paymentUnit: 4, timeUnit: 15)
+        }
+        let manyCarPlay = ParkingMeterManager(defaults: defaults, initialMeters: manyMeters,
+            initialStatuses: Dictionary(uniqueKeysWithValues: manyMeters.map { ($0.id, vacant) }), fetchedAt: now)
+        check(manyCarPlay.carPlayAvailableMeters(near: location, now: now).map(\.id) == (1...12).map(String.init), "CarPlay limits the list to the nearest twelve compatible vacancies")
         check(manager.statusRefreshInterval == 60, "Existing users retain the one-minute refresh")
         defaults.set(120.0, forKey: "meterStatusRefreshInterval")
         check(manager.statusRefreshInterval == 120, "Setting changes apply immediately")

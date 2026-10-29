@@ -397,8 +397,23 @@ final class MapCameraFitCheckController: UIViewController {
         let seated = NonAdjustingMapView.displayFrame(in: size, centerOffset: .init(x: 0, y: size.height / 2))
         check(seated.contains(CGRect(origin: .zero, size: size)), "Hinge map still covers the viewport")
         check(seated.midY == size.height / 4, "Hinge retains its existing upper-screen center")
+        let routes: [[CLLocationCoordinate2D]] = [
+            [],
+            [user, .init(latitude: 22.350, longitude: 114.140),
+             .init(latitude: 22.340, longitude: 114.200), meter],
+            [.init(latitude: user.latitude, longitude: 114.130),
+             .init(latitude: user.latitude, longitude: 114.210)]
+        ]
+        let endpoints = MapCameraMotion.overviewRect(user: user, meter: meter)
+        let missingRoute = MapCameraMotion.overviewRect(user: user, meter: meter, routeBounds: .null)
+        check(missingRoute.origin.x == endpoints.origin.x && missingRoute.origin.y == endpoints.origin.y &&
+              missingRoute.width == endpoints.width && missingRoute.height == endpoints.height,
+              "Missing route bounds retain endpoint framing")
+        check(MapCameraMotion.overviewRect(user: user, meter: user).width > 0,
+              "Coincident endpoints retain a usable viewport")
         for size in [CGSize(width: 390, height: 844), CGSize(width: 900, height: 600), CGSize(width: 430, height: 600)] {
             for pitch in [0.0, 42.0] {
+              for routePoints in routes {
                 let map = NonAdjustingMapView(frame: CGRect(origin: .zero, size: size))
                 view.addSubview(map)
                 map.allowCameraChange = true
@@ -407,7 +422,9 @@ final class MapCameraFitCheckController: UIViewController {
                 map.layoutIfNeeded()
                 let start = map.camera.copy() as! MKMapCamera
                 let padding = UIEdgeInsets(top: 80, left: 30, bottom: 160, right: 120)
-                let fitted = map.cameraFitting(MapCameraMotion.overviewRect(user: user, meter: meter), edgePadding: padding)
+                let route = MKPolyline(coordinates: routePoints, count: routePoints.count)
+                let bounds = routePoints.isEmpty ? nil : route.boundingMapRect
+                let fitted = map.cameraFitting(MapCameraMotion.overviewRect(user: user, meter: meter, routeBounds: bounds), edgePadding: padding)
                 check(abs(map.camera.centerCoordinate.latitude - start.centerCoordinate.latitude) < 1e-8 &&
                       abs(map.camera.centerCoordinate.longitude - start.centerCoordinate.longitude) < 1e-8,
                       "Fitting must not move the starting center")
@@ -420,7 +437,12 @@ final class MapCameraFitCheckController: UIViewController {
                 let visible = map.bounds.inset(by: padding)
                 check(visible.contains(map.convert(user, toPointTo: map)), "Driver is inside the unobscured viewport")
                 check(visible.contains(map.convert(meter, toPointTo: map)), "Meter is inside the unobscured viewport")
+                for coordinate in routePoints {
+                    check(visible.contains(map.convert(coordinate, toPointTo: map)),
+                          "Entire detoured route is inside the unobscured viewport")
+                }
                 map.removeFromSuperview()
+              }
             }
         }
         view.addSubview(status)

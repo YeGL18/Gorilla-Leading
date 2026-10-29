@@ -2,6 +2,13 @@ import ActivityKit
 import SwiftUI
 
 enum ParkingEntryClock {
+    static func ignoresVisit(arrival: Date, dismissedThrough: Date?) -> Bool {
+        dismissedThrough.map { arrival <= $0 } ?? false
+    }
+
+    static func repeatInterval(heldFor elapsed: TimeInterval) -> TimeInterval {
+        elapsed < 1.5 ? 0.3 : (elapsed < 3 ? 0.15 : 0.07)
+    }
     static func restoredEntry(for arrival: Date, defaults: UserDefaults) -> Date {
         guard defaults.object(forKey: "parkingStartTime") as? Date == arrival,
               let entry = defaults.object(forKey: "parkingEntryTime") as? Date else { return arrival }

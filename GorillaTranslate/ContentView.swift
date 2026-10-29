@@ -8,6 +8,70 @@ import CoreImage
 import WidgetKit
 import Vision
 
+private struct ParkingTimeRepeatControl: UIViewRepresentable {
+    var symbol: String
+    var iconSize: CGFloat
+    var tint: UIColor
+    var onStep: () -> Void
+    var onFinish: () -> Void
+
+    final class RepeatButton: UIButton {
+        var activate: (() -> Void)?
+        override func accessibilityActivate() -> Bool { activate?(); return true }
+    }
+
+    func makeUIView(context: Context) -> RepeatButton {
+        let button = RepeatButton(type: .system)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.begin), for: .touchDown)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.finish), for: [.touchUpInside, .touchUpOutside, .touchCancel, .touchDragExit])
+        button.activate = { [weak coordinator = context.coordinator] in coordinator?.begin(); coordinator?.finish() }
+        return button
+    }
+
+    func updateUIView(_ button: RepeatButton, context: Context) {
+        context.coordinator.onStep = onStep
+        context.coordinator.onFinish = onFinish
+        button.setImage(UIImage(systemName: symbol, withConfiguration: UIImage.SymbolConfiguration(pointSize: iconSize, weight: .bold)), for: .normal)
+        button.tintColor = tint
+        button.isEnabled = context.environment.isEnabled
+        button.accessibilityLabel = symbol == "minus" ? String(localized: "減少一分鐘") : String(localized: "增加一分鐘")
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+    static func dismantleUIView(_ view: RepeatButton, coordinator: Coordinator) { coordinator.finish() }
+
+    final class Coordinator: NSObject {
+        var onStep: (() -> Void)?
+        var onFinish: (() -> Void)?
+        private var timer: Timer?
+        private var startedAt = 0.0
+        private var active = false
+        @objc func begin() {
+            guard !active else { return }
+            active = true
+            startedAt = ProcessInfo.processInfo.systemUptime
+            onStep?()
+            schedule(after: 0.45)
+        }
+        private func schedule(after interval: TimeInterval) {
+            let timer = Timer(timeInterval: interval, repeats: false) { [weak self] _ in
+                guard let self, self.active else { return }
+                self.onStep?()
+                self.schedule(after: ParkingEntryClock.repeatInterval(heldFor: ProcessInfo.processInfo.systemUptime - self.startedAt))
+            }
+            self.timer = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+        @objc func finish() {
+            timer?.invalidate()
+            timer = nil
+            guard active else { return }
+            active = false
+            onFinish?()
+        }
+    }
+}
+
 
 @available(iOS 27.1, *)
 private struct DuoVerticalBarReader: View {
@@ -936,6 +1000,9 @@ struct ContentView: View {
     @State private var parkingDeparted = false
     @State private var hasDeparted = false
     @State private var parkingStartTime: Date = Date()
+    @State private var manualParkingStartedAt: Date?
+    @State private var manualParkingPointRecorded = false
+    @State private var parkingVisitsDismissedThrough: Date?
     @State private var activitySyncTimer: Timer?
     @State private var capsuleDuration: TimeInterval = 0
     @State private var lastKnownArrivalDate: Date?
@@ -1073,6 +1140,9 @@ struct ContentView: View {
     @State private var editFloorTextInitial: String = ""  // 開檔時嘅樓層值：冇郁過就唔好保存樓層
     @State private var parkingPhotoContributions: [UUID: [String: String]] = [:]
     @State private var currentRecognizingPhotoID: UUID? = nil
+    @State private var parkingImageRecognitionTask: Task<Void, Never>?
+    @State private var activeRecognitionMethod = ParkingRecognitionMethod.shortcut
+    @State private var pendingFloorPhotoID: UUID?
     @State private var parkingOrbBoost: Double = 1.0
     @State private var orbBoostElapsedOffset: Double = 0
     // Floor curve popup (auto-detect garage descent)
@@ -1129,6 +1199,7 @@ struct ContentView: View {
     @State private var destinationSearchCategory: DestinationSearchCategory?
     @State private var boundaryDrawLot: ParkingLotRecord?
     @State private var boundaryDrawVertices: [ParkingBoundaryVertex] = []
+    @State private var boundaryDrawUndoHistory: [[ParkingBoundaryVertex]] = []
     @StateObject private var boundaryDrawBridge = BoundaryDrawMapBridge()
     @State private var mergingParkingLot: ParkingLotRecord?
     @State private var changingParkingLotPointID: UUID?
@@ -1161,6 +1232,7 @@ struct ContentView: View {
     private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 120 : 100 }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
     @AppStorage("vlmRecognitionEnabled") private var vlmRecognitionEnabled: Bool = true
+    @AppStorage("parkingRecognitionMethod") private var parkingRecognitionMethod = ParkingRecognitionMethod.shortcut.rawValue
     @AppStorage("parkingTimerColorHex") private var parkingTimerColorHex: String = "46ADB8"
     @AppStorage("bestRouteColorHex") private var bestRouteColorHex: String = "BCBA1E"
 
@@ -1183,6 +1255,9 @@ struct ContentView: View {
         UITabBar.appearance().scrollEdgeAppearance = appearance
 
         let defaults = UserDefaults(suiteName: "group.com.gorilla.translate") ?? .standard
+        _manualParkingStartedAt = State(initialValue: defaults.object(forKey: "manualParkingStartedAt") as? Date)
+        _manualParkingPointRecorded = State(initialValue: defaults.bool(forKey: "manualParkingPointRecorded"))
+        _parkingVisitsDismissedThrough = State(initialValue: defaults.object(forKey: "parkingVisitsDismissedThrough") as? Date)
         if let savedTime = defaults.object(forKey: "parkingStartTime") as? Date {
             let savedEntry = ParkingEntryClock.restoredEntry(for: savedTime, defaults: defaults)
             let adjustment = ParkingEntryClock.adjustmentMinutes(entry: savedEntry, arrival: savedTime)
@@ -1540,6 +1615,7 @@ struct ContentView: View {
             }
         }
         .onDisappear {
+            cancelParkingImageRecognition()
             acTelemetry.disconnect()
             timePhaseManager.stop()
             UIApplication.shared.isIdleTimerDisabled = false
@@ -1605,6 +1681,7 @@ struct ContentView: View {
         }
         .onReceive(locationManager.$lastLocation) { location in
             guard let location = location else { return }
+            ensureManualParkingPoint()
             timePhaseManager.fetchSunTimes(for: location.coordinate)
             // 追蹤低速時的 GPS 位置（用於修正泊車位置）
             if parkingFloorStore.barometer.currentSpeedKmh >= 0,
@@ -1636,6 +1713,7 @@ struct ContentView: View {
         .onReceive(locationManager.$visits, perform: handleVisitUpdates)
         .onChange(of: isNonAutomotiveArrival && !hasParkingSpotData) { _, isStay in
             guard isStay else { return }
+            cancelParkingImageRecognition()
             showLLMActionPrompt = false
             llmPollTimer?.invalidate()
             llmPollTimer = nil
@@ -1644,6 +1722,9 @@ struct ContentView: View {
             sfxPlayer.stopVLMLoadingImmediately()
             stopOrbRecognitionBoost(triggerSixColor: false)
             isRecognizing = false
+        }
+        .onChange(of: vlmRecognitionEnabled) { _, enabled in
+            if !enabled { cancelParkingImageRecognition() }
         }
         .onChange(of: isParkingMemoryExpanded) { _, expanded in
             if expanded {
@@ -1659,19 +1740,11 @@ struct ContentView: View {
                         cameraButtonBlurIn = true
                     }
                 }
-                if hasDeparted {
-                    hasDeparted = false
-                    manualDeparted = false
-                    parkingEntryTime = Date()
-                    parkingStartTime = parkingEntryTime
-                    lastKnownArrivalDate = parkingStartTime
-                    resetParkingTimeAdjustment()
-                    capsuleDuration = 0
-                    parkingElapsed = 0
-                    timerRunning = false
-                    departureElapsedTimer?.invalidate()
-                    departureElapsedTimer = nil
-                    startPersistentTimer()
+                let activeVisit = locationManager.visits.first.map {
+                    $0.departureDate == nil && !ParkingEntryClock.ignoresVisit(arrival: $0.arrivalDate, dismissedThrough: parkingVisitsDismissedThrough)
+                } ?? false
+                if hasDeparted || (manualParkingStartedAt == nil && !activeVisit) {
+                    beginManualParkingMemory()
                 } else if !timerRunning {
                     lastKnownArrivalDate = parkingStartTime
                     capsuleDuration = 0
@@ -2839,9 +2912,12 @@ struct ContentView: View {
                         floorText: confirmedFloorText,
                         floorIndex: pendingFloorIndex ?? floorIndex, userConfirmedFloor: true
                     )
-                    if let photoID = currentRecognizingPhotoID ?? parkingPhotoContributions.keys.first {
+                    if let photoID = pendingFloorPhotoID {
                         parkingPhotoContributions[photoID, default: [:]]["floor"] = confirmedFloorText ?? floorText
+                        parkingPhotoContributions[photoID, default: [:]]["method"] = activeRecognitionMethod.rawValue
+                        saveParkingContributions()
                     }
+                    pendingFloorPhotoID = nil
                     pendingOriginalFloorIndex = nil
                     pendingFloorText = nil
                     pendingFloorIndex = nil
@@ -2858,6 +2934,7 @@ struct ContentView: View {
 
                 Button {
                     // User rejected — revert to original barometer floor
+                    pendingFloorPhotoID = nil
                     if let orig = pendingOriginalFloorIndex {
                         llmFloorIndex = orig
                         llmFloorText = nil
@@ -2899,6 +2976,7 @@ struct ContentView: View {
 
     private func handleVisitUpdates(_ visits: [LocationManager.VisitRecord]) {
         guard let lastVisit = visits.first else { return }
+        guard !ParkingEntryClock.ignoresVisit(arrival: lastVisit.arrivalDate, dismissedThrough: parkingVisitsDismissedThrough) else { return }
 
         if lastVisit.departureDate != nil {
             // 到訪結束：自動停止計時
@@ -2953,6 +3031,7 @@ struct ContentView: View {
             // unless this is genuinely a different arrival (new visit event)
             if manualDeparted && newArrival == parkingStartTime { return }
             if lastKnownArrivalDate != newArrival {
+                manualParkingStartedAt = nil
                 lastKnownArrivalDate = newArrival
                 if parkingStartTime != newArrival {
                     parkingEntryTime = newArrival
@@ -4027,11 +4106,12 @@ struct ContentView: View {
                         updateVisitStatus()
                         refreshETA()
                     }
-                }
+                },
+            including: boundaryDrawLot == nil ? .all : .subviews
         )
         .onTapGesture {
             guard boundaryDrawLot == nil, !isCapsuleExpanded, !capsuleDragState.active, capsuleSettleHeight == nil else { return }
-            advanceCompactSlot()
+            advanceCompactSlot(manually: true)
             // 微微放大提示「這是可拖曳的」
             withAnimation(.spring(response: 0.2, dampingFraction: 0.6)) {
                 capsuleDragScale = 1.08
@@ -4153,6 +4233,15 @@ struct ContentView: View {
     private var addressCapsuleParkingMemory: some View {
         parkingMemoryContent
             .transition(.opacity)
+            .modifier(ParkingRecognitionInfoAlert(
+                isPresented: $showRecognitionLogicAlert,
+                message: buildRecognitionLogicText() + (llmRawResult.map { "\n\n" + $0 } ?? ""),
+                onEdit: { openSpotEditor() },
+                onClear: {
+                    withAnimation(.easeInOut(duration: 0.4)) { clearParkingContributions() }
+                },
+                onConfirm: {}
+            ))
             .modifier(VLMActionPrompt(isPresented: $showLLMActionPrompt, shortcutName: llmShortcutName,
                 onReady: { startLLMPollingAfterAction() }, onCancel: {
                     llmSoundStopTimer?.invalidate()
@@ -4161,23 +4250,6 @@ struct ContentView: View {
                     stopOrbRecognitionBoost(triggerSixColor: false)
                     isRecognizing = false
                 }))
-            .alert(String(localized: "車位資訊"), isPresented: $showRecognitionLogicAlert) {
-                Button(String(localized: "編輯")) {
-                    openSpotEditor()
-                }
-                Button(String(localized: "清除車位"), role: .destructive) {
-                    withAnimation(.easeInOut(duration: 0.4)) {
-                        clearParkingContributions()
-                    }
-                }
-                Button(String(localized: "確定"), role: .cancel) {}
-            } message: {
-                Text(buildRecognitionLogicText())
-                if let raw = llmRawResult, !raw.isEmpty {
-                    Text("\n" + String(localized: "原始結果：") + "\n" + raw)
-                        .font(.caption)
-                }
-            }
     }
 
     private var addressCapsuleFloorCurve: some View {
@@ -4248,7 +4320,6 @@ struct ContentView: View {
             }
             .opacity(addressReveal)
             .blur(radius: 20 * (1 - addressReveal))
-            .animation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6), value: compactSlot)
         }
         .transition(AnyTransition.blurFade)
     }
@@ -4486,16 +4557,7 @@ struct ContentView: View {
                             }
                         }
                         if opening && hasDeparted {
-                            hasDeparted = false
-                            manualDeparted = false
-                            parkingEntryTime = Date()
-                            parkingStartTime = parkingEntryTime
-                            lastKnownArrivalDate = parkingStartTime
-                            resetParkingTimeAdjustment()
-                            capsuleDuration = 0
-                            parkingElapsed = 0
-                            timerRunning = false
-                            startPersistentTimer()
+                            beginManualParkingMemory()
                         }
                     }) {
                         Label((isNonAutomotiveArrival && !hasParkingSpotData) ? String(localized: "逗留記憶按鈕") : String(localized: "泊車記憶按鈕"), systemImage: (isNonAutomotiveArrival && !hasParkingSpotData) ? "mappin.and.ellipse" : "car.fill")
@@ -4888,21 +4950,11 @@ struct ContentView: View {
     @ViewBuilder
     private func parkingTimeAdjustButtons(buttonSize: CGFloat, iconSize: CGFloat) -> some View {
         HStack(spacing: parkingMemoryUsesLandscapeLayout ? 6 : 8) {
-            Button(action: {
-                adjustParkingEntryTime(by: -1)
-            }) {
-                Image(systemName: "minus")
-                    .font(.system(size: iconSize, weight: .bold))
-                    .foregroundStyle(capsuleTextColor())
-                    .frame(width: buttonSize, height: buttonSize)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 8))
-            }
-            Button(action: {
-                adjustParkingEntryTime(by: 1)
-            }) {
-                Image(systemName: "plus")
-                    .font(.system(size: iconSize, weight: .bold))
-                    .foregroundStyle(capsuleTextColor())
+            ForEach([-1, 1], id: \.self) { direction in
+                ParkingTimeRepeatControl(symbol: direction < 0 ? "minus" : "plus", iconSize: iconSize,
+                                         tint: UIColor(capsuleTextColor()),
+                                         onStep: { adjustParkingEntryTime(by: direction, persistChanges: false) },
+                                         onFinish: commitParkingTimeAdjustment)
                     .frame(width: buttonSize, height: buttonSize)
                     .glassEffect(.regular, in: .rect(cornerRadius: 8))
             }
@@ -5244,6 +5296,9 @@ struct ContentView: View {
 
     private func saveParkingState() {
         let d = Self.appGroupDefaults ?? .standard
+        d.set(manualParkingStartedAt, forKey: "manualParkingStartedAt")
+        d.set(manualParkingPointRecorded, forKey: "manualParkingPointRecorded")
+        d.set(parkingVisitsDismissedThrough, forKey: "parkingVisitsDismissedThrough")
         ParkingEntryClock.save(arrival: parkingStartTime, entry: parkingEntryTime, defaults: d)
         d.set(hasDeparted, forKey: "hasDeparted")
         d.set(manualDeparted, forKey: "manualDeparted")
@@ -5252,6 +5307,50 @@ struct ContentView: View {
         d.set(lastKnownArrivalDate, forKey: "lastKnownArrivalDate")
         d.synchronize()
         WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
+    }
+
+    private func beginManualParkingMemory() {
+        let now = Date()
+        manualParkingStartedAt = now
+        manualParkingPointRecorded = false
+        parkingVisitsDismissedThrough = now
+        hasDeparted = false
+        manualDeparted = false
+        parkingDeparted = false
+        parkingEntryTime = now
+        parkingStartTime = now
+        lastKnownArrivalDate = now
+        departureTime = nil
+        departureElapsedTimer?.invalidate()
+        departureElapsedTimer = nil
+        resetParkingTimeAdjustment()
+        clearParkingContributions()
+        isNonAutomotiveArrival = false
+        hasParkingSpotData = true
+        (Self.appGroupDefaults ?? .standard).set(false, forKey: "isNonAutomotiveArrival")
+        visitStatus = "已泊車"
+        capsuleDuration = 0
+        parkingElapsed = 0
+        timerRunning = false
+        ensureManualParkingPoint()
+        startPersistentTimer()
+    }
+
+    private func ensureManualParkingPoint() {
+        guard let started = manualParkingStartedAt, !hasDeparted, !manualParkingPointRecorded else { return }
+        if parkingFloorStore.allPoints.contains(where: { $0.isManualEntry == true && abs($0.createdAt.timeIntervalSince(started)) < 1 }) {
+            manualParkingPointRecorded = true
+            saveParkingState()
+            return
+        }
+        guard
+              let location = locationManager.mapReferenceLocation,
+              CLLocationCoordinate2DIsValid(location.coordinate), location.horizontalAccuracy >= 0 else { return }
+        parkingFloorStore.recordParkingPoint(coordinate: location.coordinate, address: locationManager.currentAddress,
+            createdAt: started, predictedFloorIndex: nil, manualFloorIndex: nil, confidence: nil,
+            isAutomotive: true, defaultLotName: defaultNewLotName(visitAddress: locationManager.currentAddress), isManualEntry: true)
+        manualParkingPointRecorded = true
+        saveParkingState()
     }
 
 
@@ -5297,6 +5396,18 @@ struct ContentView: View {
         // visits 尚未載入時不重置狀態（防止冷啟動計時器被清空）
         guard locationManager.hasLoadedVisits else { return }
 
+        let latest = locationManager.visits.first
+        if manualParkingStartedAt != nil, !hasDeparted,
+           latest == nil || ParkingEntryClock.ignoresVisit(arrival: latest!.arrivalDate, dismissedThrough: parkingVisitsDismissedThrough) {
+            ensureManualParkingPoint()
+            if !timerRunning { startPersistentTimer() }
+            return
+        }
+        if let latest, ParkingEntryClock.ignoresVisit(arrival: latest.arrivalDate, dismissedThrough: parkingVisitsDismissedThrough) {
+            if manualDeparted { ensureStationaryTimerRunning() }
+            return
+        }
+
         guard let lastVisit = locationManager.visits.first else {
             // If user manually departed, don't reset — stay dormant
             if manualDeparted {
@@ -5304,6 +5415,7 @@ struct ContentView: View {
                 return
             }
             hasDeparted = false
+            manualParkingStartedAt = nil
             timerRunning = false
             parkingTimer?.invalidate()
             parkingTimer = nil
@@ -5330,6 +5442,7 @@ struct ContentView: View {
             }
 
             hasDeparted = false
+            manualParkingStartedAt = nil
             departureElapsedTimer?.invalidate()
             departureElapsedTimer = nil
             departureTime = nil
@@ -5390,6 +5503,9 @@ struct ContentView: View {
         d.set(departureTime, forKey: "parkingDepartureTime")
         d.set(timerRunning, forKey: "timerRunning")
         d.set(lastKnownArrivalDate, forKey: "lastKnownArrivalDate")
+        d.set(manualParkingStartedAt, forKey: "manualParkingStartedAt")
+        d.set(manualParkingPointRecorded, forKey: "manualParkingPointRecorded")
+        d.set(parkingVisitsDismissedThrough, forKey: "parkingVisitsDismissedThrough")
         d.set(locationManager.currentAddress, forKey: "parkingEntryLocation")
         d.synchronize()
         syncLiveActivity()
@@ -5446,6 +5562,8 @@ struct ContentView: View {
                 showCheckmarkAnimation = true
                 hasDeparted = true
                 manualDeparted = true
+                manualParkingStartedAt = nil
+                parkingVisitsDismissedThrough = Date()
                 // 注意：手動離場係用戶自己嘅離場決定，唔寫入到訪記錄；
                 // 到訪記錄完全跟 iOS 系統（CLVisit）嘅到訪/離場事件
                 departureTime = Date()
@@ -5674,9 +5792,9 @@ struct ContentView: View {
         }
     }
 
-    private func advanceCompactSlot() {
+    private func advanceCompactSlot(manually: Bool = false) {
         guard !isCapsuleExpanded, !isParkingMemoryExpanded else { return }
-        withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: 1.6)) {
+        withAnimation(.timingCurve(0.65, 0, 0.35, 1, duration: manually ? 0.8 : 1.6)) {
             compactSlot = nextCompactSlot()
         }
         if compactSlot == .address {
@@ -5732,6 +5850,21 @@ struct ContentView: View {
     /// 由停車點彈窗鉛筆選單進入：直接喺主地圖逐點繪製範圍，唔再彈 sheet。
     private func beginBoundaryDraw(_ lot: ParkingLotRecord) {
         boundaryDrawBridge.reset()
+        boundaryDrawUndoHistory.removeAll()
+        let sessionID = boundaryDrawBridge.sessionID
+        boundaryDrawBridge.onVertexMove = { index, coordinate in
+            guard boundaryDrawBridge.sessionID == sessionID, boundaryDrawLot != nil,
+                  boundaryDrawVertices.indices.contains(index) else { return }
+            boundaryDrawUndoHistory.append(boundaryDrawVertices)
+            boundaryDrawVertices[index] = ParkingBoundaryVertex(latitude: coordinate.latitude,
+                                                                longitude: coordinate.longitude)
+        }
+        boundaryDrawBridge.onVertexInsert = { index, coordinate in
+            guard boundaryDrawBridge.sessionID == sessionID, boundaryDrawLot != nil,
+                  boundaryDrawVertices.count < 24, (0...boundaryDrawVertices.count).contains(index) else { return }
+            boundaryDrawUndoHistory.append(boundaryDrawVertices)
+            boundaryDrawVertices.insert(ParkingBoundaryVertex(latitude: coordinate.latitude, longitude: coordinate.longitude), at: index)
+        }
         boundaryDrawBridge.initialFocus = (lot.centerCoordinate.wgs84ToGCJ02, max(1200, lot.radiusMeters * 6))
         capsuleSettleWorkItem?.cancel()
         capsuleSettleHeight = nil
@@ -5748,6 +5881,7 @@ struct ContentView: View {
 
     private func endBoundaryDraw() {
         boundaryDrawBridge.reset()
+        boundaryDrawUndoHistory.removeAll()
         withAnimation(.spring(response: 0.6, dampingFraction: 0.78)) {
             boundaryDrawLot = nil
             boundaryDrawVertices = []
@@ -5776,9 +5910,9 @@ struct ContentView: View {
             BoundaryDrawToolbar(
                 vertexCount: boundaryDrawVertices.count,
                 canConfirm: ParkingBoundaryGeometry.isValid(boundaryDrawVertices),
-                editingEnabled: boundaryDrawBridge.isReady,
+                editingEnabled: boundaryDrawBridge.isReady && !boundaryDrawBridge.isDraggingVertex,
                 onCancel: endBoundaryDraw,
-                onUndo: { if boundaryDrawBridge.isReady && !boundaryDrawVertices.isEmpty { boundaryDrawVertices.removeLast() } },
+                onUndo: undoBoundaryEdit,
                 onAdd: addBoundaryVertexAtCenter,
                 onConfirm: confirmBoundaryDraw
             )
@@ -5790,17 +5924,29 @@ struct ContentView: View {
         }
     }
 
+    private func undoBoundaryEdit() {
+        guard boundaryDrawBridge.isReady, !boundaryDrawBridge.isDraggingVertex else { return }
+        if let previous = boundaryDrawUndoHistory.popLast() {
+            boundaryDrawVertices = previous
+        } else if !boundaryDrawVertices.isEmpty {
+            boundaryDrawVertices.removeLast()
+        }
+    }
+
     /// 「加點」：喺中心指針對準嘅位置加一個頂點（存 WGS84，顯示時先轉 GCJ02）。
     private func addBoundaryVertexAtCenter() {
-        guard boundaryDrawBridge.isReady, boundaryDrawLot != nil, boundaryDrawVertices.count < 24,
+        guard boundaryDrawBridge.isReady, !boundaryDrawBridge.isDraggingVertex,
+              boundaryDrawLot != nil, boundaryDrawVertices.count < 24,
               let coordinate = boundaryDrawBridge.centerCoordinateProvider?() else { return }
+        boundaryDrawUndoHistory.append(boundaryDrawVertices)
         boundaryDrawVertices.append(ParkingBoundaryVertex(latitude: coordinate.latitude,
                                                           longitude: coordinate.longitude))
     }
 
     /// 「完成」：驗證後寫入範圍（3–24 點、唔可自交、面積夠大）。
     private func confirmBoundaryDraw() {
-        guard boundaryDrawBridge.isReady, let lot = boundaryDrawLot, ParkingBoundaryGeometry.isValid(boundaryDrawVertices) else { return }
+        guard boundaryDrawBridge.isReady, !boundaryDrawBridge.isDraggingVertex,
+              let lot = boundaryDrawLot, ParkingBoundaryGeometry.isValid(boundaryDrawVertices) else { return }
         if parkingFloorStore.setBoundary(lotID: lot.id, vertices: boundaryDrawVertices) {
             endBoundaryDraw()
         }
@@ -6332,7 +6478,7 @@ struct ContentView: View {
         timeAdjustText = nil
     }
 
-    private func adjustParkingEntryTime(by minutes: Int) {
+    private func adjustParkingEntryTime(by minutes: Int, persistChanges: Bool = true) {
         withAnimation(.easeInOut(duration: 0.2)) {
             parkingEntryTime = parkingEntryTime.addingTimeInterval(Double(minutes) * 60)
             parkingElapsed = Date().timeIntervalSince(parkingEntryTime)
@@ -6340,6 +6486,10 @@ struct ContentView: View {
         }
         timeAdjustAccumulated = ParkingEntryClock.adjustmentMinutes(entry: parkingEntryTime, arrival: parkingStartTime)
         showAdjustText()
+        if persistChanges { commitParkingTimeAdjustment() }
+    }
+
+    private func commitParkingTimeAdjustment() {
         saveParkingState()
         syncLiveActivity(forceRefresh: true)
         if timerRunning && !hasDeparted && !isNonAutomotiveArrival { startParkingReminder() }
@@ -6444,7 +6594,7 @@ struct ContentView: View {
             animatingPhotoRotation = 0
         }
 
-        // Trigger LLM recognition via shortcut (if enabled)
+        // Use the selected recognition method after the photo is saved.
         if vlmRecognitionEnabled && !(isNonAutomotiveArrival && !hasParkingSpotData) {
             recognizeParkingWithLLM(image: photo, photoID: tempID)
         }
@@ -6458,12 +6608,72 @@ struct ContentView: View {
 
     private func recognizeParkingWithLLM(image: UIImage, photoID: UUID) {
         guard !(isNonAutomotiveArrival && !hasParkingSpotData) else { return }
+        cancelParkingImageRecognition()
         currentRecognizingPhotoID = photoID
-        UIPasteboard.general.image = image
+        activeRecognitionMethod = ParkingRecognitionMethod(rawValue: parkingRecognitionMethod) ?? .shortcut
         llmRawResult = nil
         llmError = nil
         parkingInfoSwitchTimer?.invalidate()
+        if activeRecognitionMethod == .foundationModels {
+            guard #available(iOS 27.0, *), ParkingImageRecognition.isAvailable else {
+                llmError = ParkingImageRecognition.status
+                currentRecognizingPhotoID = nil
+                return
+            }
+            isRecognizing = true
+            sfxPlayer.playVLMLoading()
+            startOrbRecognitionBoost()
+            parkingImageRecognitionTask = Task { @MainActor in
+                do {
+                    let text = try await ParkingImageRecognition.recognize(image)
+                    guard !Task.isCancelled, currentRecognizingPhotoID == photoID else { return }
+                    finishParkingRecognition(text)
+                    parkingImageRecognitionTask = nil
+                } catch {
+                    guard !Task.isCancelled, currentRecognizingPhotoID == photoID else { return }
+                    cancelParkingImageRecognition()
+                    llmError = error.localizedDescription
+                }
+            }
+            return
+        }
+        UIPasteboard.general.image = image
         showLLMActionPrompt = true
+    }
+
+    private func cancelParkingImageRecognition() {
+        parkingImageRecognitionTask?.cancel()
+        parkingImageRecognitionTask = nil
+        currentRecognizingPhotoID = nil
+        llmPollTimer?.invalidate()
+        llmPollTimer = nil
+        llmSoundStopTimer?.invalidate()
+        llmSoundStopTimer = nil
+        showLLMActionPrompt = false
+        pendingFloorPhotoID = nil
+        showFloorConfirm = false
+        if isRecognizing {
+            sfxPlayer.stopVLMLoadingImmediately()
+            stopOrbRecognitionBoostGradually(triggerSixColor: false)
+        }
+        isRecognizing = false
+    }
+
+    private func finishParkingRecognition(_ text: String) {
+        let photoID = currentRecognizingPhotoID
+        llmSoundStopTimer?.invalidate()
+        llmSoundStopTimer = nil
+        sfxPlayer.stopVLMLoadingGracefully()
+        sfxPlayer.playVLMDone()
+        stopOrbRecognitionBoost()
+        llmRawResult = text
+        isRecognizing = false
+        parseParkingLLMResponse(text)
+        if activeRecognitionMethod == .foundationModels,
+           let photoID,
+           parkingPhotoContributions[photoID] == nil, !showFloorConfirm {
+            llmError = String(localized: "未能確認車位、區域或樓層。請靠近標示再拍攝，或手動編輯車位資訊。") + "\n\n" + text
+        }
     }
 
     private func startLLMPollingAfterAction() {
@@ -6488,12 +6698,14 @@ struct ContentView: View {
     }
 
     private func startLLMPollingClipboard() {
+        guard let photoID = currentRecognizingPhotoID else { return }
         llmPollTimer?.invalidate()
         var attempts = 0
         let maxAttempts = 120 // 2 minutes max (1s interval)
         let initialChangeCount = UIPasteboard.general.changeCount
 
         llmPollTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { timer in
+            guard self.currentRecognizingPhotoID == photoID else { timer.invalidate(); return }
             attempts += 1
 
             let currentChangeCount = UIPasteboard.general.changeCount
@@ -6505,14 +6717,8 @@ struct ContentView: View {
                 self.llmPollTimer = nil
 
                 DispatchQueue.main.async {
-                    self.llmSoundStopTimer?.invalidate()
-                    self.llmSoundStopTimer = nil
-                    self.sfxPlayer.stopVLMLoadingGracefully()
-                    self.sfxPlayer.playVLMDone()
-                    self.stopOrbRecognitionBoost()
-                    self.llmRawResult = text
-                    self.isRecognizing = false
-                    self.parseParkingLLMResponse(text)
+                    guard self.currentRecognizingPhotoID == photoID else { return }
+                    self.finishParkingRecognition(text)
                 }
             } else if attempts >= maxAttempts {
                 timer.invalidate()
@@ -6535,15 +6741,19 @@ struct ContentView: View {
     private func parseParkingLLMResponse(_ text: String) {
         let lines = text.components(separatedBy: .newlines)
         var needsFloorConfirm = false
+        var contribution: [String: String] = [:]
         for line in lines {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.contains("識別邏輯") || trimmed.contains("识别逻辑") { break }
 
             // Helper: extract value after "：" or ":", checking multiple keywords
             func extractValue(from line: String, keywords: [String]) -> String? {
                 for keyword in keywords {
-                    guard line.contains(keyword) else { continue }
+                    let label = line.replacingOccurrences(of: "**", with: "")
+                        .trimmingCharacters(in: CharacterSet.whitespaces.union(CharacterSet(charactersIn: "-*•")))
+                    guard label.hasPrefix(keyword) else { continue }
                     for sep in ["：", ":"] {
-                        let components = line.components(separatedBy: sep)
+                        let components = label.components(separatedBy: sep)
                         if components.count > 1, let val = components.last?.trimmingCharacters(in: .whitespacesAndNewlines), isValidParkingValue(val) {
                             return val
                         }
@@ -6556,7 +6766,7 @@ struct ContentView: View {
             func isValidParkingValue(_ val: String) -> Bool {
                 if val.isEmpty || val == "-" || val == "无" || val == "沒有" || val == "没有" { return false }
                 // Reject long descriptive sentences (>6 chars likely not a code)
-                if val.count > 6 { return false }
+                if val.count > 24 { return false }
                 // Reject common "not found" phrases
                 let reject = ["未", "需", "无法", "不能", "不确", "未知", "待", "暂"]
                 for r in reject {
@@ -6568,17 +6778,18 @@ struct ContentView: View {
             // Extract spot number — simplified "车位号" / traditional "車位號"
             if let val = extractValue(from: trimmed, keywords: ["车位号", "車位號", "车位", "車位"]) {
                 llmSpotNumber = val
+                contribution["spot"] = val
                 hasParkingSpotData = true
             }
 
             // Extract area code — simplified "区域号" / traditional "區域號"
             if let val = extractValue(from: trimmed, keywords: ["区域号", "區域號", "区域", "區域"]) {
                 llmAreaCode = val
+                contribution["area"] = val
                 hasParkingSpotData = true
             }
 
             // Extract floor — simplified "楼层" / traditional "樓層"
-            var needsFloorConfirm = false
             if let rawFloorStr = extractValue(from: trimmed, keywords: ["楼层", "樓層"]) {
                 hasParkingSpotData = true
                 // 正規化 VLM 文字（「地面1」→「1」）—— 唔清走「地面」雜字會跟住落地圖標籤
@@ -6596,25 +6807,25 @@ struct ContentView: View {
                         recognizedFloorToConfirm = index
                         recognizedFloorText = floorStr
                         showFloorConfirm = true
+                        pendingFloorPhotoID = currentRecognizingPhotoID
                         needsFloorConfirm = true
                     } else {
                         // No confirmation needed — write floor immediately
                         llmFloorText = floorStr
                         llmFloorIndex = index
+                        contribution["floor"] = floorStr
                     }
                 } else {
                     llmFloorText = floorStr
+                    contribution["floor"] = floorStr
                 }
             }
         }
 
         // Save this photo's contribution
         if let photoID = currentRecognizingPhotoID {
-            var contribution: [String: String] = [:]
-            if let s = llmSpotNumber { contribution["spot"] = s }
-            if let a = llmAreaCode { contribution["area"] = a }
-            if let f = llmFloorText { contribution["floor"] = f }
             if !contribution.isEmpty {
+                contribution["method"] = activeRecognitionMethod.rawValue
                 parkingPhotoContributions[photoID] = contribution
             }
             currentRecognizingPhotoID = nil
@@ -6796,16 +7007,18 @@ struct ContentView: View {
 
     private func buildRecognitionLogicText() -> String {
         if parkingPhotoContributions.isEmpty {
-            return String(localized: "尚未進行識別")
+            return llmRawResult == nil ? String(localized: "尚未進行識別") : String(localized: "未識別出可確認的車位資料")
         }
-        var lines: [String] = [String(localized: "識別方式：Apple Intelligence (Cloud)"), "快捷指令：\(llmShortcutName)", ""]
+        var lines: [String] = []
         for (photoID, contribution) in parkingPhotoContributions {
             let shortID = photoID.uuidString.prefix(8)
             var parts: [String] = []
             if let s = contribution["spot"] { parts.append(String(localized: "車位") + ":\(s)") }
             if let a = contribution["area"] { parts.append(String(localized: "區域") + ":\(a)") }
             if let f = contribution["floor"] { parts.append(String(localized: "樓層") + ":\(f)") }
-            lines.append("[\(shortID)] \(parts.joined(separator: " "))")
+            let method = contribution["method"] == ParkingRecognitionMethod.foundationModels.rawValue
+                ? "Foundation Models（裝置上）" : "快捷指令：\(llmShortcutName)"
+            lines.append("[\(shortID)] \(method)\n\(parts.joined(separator: " "))")
         }
         return lines.joined(separator: "\n")
     }
@@ -6821,7 +7034,6 @@ struct ContentView: View {
         }
         llmSpotNumber = spot
         llmAreaCode = area
-        llmRawResult = parkingPhotoContributions.isEmpty ? nil : "multi-photo"
         if spot != nil || area != nil {
             hasParkingSpotData = true
         }
@@ -6854,7 +7066,6 @@ struct ContentView: View {
         llmAreaCode = area
         llmFloorText = floor
         llmFloorIndex = floorIdx
-        llmRawResult = parkingPhotoContributions.isEmpty ? nil : "multi-photo"
         if spot != nil || area != nil || floor != nil {
             hasParkingSpotData = true
         }
@@ -6886,6 +7097,7 @@ struct ContentView: View {
     }
 
     private func clearParkingContributions() {
+        cancelParkingImageRecognition()
         parkingPhotoContributions = [:]
         llmSpotNumber = nil
         llmAreaCode = nil
@@ -7004,6 +7216,13 @@ struct ContentView: View {
 
     private func updateVisitStatus() {
         guard locationManager.hasLoadedVisits else { return }
+        if manualParkingStartedAt != nil, !hasDeparted {
+            visitStatus = "已泊車"
+            isNonAutomotiveArrival = false
+            hasParkingSpotData = true
+            visitSecondaryStatus = nil
+            return
+        }
         guard let lastVisit = locationManager.visits.first else {
             visitStatus = "已停留"
             isNonAutomotiveArrival = false
@@ -7185,20 +7404,20 @@ struct ContentView: View {
                 content.etaMinutes = max(1, Int(secs / 60))
             }
         case .parking:
-            let session = parkingFloorStore.session(forArrival: locationManager.visits.first?.arrivalDate ?? parkingStartTime)
+            let session = parkingFloorStore.session(forArrival: manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime))
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
             content.area = session?.areaCode
             content.floor = session?.floorDisplay
             content.spot = session?.spotNumber
         case .nonAutomotiveParking:
-            let session = parkingFloorStore.session(forArrival: locationManager.visits.first?.arrivalDate ?? parkingStartTime)
+            let session = parkingFloorStore.session(forArrival: manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime))
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
             content.area = session?.areaCode
             // Non-automotive: no floor/spot
         case .stationary:
-            let session = hasDeparted ? parkingFloorStore.currentSession : parkingFloorStore.session(forArrival: locationManager.visits.first?.arrivalDate ?? parkingStartTime)
+            let session = hasDeparted ? parkingFloorStore.currentSession : parkingFloorStore.session(forArrival: manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime))
             let entry = d.string(forKey: "parkingEntryLocation")
             content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
             content.area = session?.areaCode
@@ -7309,6 +7528,13 @@ struct ContentView: View {
             ParkingRecognitionToggle(enabled: Binding(
                 get: { vlmRecognitionEnabled && !(isNonAutomotiveArrival && !hasParkingSpotData) },
                 set: { vlmRecognitionEnabled = $0 }))
+            .alert(String(localized: "車位識別未完成"), isPresented: Binding(
+                get: { llmError != nil }, set: { if !$0 { llmError = nil } }
+            )) {
+                Button(String(localized: "確定"), role: .cancel) { llmError = nil }
+            } message: {
+                Text(llmError ?? "")
+            }
             .disabled(isNonAutomotiveArrival && !hasParkingSpotData)
             .position(x: 26, y: camH - 26)
 
@@ -7870,6 +8096,7 @@ struct ContentView: View {
             withAnimation(.spring(response: 0.4, dampingFraction: 0.82)) {
                 // Remove photo from storage
                 photoStorage.deletePhoto(photo)
+                if self.currentRecognizingPhotoID == targetID { self.cancelParkingImageRecognition() }
                 // Remove this photo's parking info contribution
                 self.parkingPhotoContributions.removeValue(forKey: targetID)
                 self.mergeAndDisplayParkingInfo()

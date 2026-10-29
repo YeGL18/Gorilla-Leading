@@ -110,14 +110,13 @@ struct ParkingLevelChecks {
             from: JSONSerialization.data(withJSONObject: oldJSON))
         precondition(legacy.points == original.points && legacy.floorNames == nil && legacy.boundaryVertices == nil)
 
-        let offsets = ParkingLevelLayout.eastOffsets(for: [ground, first])
-        precondition(abs((offsets[ground.id] ?? 0) - (offsets[first.id] ?? 0)) == 10)
-        precondition(offsets == ParkingLevelLayout.eastOffsets(for: [first, ground]))
-        let display = ParkingLevelLayout.offset(first.coordinate, eastMeters: offsets[first.id]!)
-        let restored = ParkingLevelLayout.offset(display, eastMeters: -offsets[first.id]!)
-        precondition(abs(restored.longitude - first.longitude) < 1e-10, "Display separation changed the real position")
-        let unknown = point(nil, date: -200)
-        precondition(ParkingLevelLayout.eastOffsets(for: [ground, unknown]).isEmpty)
+        let closeGroups = ParkingRecordGroup.make(lots: [lot([ground, first])], mode: .perVisit)
+        precondition(closeGroups.count == 2)
+        for group in closeGroups {
+            precondition(group.mapCoordinate.latitude == group.latest.latitude)
+            precondition(group.mapCoordinate.longitude == group.latest.longitude,
+                         "Nearby floors must keep their real map positions")
+        }
 
         let groundLot = lot([ground])
         let undergroundLot = lot([first])
@@ -202,7 +201,73 @@ struct ParkingLevelChecks {
         try checkRecordGroups(defaults: defaults)
         try checkBoundariesAndMerge(defaults: defaults)
         try checkPodiumCalibration(defaults: defaults)
-        print("PASS: reversible modes, per-visit floors, shared calibration, named levels, scoped facilities, legacy storage and display-only offsets")
+        try checkManualCorrections(defaults: defaults)
+        print("PASS: reversible modes, per-visit floors, shared calibration, named levels, scoped facilities, legacy storage and unshifted positions")
+    }
+
+    static func checkManualCorrections(defaults: UserDefaults) throws {
+        let older = point(-1, date: -3600)
+        let newer = point(-1, date: -1800)
+        var a = lot([older, newer])
+        func coordinate(_ east: Double, _ north: Double) -> CLLocationCoordinate2D {
+            CLLocationCoordinate2D(latitude: older.latitude + north / 111_000,
+                                   longitude: older.longitude + east / (111_000 * cos(older.latitude * .pi / 180)))
+        }
+        func polygon(_ east: Double) -> [ParkingBoundaryVertex] {
+            [(-25.0, -25.0), (25.0, -25.0), (25.0, 25.0), (-25.0, 25.0)].map {
+                let c = coordinate(east + $0.0, $0.1)
+                return ParkingBoundaryVertex(latitude: c.latitude, longitude: c.longitude)
+            }
+        }
+        a.boundaryVertices = polygon(0)
+        var bPoint = point(-3, date: -7200)
+        let target = coordinate(100, 0)
+        bPoint.latitude = target.latitude
+        bPoint.longitude = target.longitude
+        var b = lot([bPoint])
+        b.name = "B"
+        b.centerLatitude = target.latitude
+        b.centerLongitude = target.longitude
+        b.boundaryVertices = polygon(100)
+        b.floorScopeIndex = -3
+        defaults.set(try JSONEncoder().encode([a, b]), forKey: "parking_floor_store_v1")
+        defaults.set(1, forKey: "parkingFloorMode")
+        let store = ParkingFloorStore()
+        store.prepare()
+        store.separatePointFromGroup(older.id)
+        precondition(store.recordGroup(containing: older.id)?.records.count == 1)
+        precondition(store.mapPoints.contains { $0.id == older.id })
+        store.setPointCoordinate(pointID: older.id, coordinate: target)
+        precondition(store.lot(containing: older.id)?.id == b.id, "Dragging into B must move this record to B despite its old floor")
+        precondition(store.allPoints.first { $0.id == newer.id }?.coordinate.latitude == newer.latitude)
+        precondition(store.lot(containing: newer.id)?.id == a.id)
+        let reopened = ParkingFloorStore()
+        reopened.prepare()
+        precondition(reopened.lot(containing: older.id)?.id == b.id)
+        precondition(reopened.allPoints.first { $0.id == older.id }?.isDetachedFromGroup != true)
+        reopened.setManualFloor(pointID: older.id, floorIndex: -3)
+        precondition(reopened.recordGroup(containing: older.id)?.records.count == 2,
+                     "Corrected lot and floor must aggregate regardless of the old address")
+        reopened.separatePointFromGroup(older.id)
+        precondition(reopened.recordGroup(containing: older.id)?.records.count == 1)
+        reopened.setManualFloor(pointID: older.id, floorIndex: -3)
+        precondition(reopened.recordGroup(containing: older.id)?.records.count == 2,
+                     "Explicit floor correction must also repair previously detached records")
+        let regrouped = ParkingFloorStore()
+        regrouped.prepare()
+        precondition(regrouped.recordGroup(containing: older.id)?.records.count == 2)
+        reopened.recordParkingPoint(coordinate: target, address: "Manual", createdAt: TestClock.now,
+            predictedFloorIndex: nil, manualFloorIndex: nil, confidence: nil, isManualEntry: true)
+        precondition(reopened.currentPoint?.isManualEntry == true)
+        precondition(reopened.currentPoint?.effectiveFloorIndex == nil, "A manual session must not invent a detected floor")
+        let firstManualID = reopened.currentPoint!.id
+        reopened.recordParkingPoint(coordinate: target, address: "Manual", createdAt: TestClock.now.addingTimeInterval(2),
+            predictedFloorIndex: nil, manualFloorIndex: nil, confidence: nil, isManualEntry: true)
+        precondition(reopened.currentPoint?.id != firstManualID, "Restarting manual parking must create a distinct record")
+        let persisted = ParkingFloorStore()
+        persisted.prepare()
+        precondition(persisted.allPoints.filter { $0.isManualEntry == true }.count == 2)
+        print("PASS: separated records, drag A-to-B reassignment, unchanged neighbours, persistence and independent manual sessions")
     }
 
     static func checkPodiumCalibration(defaults: UserDefaults) throws {
