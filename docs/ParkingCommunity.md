@@ -7,11 +7,17 @@ First entry offers authorised-driver plate setup or Skip. Later entry opens the
 camera. The feature menu contains its own plate settings and shared reminder inbox;
 nothing is added to Gorilla Leading's general settings.
 
-VisionKit scans on-device, highlights text and accepts standard plate candidates
-on tap. The user must confirm the plate and choose a template before sending.
-Custom plates use a restricted keypad. No camera frame is saved or uploaded.
-System OCR highlights are not yet the final custom plate-only rounded overlays;
-night, rain, reflections and two-line segmentation still require physical testing.
+VisionKit scans on-device and combines nearby letter/number observations, including
+two-line layouts and split digit groups. Full-width characters are normalised;
+ambiguous O/0 or I/1 characters are never guessed. Numeric-only historical marks
+are also accepted as candidates. Candidate plate overlays use translucent rounded
+buttons; separate candidate buttons retain a result for four seconds through
+tracking drop-outs. Recognition never sends automatically. The user must confirm
+the plate and choose a template before sending. Custom plates use a restricted
+keypad. A native camera still-photo fallback runs accurate Vision OCR on up to
+three alternatives per text observation, using the same spatial parser. Frames
+stay in memory and are never saved or uploaded. Night, rain, reflections and real
+plate accuracy still require physical testing; this is not a trained ANPR model.
 
 Email OTP login is required only to bind or send, not to scan. Login tokens use
 Keychain. Local plate drafts remain explicitly separate from server bindings and

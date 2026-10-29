@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import Combine
 
 /// Display spacing is preserved; matching ignores spacing. Never fuzzy-match recipients.
@@ -11,10 +12,93 @@ enum HKCommunityPlate {
     static func isValid(_ value: String) -> Bool {
         !key(value).isEmpty && value.count <= 8 && cleaned(value) == value
     }
+    static func ocrText(_ value: String) -> String {
+        value.folding(options: .widthInsensitive, locale: Locale(identifier: "en_US_POSIX"))
+            .uppercased().components(separatedBy: .whitespacesAndNewlines).joined()
+    }
     static func standardCandidate(_ value: String) -> String? {
-        let compact = value.uppercased().components(separatedBy: .whitespacesAndNewlines).joined()
-        guard compact.range(of: "^[A-HJ-NPR-Z]{1,2}[1-9][0-9]{0,3}$", options: .regularExpression) != nil else { return nil }
+        let compact = ocrText(value)
+        guard compact.range(of: "^(?:[A-HJ-NPR-Z]{1,2})?[1-9][0-9]{0,3}$", options: .regularExpression) != nil else { return nil }
         return compact
+    }
+}
+
+/// OCR geometry uses one consistent top-left coordinate system per frame.
+struct CommunityOCRSegment: Sendable {
+    let text: String
+    let bounds: CGRect
+}
+struct CommunityOCRCandidate: Identifiable, Sendable {
+    var id: String { plate }
+    let plate: String
+    let bounds: CGRect
+}
+enum CommunityPlateOCR {
+    static func candidates(_ segments: [CommunityOCRSegment]) -> [CommunityOCRCandidate] {
+        var items = Array(segments.filter { !$0.bounds.isEmpty && !$0.text.isEmpty }.prefix(180))
+        // Rejoin digit groups such as "12" + "34" before attaching the prefix.
+        let digits = items.filter { HKCommunityPlate.ocrText($0.text).range(of: "^[0-9]{1,3}$", options: .regularExpression) != nil }
+        for left in digits {
+            if items.count >= 256 { break }
+            for right in digits {
+                if items.count >= 256 { break }
+                let a = left.bounds, b = right.bounds
+                let height = max(a.height, b.height)
+                let text = HKCommunityPlate.ocrText(left.text + right.text)
+                if text.count <= 4 && b.minX >= a.maxX - height * 0.1
+                    && b.minX - a.maxX <= height * 0.8 && abs(a.midY - b.midY) <= height * 0.4 {
+                    items.append(.init(text: text, bounds: a.union(b)))
+                }
+            }
+        }
+        var joined: [CommunityOCRCandidate] = []
+        // Prefix and number are often separate observations, especially on two-line plates.
+        for prefix in items {
+            let letters = HKCommunityPlate.ocrText(prefix.text)
+            guard letters.range(of: "^[A-HJ-NPR-Z]{1,2}$", options: .regularExpression) != nil else { continue }
+            for number in items {
+                let digits = HKCommunityPlate.ocrText(number.text)
+                guard digits.range(of: "^[0-9]{1,4}$", options: .regularExpression) != nil else { continue }
+                let a = prefix.bounds, b = number.bounds
+                let height = max(a.height, b.height)
+                let sameRow = abs(a.midY - b.midY) <= height * 0.5
+                    && b.minX >= a.maxX - height * 0.15 && b.minX - a.maxX <= height * 2
+                let twoRows = b.minY >= a.maxY - height * 0.15
+                    && b.minY - a.maxY <= height * 1.5
+                    && abs(a.midX - b.midX) <= max(a.width, b.width) * 0.45
+                guard sameRow || twoRows,
+                      let plate = HKCommunityPlate.standardCandidate(letters + digits) else { continue }
+                joined.append(.init(plate: plate, bounds: a.union(b)))
+            }
+        }
+        var result = joined
+        for item in items {
+            guard let plate = HKCommunityPlate.standardCandidate(item.text) else { continue }
+            // Do not offer just the digit half when a complete plate has been assembled.
+            if joined.contains(where: { $0.bounds.contains(item.bounds) }) { continue }
+            result.append(.init(plate: plate, bounds: item.bounds))
+        }
+        result = result.filter { short in
+            !result.contains { long in
+                long.plate.count > short.plate.count && long.bounds.contains(short.bounds)
+                    && long.plate.hasPrefix(short.plate)
+            }
+        }
+        var seen = Set<String>()
+        return result.filter { seen.insert($0.plate).inserted }.prefix(6).map { $0 }
+    }
+}
+
+/// Keep an explicitly selectable result through short OCR tracking drop-outs.
+struct CommunityOCRHold {
+    private var recent: [String: Date] = [:]
+    mutating func update(_ plates: [String], now: Date) -> [String] {
+        for plate in plates { recent[plate] = now }
+        recent = recent.filter { now.timeIntervalSince($0.value) < 4 }
+        return recent.keys.sorted {
+            let left = recent[$0]!, right = recent[$1]!
+            return left == right ? $0 < $1 : left > right
+        }.prefix(6).map { $0 }
     }
 }
 
