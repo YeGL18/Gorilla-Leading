@@ -149,6 +149,15 @@ struct CommunityPlateDraft: Codable, Identifiable {
             threads = fetchedThreads
         } catch { if refreshGeneration == generation { handle(error) } }
     }
+    func refreshThreads() async {
+        guard api.signedIn else { return }
+        let generation = refreshGeneration
+        do {
+            let fetched = try await api.threads()
+            guard !Task.isCancelled, refreshGeneration == generation, api.signedIn else { return }
+            threads = fetched; errorMessage = nil
+        } catch { if !Task.isCancelled, refreshGeneration == generation { handle(error) } }
+    }
     func handle(_ error: Error) {
         if let error = error as? CommunityAPIError, error.code == "sign_in_required" {
             api.clearSession(); signedIn = false; boundPlates = []; threads = []
@@ -245,17 +254,18 @@ private enum CommunityCredentials {
 }
 
 final class CommunityHTTPClient: Sendable {
-    let baseURL: URL?
+    /// Debug builds may store a temporary server address in-app so a new tunnel
+    /// host applies without rebuilding; an empty value falls back to the plist.
+    static let overrideKey = "parkingCommunity.apiBaseURLOverride"
+    private let fixedBaseURL: URL?
+    // Resolved per call so a saved override applies without recreating clients.
+    var baseURL: URL? { fixedBaseURL ?? CommunityHTTPClient.configuredURL }
     // Separate credentials by API origin, including developer environments.
     private var credentialKey: String { baseURL?.absoluteString ?? "unconfigured" }
     var signedIn: Bool { token != nil }
     private var token: String? { CommunityCredentials.read(credentialKey) }
-    init(baseURL: URL? = CommunityHTTPClient.configuredURL) { self.baseURL = baseURL }
-    static var configuredURL: URL? {
-        var address = Bundle.main.object(forInfoDictionaryKey: "ParkingCommunityAPIBaseURL") as? String ?? ""
-        #if DEBUG
-        if let override = ProcessInfo.processInfo.environment["GORILLA_COMMUNITY_API_URL"] { address = override }
-        #endif
+    init(baseURL: URL? = nil) { self.fixedBaseURL = baseURL }
+    static func validated(_ address: String) -> URL? {
         guard let url = URL(string: address), url.host != nil, url.user == nil, url.password == nil,
               url.query == nil, url.fragment == nil else { return nil }
         if url.scheme == "https" { return url }
@@ -263,6 +273,15 @@ final class CommunityHTTPClient: Sendable {
         if url.scheme == "http", ["localhost", "127.0.0.1", "::1"].contains(url.host ?? "") { return url }
         #endif
         return nil
+    }
+    static var configuredURL: URL? {
+        let override = UserDefaults.standard.string(forKey: overrideKey)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !override.isEmpty { return validated(override) }
+        var address = Bundle.main.object(forInfoDictionaryKey: "ParkingCommunityAPIBaseURL") as? String ?? ""
+        #if DEBUG
+        if let override = ProcessInfo.processInfo.environment["GORILLA_COMMUNITY_API_URL"] { address = override }
+        #endif
+        return validated(address)
     }
     func clearSession() { try? CommunityCredentials.write(nil, account: credentialKey) }
     private func request(_ method: String, _ path: String, body: [String: Any]? = nil, authenticated: Bool = true) async throws -> Data {

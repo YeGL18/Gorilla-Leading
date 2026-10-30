@@ -183,6 +183,8 @@ private struct CommunityPlateSettings: View {
     @State private var login = false
     @State private var deleting = false
     @State private var notificationStatus = "尚未檢查"
+    @State private var serverAddress = ""
+    @State private var serverNote = ""
 
     var body: some View {
         List {
@@ -202,6 +204,41 @@ private struct CommunityPlateSettings: View {
                 }
                 if let error = store.errorMessage { Text(error).foregroundStyle(.red).font(.footnote) }
             }
+            #if DEBUG
+            Section("測試伺服器網址") {
+                TextField("https://xxx.trycloudflare.com/v1/parking-community", text: $serverAddress)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .font(.footnote)
+                LabeledContent("目前連線", value: CommunityHTTPClient.configuredURL?.absoluteString ?? "未設定")
+                    .font(.footnote)
+                Button("儲存網址") {
+                    let value = serverAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+                    if value.isEmpty {
+                        UserDefaults.standard.removeObject(forKey: CommunityHTTPClient.overrideKey)
+                        serverNote = "已回復預設網址。"
+                    } else {
+                        guard CommunityHTTPClient.validated(value) != nil else {
+                            serverNote = "網址格式不正確，須為 https 完整網址。"
+                            return
+                        }
+                        UserDefaults.standard.set(value, forKey: CommunityHTTPClient.overrideKey)
+                        serverNote = "已儲存。更換網址後請重新登入。"
+                    }
+                    Task { await store.refresh() }
+                }
+                Button("清除並回復預設", role: .destructive) {
+                    UserDefaults.standard.removeObject(forKey: CommunityHTTPClient.overrideKey)
+                    serverAddress = ""
+                    serverNote = "已回復預設網址。"
+                    Task { await store.refresh() }
+                }
+                if !serverNote.isEmpty { Text(serverNote).font(.footnote).foregroundStyle(.secondary) }
+                Text("tunnel 網址變更時在此貼上新網址即可，不需重新安裝 App；換網址後需重新登入。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            #endif
             if !store.boundPlates.isEmpty {
                 Section("已綁定車牌") {
                     ForEach(store.boundPlates) { binding in
@@ -258,7 +295,10 @@ private struct CommunityPlateSettings: View {
                 }
             }
         }
-        .task { await refreshNotifications(); await store.refresh() }
+        .task {
+            if serverAddress.isEmpty { serverAddress = UserDefaults.standard.string(forKey: CommunityHTTPClient.overrideKey) ?? "" }
+            await refreshNotifications(); await store.refresh()
+        }
         .refreshable { await store.refresh(); await refreshNotifications() }
         .confirmationDialog("刪除帳號、車牌綁定及訊息？此操作無法復原。", isPresented: $deleting, titleVisibility: .visible) {
             Button("永久刪除", role: .destructive) { Task { await store.deleteAccount() } }
@@ -614,8 +654,10 @@ private struct CommunityLoginView: View {
 }
 
 private struct CommunityInbox: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var store: ParkingCommunityStore
     @ObservedObject private var push = CommunityPushCoordinator.shared
+    @State private var visible = false
     @State private var login = false
     @State private var notificationThread: String?
     var body: some View {
@@ -662,16 +704,28 @@ private struct CommunityInbox: View {
         .onChange(of: store.signedIn) { _, signedIn in
             if signedIn, let id = push.pendingThreadID { notificationThread = id; push.pendingThreadID = nil }
         }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .task(id: visible && scenePhase == .active) {
+            guard visible, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { break }
+                await store.refreshThreads()
+            }
+        }
         .refreshable { await store.refresh() }
         .sheet(isPresented: $login) { CommunityLoginView(store: store) }
     }
 }
 
 private struct CommunityThreadDetail: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject var store: ParkingCommunityStore
     @ObservedObject private var push = CommunityPushCoordinator.shared
     let threadID: String
     let plate: String
+    @State private var refreshGeneration = UUID()
+    @State private var visible = false
     @State private var messages: [CommunityMessage] = []
     @State private var text = ""
     @State private var key = UUID()
@@ -697,37 +751,79 @@ private struct CommunityThreadDetail: View {
                     }
                 }
             }
-            Section("快捷回覆") {
-                ForEach(["感謝師兄", "唔該", "多謝提醒"], id: \.self) { template in
-                    Button(template) { text = template }
-                }
-                TextField("自由輸入文字（最多 200 字）", text: $text, axis: .vertical)
-                    .onChange(of: text) { _, value in text = String(value.prefix(200)); key = UUID() }
-                Button("回覆") { Task { await reply() } }
-                    .disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                if busy { ProgressView() }
-                if let status { Text(status).font(.footnote) }
-            }
         }
         .navigationTitle(plate)
-        .disabled(busy)
-        .task { await refresh() }
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            VStack(alignment: .leading, spacing: 10) {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack {
+                        ForEach(["感謝師兄", "唔該", "多謝提醒"], id: \.self) { template in
+                            Button(template) { text = template; status = nil }
+                                .buttonStyle(.bordered)
+                                .disabled(busy)
+                        }
+                    }
+                }
+                HStack(alignment: .bottom) {
+                    TextField("輸入回覆，或揀上面快捷句", text: $text, axis: .vertical)
+                        .lineLimit(1...3)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: text) { _, value in text = String(value.prefix(200)); key = UUID() }
+                        .disabled(busy)
+                    Button { Task { await reply() } } label: {
+                        if busy { ProgressView() }
+                        else { Label("發送回覆", systemImage: "paperplane.fill") }
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(busy || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .fixedSize(horizontal: true, vertical: false)
+                    .accessibilityIdentifier("community.sendReply")
+                }
+                if let status { Text(status).font(.footnote).accessibilityIdentifier("community.replyStatus") }
+                else if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    Text("已填入回覆，撳「發送回覆」先會送出。").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding().background(.regularMaterial)
+        }
+        .onAppear { visible = true }
+        .onDisappear { visible = false }
+        .task(id: visible && scenePhase == .active) {
+            guard visible, scenePhase == .active else { return }
+            while !Task.isCancelled {
+                if !busy { await refresh() }
+                do { try await Task.sleep(for: .seconds(5)) } catch { break }
+            }
+        }
         .refreshable { await refresh() }
         .confirmationDialog("封鎖後不會再互相接收提醒。", isPresented: Binding(get: { blockedUser != nil }, set: { if !$0 { blockedUser = nil } }), titleVisibility: .visible) {
             Button("封鎖", role: .destructive) { if let user = blockedUser { Task { await block(user) } } }
         }
     }
     @MainActor private func refresh() async {
-        do { messages = try await store.api.messages(threadID) }
-        catch { messages = []; status = error.localizedDescription; store.handle(error) }
+        let generation = UUID()
+        refreshGeneration = generation
+        do {
+            let fetched = try await store.api.messages(threadID)
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
+            messages = fetched
+        }
+        catch {
+            guard !Task.isCancelled, refreshGeneration == generation else { return }
+            status = error.localizedDescription; store.handle(error)
+        }
     }
     @MainActor private func reply() async {
+        guard !busy else { return }
+        let outgoing = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !outgoing.isEmpty else { return }
+        refreshGeneration = UUID()
         busy = true; status = nil
         defer { busy = false }
         do {
-            try await store.api.reply(thread: threadID, text: text, key: key)
+            try await store.api.reply(thread: threadID, text: outgoing, key: key)
             text = ""; key = UUID(); await refresh()
-            status = "回覆已儲存。" + push.status
+            status = "回覆已發送。"
         } catch { status = error.localizedDescription; store.handle(error) }
     }
     @MainActor private func report() async {
