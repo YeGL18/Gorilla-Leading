@@ -26,3 +26,11 @@ FCM high-priority data messages create private generic notifications; the plate
 and message content are fetched only after authenticated app opening. Android 13+
 requires notification permission. Device registration is retried when the app
 resumes. Provider acceptance is not proof of delivery; test with real devices.
+
+
+Reply fixes (0.2-test): quick phrases fill a draft; the fixed bottom “發送回覆”
+button submits it explicitly and remains available while messages scroll. Sending
+locks the editor to prevent accidental duplicate submissions and retains a failed
+request's draft/idempotency key. The visible inbox/thread refreshes every five
+seconds, stops on pause, and does not rebuild the editor. Foreground refresh is a
+fallback only; background notifications still require real FCM/APNs credentials.

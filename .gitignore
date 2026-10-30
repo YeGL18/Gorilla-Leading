@@ -128,3 +128,9 @@ backend/parking-community/.push/
 backend/parking-community/.venv/
 
 android/dist/
+
+# Local test artifacts and side projects
+__pycache__/
+backend/parking-community/*.log
+output/
+sites/

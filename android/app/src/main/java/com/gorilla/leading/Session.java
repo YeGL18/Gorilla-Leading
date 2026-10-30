@@ -15,11 +15,17 @@ import javax.crypto.spec.GCMParameterSpec;
 
 final class Session {
     private final SharedPreferences prefs;
-    private final String scope;
     Session(Context context) {
         prefs = context.getSharedPreferences("community", Context.MODE_PRIVATE);
-        scope = "session:" + BuildConfig.API_BASE_URL;
     }
+    // A saved override lets a new tunnel host apply without rebuilding the APK.
+    String baseUrl() {
+        String override = prefs.getString("apiOverride", "").trim();
+        return override.isEmpty() ? BuildConfig.API_BASE_URL : override;
+    }
+    void setBaseUrl(String value) { prefs.edit().putString("apiOverride", value.trim()).apply(); }
+    // Tokens are scoped by API origin so a changed server never reuses an old session.
+    private String scope() { return "session:" + baseUrl(); }
     private SecretKey key() throws Exception {
         KeyStore store = KeyStore.getInstance("AndroidKeyStore"); store.load(null);
         if (store.containsAlias("gorilla-community")) return (SecretKey)store.getKey("gorilla-community", null);
@@ -30,7 +36,7 @@ final class Session {
     }
     String token() {
         try {
-            String value = prefs.getString(scope, ""); if (value.isEmpty()) return "";
+            String value = prefs.getString(scope(), ""); if (value.isEmpty()) return "";
             String[] parts = value.split(":");
             Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
             cipher.init(Cipher.DECRYPT_MODE, key(), new GCMParameterSpec(128, Base64.decode(parts[0], Base64.NO_WRAP)));
@@ -40,9 +46,9 @@ final class Session {
     void save(String token) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding"); cipher.init(Cipher.ENCRYPT_MODE, key());
         String value = Base64.encodeToString(cipher.getIV(),Base64.NO_WRAP) + ":" + Base64.encodeToString(cipher.doFinal(token.getBytes(StandardCharsets.UTF_8)),Base64.NO_WRAP);
-        if (!prefs.edit().putString(scope,value).commit()) throw new Exception("無法安全儲存登入資料");
+        if (!prefs.edit().putString(scope(),value).commit()) throw new Exception("無法安全儲存登入資料");
     }
-    void clear() { prefs.edit().remove(scope).apply(); }
+    void clear() { prefs.edit().remove(scope()).apply(); }
     String deviceId() {
         String id = prefs.getString("installation", "");
         if (id.isEmpty()) { id = UUID.randomUUID().toString(); prefs.edit().putString("installation",id).apply(); }

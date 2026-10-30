@@ -15,8 +15,9 @@ final class Api {
         JSONObject result=new JSONObject(); for(int i=0;i<pairs.length;i+=2) result.put((String)pairs[i],pairs[i+1]); return result;
     }
     JSONObject call(String method,String path,JSONObject body,boolean authenticated) throws Exception {
-        if (!BuildConfig.API_BASE_URL.startsWith("https://")) throw new Exception("測試服務未設定");
-        HttpURLConnection connection=(HttpURLConnection)new URL(BuildConfig.API_BASE_URL+"/"+path).openConnection();
+        String base=session.baseUrl();
+        if (!base.startsWith("https://")) throw new Exception("測試服務未設定");
+        HttpURLConnection connection=(HttpURLConnection)new URL(base+"/"+path).openConnection();
         connection.setRequestMethod(method); connection.setConnectTimeout(15000);connection.setReadTimeout(20000);
         connection.setInstanceFollowRedirects(false); connection.setUseCaches(false);
         connection.setRequestProperty("Content-Type","application/json");
