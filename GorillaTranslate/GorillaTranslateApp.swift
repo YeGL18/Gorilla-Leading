@@ -20,9 +20,16 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         CommunityPushCoordinator.shared.didFail()
     }
-    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        if let thread = response.notification.request.content.userInfo["threadId"] as? String {
-            await CommunityPushCoordinator.shared.route(threadID: thread)
+    // 點通知開 App：必須用 completion-handler 變體並喺主線程完成。
+    // async 變體會喺背景 cooperative thread 完成並調用 completion，
+    // 令 UIKit 狀態還原（_updateSnapshotAndStateRestoration）喺非主線程觸發斷言而閃退。
+    nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
+                                           didReceive response: UNNotificationResponse,
+                                           withCompletionHandler completionHandler: @escaping () -> Void) {
+        let thread = response.notification.request.content.userInfo["threadId"] as? String
+        Task { @MainActor in
+            if let thread { CommunityPushCoordinator.shared.route(threadID: thread) }
+            completionHandler()
         }
     }
 
@@ -34,10 +41,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         .all
     }
 
-    /// App 在前台時都顯示通知 banner + 播放音效
+    /// App 在前台時都顯示通知 banner + 播放音效（completion 喺主線程完成）
     nonisolated func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                           willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        [.banner, .sound]
+                                           willPresent notification: UNNotification,
+                                           withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
+        Task { @MainActor in completionHandler([.banner, .sound]) }
     }
 }
 
