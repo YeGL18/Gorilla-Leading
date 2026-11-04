@@ -1,0 +1,10 @@
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Non-secret UserDefaults storage-key names"
+regexTarget = "secret"
+regexes = [
+  '^trip_observed_driving_departures_v1$',
+  '^parking_altitude_results_v1$',
+]

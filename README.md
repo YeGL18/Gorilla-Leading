@@ -1,169 +1,105 @@
-<div align="center">
+# 🦍 Gorilla Leading
 
-# 🦍 GorillaLeading
+**記住泊車細節，也睇清楚行過嘅路。**
 
-### 大猩猩泊車記憶 — 智能行車助手
+為香港日常駕駛而設的泊車與行程助手。從泊車記憶、附近咪錶，到即時時速、G 值、交通相機提醒及行程回看，把出發、途中與停低後的資訊放在一起。
 
-[![Platform](https://img.shields.io/badge/platform-iOS%2026+-black?style=flat-square&logo=apple)](https://developer.apple.com/ios/)
-[![Swift](https://img.shields.io/badge/Swift-6-orange?style=flat-square&logo=swift)](https://swift.org/)
-[![SwiftUI](https://img.shields.io/badge/SwiftUI-blue?style=flat-square&logo=swift)](https://developer.apple.com/xcode/swiftui/)
-[![License](https://img.shields.io/badge/license-Private-red?style=flat-square)](#)
+[English](README.en.md) · [官方網站](https://www.lucidtelos.com/apps/gorilla-leading/) · [加入 TestFlight](https://testflight.apple.com/join/eFYTTma6) · [幫助中心](https://www.lucidtelos.com/apps/gorilla-leading/help/)
 
-<br/>
+## 目前狀態
 
-一款專為香港駕駛者設計的 iOS 智能行車助手。<br/>
-結合即時車速顯示、泊車記憶、動態島 Live Activity、行程預測等功能，<br/>
-讓每次駕駛都更輕鬆、更安心。
+專案持續開發及測試中。以下介紹以目前測試方向為準，各分支與已發布構建的功能可能不同。
 
-</div>
+- **iOS**：完整駕駛與泊車體驗的主要平台，最低部署版本為 iOS 26.0。
+- **Android**：Android 15+ 泊車互助測試客戶端，與 iOS 共用後端，目前不是整個 iOS App 的完整移植。
+- **後端**：可自行託管的 Python／SQLite 泊車互助服務，支援 APNs／FCM 與 HTTPS Tunnel 部署。
+- **原始碼分支**：`main` 提供專案介紹；較新的平台程式碼位於 [`codex/parking-community`](https://github.com/YeGL18/Gorilla-Leading/tree/codex/parking-community)。部分近期修改仍可能尚未推送，請以實際程式碼及構建為準。
 
----
+## 功能亮點
 
-## ✨ 功能亮點
+### 泊車記憶與逗留記錄
 
-### 🏎️ 即時車速顯示
-- **卡爾曼濾波** 平滑 GPS 車速數據，消除跳動
-- **視差動態效果** — 支援陀螺儀傾斜 / G 力感應兩種模式
-- **動態 Orb 背景** — 根據日出日落時間自動切換晝夜主題
-- **加速音效** — 感應加速時播放引擎聲效
-- **專注模式** — 三級省電（輕度 / 平衡 / 極致），長途駕駛不發燙
+- 自動到訪與手動泊車計時；調整入場時間、離場及泊車時間提醒。
+- 保存位置、相片、車位號、區域與樓層，區分泊車與非開車到達的逗留。
+- 車位辨識可按裝置能力選用快捷指令或裝置上的 Foundation Models；不能識別的欄位保留未知狀態。
+- 地圖記錄可改名、分離聚合及刪除；長按後移動標點，調整所屬停車場。
+- 自訂停車場多邊形範圍、拖動頂點，以及在邊上新增頂點。
 
-### 🅿️ 泊車記憶
-- **OCR 智能辨識** — 拍照自動識別停車場樓層與車位號碼（Vision 框架）
-- **多車位記錄** — 支援同時記錄多個泊車位置
-- **地圖標記** — 在地圖上顯示泊車位置，一目了然
+### 附近咪錶與地圖
 
-### 📱 動態島 & 鎖屏
-- **Live Activity** — 動態島即時顯示泊車 / 行車 / 停留狀態
-- **計時器** — 自動計算泊車時長
-- **狀態切換通知** — 泊車、開車、停留自動切換，帶提示音
+- 查看香港附近咪錶、泊位及可取得的佔用狀態，選擇泊位後規劃路線。
+- 普通地圖、衛星畫面與光球背景切換；朝北、跟隨及持續跟隨視角。
+- 地圖詳情入口可切換全港咪錶、交通相機及特別地點瀏覽。
+- 目的地管理、學習地點、慣常目的地預測與 MapKit 路線規劃。
 
-### 🧭 行程預測
-- **智能預測** — 根據時段（朝早 / 午間 / 下午 / 黃昏 / 深夜）與歷史記錄預測目的地
-- **多目的地管理** — 支援自訂目的地，帶顏色標記與距離 / 時間顯示
-- **路線規劃** — MapKit 路線計算，顯示預計到達時間
+### 即時駕駛儀表
 
-### 🗺️ 香港的士牌考試
-- **完整題庫地點** — 涵蓋道路、醫院、政府機構、酒店、地標、交通設施等分類
-- **地圖標記** — 在地圖上顯示所有考試地點
+- 居中的時速數字及圓點動畫，支援 **km/h／mph**。
+- G-force 圖表、光點拖尾及短時間峰值；連續平靜一段時間後重置臨時峰值。
+- 目前動作顯示加速、剎車、左轉或右轉，包含持續時間、目前力度、峰值及事件評分。
+- 緊湊行程統計、速度及海拔曲線；實際開車狀態開始記錄，當次行程結束後清空即時圖表。
+- 傾斜／G 值視差、可選點擊震動及音效。
 
-### ⚙️ 個人化設定
-- **多語言支援** — 繁體中文 / English
-- **自訂顏色方案** — 多種 Orb 配色可選
-- **地圖樣式** — 切換不同地圖風格
-- **啟動動畫** — 大猩猩品牌開場動畫
+### 回看行程
 
----
+- 按日曆查看已記錄路線，播放、暫停、調整倍速及拖動進度。
+- 完整路線總覽與拉近跟隨藍點兩個獨立鏡頭操作。
+- 距離、平均／最高速度、行程時間、駕駛事件總數及峰值 G 等統計。
+- 時速與海拔變化曲線、最高／最低海拔、選定時刻數據及駕駛事件時間線。
+- 詳情卡片可長按重排，順序會套用到其他行程。
+- 舊到訪記錄若沒有保存軌跡及海拔資料，不能補出完整回放。
 
-## 🏗️ 技術架構
+### 交通相機接近提醒
 
-```
-GorillaTranslation/
-├── GorillaTranslate/               # 主 App
-│   ├── GorillaTranslateApp.swift       # App 入口
-│   ├── ContentView.swift               # 主畫面（膠囊導航 + 多頁面）
-│   ├── Models/
-│   │   ├── LocationManager.swift           # GPS + 卡爾曼濾波
-│   │   ├── ParkingRecognitionService.swift # OCR 泊車辨識
-│   │   ├── GorillaActivityManager.swift    # Live Activity 管理
-│   │   ├── TripPredictor.swift             # 行程預測引擎
-│   │   ├── WeatherService.swift            # 日出日落 API
-│   │   ├── Destination.swift               # 目的地模型
-│   │   ├── SFXPlayer.swift                 # 音效播放
-│   │   └── ...
-│   ├── Views/
-│   │   ├── SpeedView.swift                 # 車速主畫面
-│   │   ├── MapView.swift                   # 地圖畫面
-│   │   ├── SettingsView.swift              # 設定頁面
-│   │   ├── AnimatedBackground.swift        # 動態背景
-│   │   ├── LaunchAnimationView.swift       # 啟動動畫
-│   │   └── ...
-│   └── Extensions/
-│       ├── BorderBeam.swift                # 邊框光效
-│       └── ColorExtension.swift            # 顏色擴展
-├── ParkingTimerWidget/             # Widget Extension
-│   ├── GorillaLiveActivity.swift           # 動態島 UI
-│   └── ParkingTimerWidget.swift            # Widget 入口
-└── Shared/
-    └── GorillaActivityAttributes.swift     # 共享 Activity 模型
-```
+- 主頁顯示附近 **1 公里**內的固定測速及衝紅燈相機，另設全港瀏覽。
+- 按行車速度估算接近距離，目前提醒目標為約 **8 秒**行車距離，仍受定位與方向判定影響。
+- 可配置兩聲提示音、限速讀法及系統女聲；未超速時不朗讀「Slow down」。
+- 道路參考限速由政府道路資料匹配。沒有匹配資料時的 50 km/h 是目前實作的預設參考值，**不代表已核實該相機限速**。衝紅燈相機不顯示道路參考限速。
 
----
+### 《神力科莎》電腦遙測
 
-## 🛠️ 技術棧
+- 支援 **Windows 原版 Assetto Corsa（AC）** 的直接 UDP 連線，不需要另寫 PC 轉發程式。
+- 顯示時速、轉速、波段、油門／剎車踩踏百分比，以及協議提供的車款、賽道及圈速等資訊。
+- 儲存電腦位址後可等待連線；收到新鮮資料時自動切換到遊戲顯示。
+- 遊戲與 GPS 來源有狀態提示；遊戲資料不寫入真實到訪、泊車或行程記錄。
+- ACC、EVO、Forza 及 F1 等其他遊戲尚未列為已完成支援。
 
-| 技術 | 用途 |
-|------|------|
-| **SwiftUI** | 全新聲明式 UI 框架 |
-| **MapKit** | 地圖渲染與路線規劃 |
-| **Vision** | OCR 文字辨識（泊車樓層 / 車位） |
-| **ActivityKit** | Live Activity & 動態島 |
-| **WidgetKit** | 鎖屏 Widget |
-| **CoreLocation** | GPS 定位與地理圍欄 |
-| **CoreMotion** | 陀螺儀 & 加速度計（視差效果） |
-| **AVFoundation** | 音效播放 |
-| **Accelerate** | 高性能數學運算 |
+### 泊車互助：iOS ↔ Android
 
----
+- 車牌輸入／辨識、授權車牌綁定、提醒訊息、對話及回覆。
+- 發出的訊息靠右、收到的訊息靠左；包括舉報、封鎖及帳戶刪除流程。
+- 電郵驗證碼登入；iOS 的 Apple 登入整合需配合已設定的 Apple 能力與後端。
+- APNs／FCM 推送需配置各自的供應商憑證；伺服器接受訊息不等於手機已收到推送。
+- 可更改 HTTPS 服務位址；暫時斷線與使用者主動登出分開處理。
 
-## 📋 系統要求
+### 外觀與多尺寸佈局
 
-- **iOS 26.0+**
-- **Xcode 26+**
-- iPhone（需 GPS、陀螺儀、相機）
+- **光球、時情、黑武士、M3 Concept** 四個視覺主題。
+- 外觀與透明／深色玻璃分開設定，可自訂部分功能重點色。
+- 配合日出日落的時情背景、可選啟動動畫，以及動態島／鎖定畫面的 Live Activity。
+- iPhone 直橫屏、iPad 與 iPhone Duo 內外屏佈局持續調整中。
 
----
+## 相容性與開發
 
-## 🚀 安裝
+| 項目 | 狀態／要求 |
+| --- | --- |
+| iOS App | 最低 iOS 26.0；新 SDK 功能按系統版本及裝置能力啟用 |
+| 直接圖片辨識 | 目前實作要求 iOS 27、相容裝置及可用且支援視覺輸入的系統模型 |
+| Android 互助客戶端 | Android 15／API 35+，Java 17、Android SDK 35 |
+| 自託管互助服務 | Python 3.11+、SQLite；郵件與推送需自行配置 |
+| AC 遙測 | Windows 原版 AC、同一可信區域網絡、UDP 9996 |
+| CarPlay | 已有整合程式碼；**仍需 Apple 停車類別 entitlement 批准與實車驗證** |
 
-```bash
-# Clone 專案
-git clone https://github.com/YeGL18/Gorilla-Leading.git
+詳細說明：[功能與資料界線](docs/FEATURES.md) · [構建與部署](docs/DEVELOPMENT.md) · [安全回報](SECURITY.md) · [第三方與資料來源](THIRD_PARTY_NOTICES.md)
 
-# 開啟 Xcode
-open GorillaTranslation.xcodeproj
-```
+## 使用與資料說明
 
-1. 在 Xcode 中選擇你的 Apple Developer Team
-2. 選擇目標裝置（實機推薦，模擬器無 GPS）
-3. Build & Run ▶️
+GPS、海拔、樓層、車位辨識及目的地預測都有誤差；GPS 海拔並非停車場樓層。事件評分不是認證駕駛安全評核。咪錶佔用、相機位置及限速資料可能延遲或缺漏，請以現場路牌、交通燈及實際情況為準，並在停車後操作設定。
 
----
+泊車／行程記錄與帳戶互助服務的資料流程不同，詳見[私隱政策](https://www.lucidtelos.com/apps/gorilla-leading/privacy/)及[使用條款](https://www.lucidtelos.com/apps/gorilla-leading/terms/)。
 
-## 📸 畫面預覽
+## 授權與聯絡
 
-<div align="center">
+倉庫公開不會自動改變專案原有的專有授權安排。目前未為 App 原始碼及品牌素材授予一般開源授權；第三方程式、圖標、地圖及資料集依各自條款使用。
 
-| 車速顯示 | 泊車記憶 | 動態島 |
-|:---------:|:---------:|:------:|
-| 即時車速 + 動態背景 | OCR 辨識 + 地圖標記 | 靈動島狀態切換 |
-
-</div>
-
----
-
-## 🌟 設計理念
-
-> **「泊車唔使再記，行車唔使再睇。」**
-
-GorillaLeading 的設計靈感來自香港駕駛者的日常痛點：
-
-- 🏢 商場停車場總是忘記停在哪一層
-- 🚗 長途駕駛時手機過熱耗電
-- 📍 不同時段去不同地方，每次都要重新開導航
-
-我們用 **OCR 自動辨識** 解決泊車記憶問題，用 **專注模式** 解決耗電問題，用 **行程預測** 解決導航問題。
-
----
-
-## 📄 License
-
-This project is private and proprietary.
-
----
-
-<div align="center">
-
-**Made with 🦍 in Hong Kong**
-
-</div>
+香港製作。支援電郵：[yeglyy18@gmail.com](mailto:yeglyy18@gmail.com)。
