@@ -117,6 +117,9 @@ struct LaunchAnimationView: View {
             .animation(morphAnimation, value: toggle)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // Centre in the full window, including asymmetric camera/status and
+        // toolbar safe areas on Duo, rather than in its remaining content area.
+        .ignoresSafeArea(.container, edges: .all)
         .contentShape(Rectangle())
         .onTapGesture {
             handleTap()

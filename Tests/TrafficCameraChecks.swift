@@ -14,9 +14,9 @@ import CoreLocation
         precondition(catalog.cameras.filter { $0.roadSpeedLimitKmh == nil }.allSatisfy { $0.displayedSpeedLimitKmh == 50 })
         let center = CLLocation(latitude: camera.latitude, longitude: camera.longitude)
         let inside = TrafficCamera(id: "inside", kind: "rlc", name: "", english: "",
-                                   latitude: 22.317, longitude: 114.17)
+                                   latitude: 22.308, longitude: 114.17)
         let outside = TrafficCamera(id: "outside", kind: "sec", name: "", english: "",
-                                    latitude: 22.319, longitude: 114.17)
+                                    latitude: 22.313, longitude: 114.17)
         let sites = [camera, inside, outside]
         precondition(CameraAlertSpeech.text(for: inside) == "Red-light camera ahead.")
         precondition(!CameraAlertSpeech.text(for: inside).contains("limit"))
@@ -33,6 +33,34 @@ import CoreLocation
         precondition(CameraAlertSpeech.text(for: inside, format: .beepOnly).isEmpty)
         precondition(CameraAlertSpeech.text(for: inside, format: .number) == "Red-light camera ahead.")
         precondition(CameraAlertSpeech.text(for: inside, announceRedLight: false).isEmpty)
+        precondition(CameraSpeechLanguage.allCases.count == 20)
+        for language in CameraSpeechLanguage.allCases {
+            let full = CameraAlertSpeech.text(for: camera, language: language)
+            precondition(full.contains("50") && !full.contains("{limit}"))
+            precondition(CameraAlertSpeech.text(for: camera, format: .number, language: language) == "50")
+            precondition(CameraAlertSpeech.text(for: camera, format: .beepOnly, language: language).isEmpty)
+            precondition(!CameraAlertSpeech.text(for: inside, language: language).isEmpty)
+            precondition(CameraAlertSpeech.text(for: inside, announceRedLight: false, language: language).isEmpty)
+            precondition(CameraAlertSpeech.text(for: camera, speedKmh: 50, language: language) == full)
+            precondition(CameraAlertSpeech.text(for: camera, speedKmh: .nan, language: language) == full)
+            precondition(CameraAlertSpeech.text(for: camera, speedKmh: .infinity, language: language) == full)
+            precondition(CameraAlertSpeech.text(for: camera, speedKmh: 51, language: language) != full)
+            precondition(CameraAlertSpeech.text(for: camera, speedKmh: 51, includeSlowDown: false, language: language) == full)
+            precondition(language.voiceTags.allSatisfy(language.acceptsVoice))
+        }
+        precondition(CameraSpeechLanguage.resolve(preference: "app", appLanguage: "ja", systemLanguages: ["en-US"]) == .japanese)
+        precondition(CameraSpeechLanguage.resolve(preference: "system", appLanguage: "ja", systemLanguages: ["fr-CA"]) == .french)
+        precondition(CameraSpeechLanguage.resolve(preference: "yue", appLanguage: "ja", systemLanguages: ["en-US"]) == .cantonese)
+        precondition(CameraSpeechLanguage.resolve(preference: "system", appLanguage: "ja", systemLanguages: []) == .english)
+        precondition(CameraSpeechLanguage.resolve(preference: "system", appLanguage: "ja", systemLanguages: ["ar-SA"]) == .english)
+        for tag in ["yue-HK", "zh_HK", "zh-Hant-HK"] { precondition(CameraSpeechLanguage.from(tag) == .cantonese) }
+        for tag in ["zh-TW", "zh-Hant", "zh-Hant-TW"] { precondition(CameraSpeechLanguage.from(tag) == .traditionalChinese) }
+        for tag in ["zh", "zh-CN", "zh-Hans", "zh-Hans-SG"] { precondition(CameraSpeechLanguage.from(tag) == .simplifiedChinese) }
+        precondition(!CameraSpeechLanguage.cantonese.acceptsVoice("zh-CN"))
+        precondition(!CameraSpeechLanguage.traditionalChinese.acceptsVoice("zh-HK"))
+        precondition(CameraAlertSpeech.text(for: camera, language: .japanese).contains("時速50"))
+        precondition(CameraAlertSpeech.text(for: camera, language: .cantonese).contains("每小時50公里"))
+        print("PASS: 20 speech languages, app/system overrides, Cantonese/Mandarin voice matching, localized overspeed rules")
         precondition(CameraMarkerPolicy.visible(sites, enabled: true, location: center, mode: .nearby).map(\.id) == ["test", "inside"])
         precondition(CameraMarkerPolicy.visible(sites, enabled: true, location: nil, mode: .nearby).isEmpty)
         precondition(CameraMarkerPolicy.visible(sites, enabled: false, location: center, mode: .nearby).isEmpty)
@@ -43,7 +71,7 @@ import CoreLocation
         precondition(abs(CameraApproachPolicy.warningRadius(speed: 50 / 3.6) - 111.111) < 0.01)
         precondition(abs(CameraApproachPolicy.warningRadius(speed: 100 / 3.6) - 222.222) < 0.01)
         precondition(CameraApproachPolicy.warningRadius(speed: 50) == 300)
-        print("PASS: nearby 2 km filtering, both camera types, overview isolation, disabled/no GPS, speed-based warning distances")
+        print("PASS: nearby 1 km filtering, both camera types, overview isolation, disabled/no GPS, speed-based warning distances")
         func fix(_ metres: Double, _ seconds: Double, course: Double = 0, accuracy: Double = 5,
                  speed: Double = 30) -> CLLocation {
             CLLocation(coordinate: .init(latitude: 22.3 - metres / 111195, longitude: 114.17),

@@ -13,6 +13,11 @@ final class TripReplayStore: ObservableObject {
     }
     @Published private(set) var trips: [TripReplay] = []
     @Published private(set) var activeID: UUID?
+    /// Ephemeral dashboard session. Never falls back to a completed history entry.
+    @Published private(set) var drivingTrip: TripReplay?
+    private var liveDriving = false
+    private var liveAltitudeFilter = ReplayAltitudeFilter()
+    private var liveNeedsBreak = true
     @Published private(set) var enabled: Bool
     @Published private(set) var retentionDays: Int
     @Published private(set) var storageError: String?
@@ -49,9 +54,39 @@ final class TripReplayStore: ObservableObject {
 
     var isRecording: Bool { enabled && foreground && !game && activeID != nil }
 
+    func setDriving(_ value: Bool) {
+        let active = value && enabled && !game
+        guard active != liveDriving else { return }
+        liveDriving = active
+        liveAltitudeFilter = ReplayAltitudeFilter()
+        liveNeedsBreak = true
+        drivingTrip = active ? TripReplay(id: UUID(), points: []) : nil
+    }
+
+    private func appendDrivingPoint(_ input: TripReplayPoint) {
+        guard liveDriving, var trip = drivingTrip else { return }
+        if let last = trip.points.last {
+            let dt = input.time.timeIntervalSince(last.time)
+            guard dt >= 1 else { return }
+            if dt <= 12, last.distance(to: input) > max(80, dt * 100 + last.accuracy + input.accuracy) {
+                liveNeedsBreak = true
+                return
+            }
+        }
+        var point = input
+        point.driving = true
+        point.breakBefore = liveNeedsBreak || trip.points.last.map { !$0.connects(to: point) } == true
+        point.altitude = liveAltitudeFilter.update(point.altitude, at: point.time, reset: point.breakBefore)
+        trip.points.append(point)
+        if trip.points.count > 14400 { trip.points.removeFirst(trip.points.count - 14400) }
+        liveNeedsBreak = false
+        drivingTrip = trip
+    }
+
     func setEnabled(_ value: Bool) {
         guard archiveReadable || !value else { return }
         enabled = value
+        if !value { setDriving(false) }
         defaults.set(value, forKey: "tripReplayEnabled")
         if !value {
             recorder.finish()
@@ -76,6 +111,8 @@ final class TripReplayStore: ObservableObject {
         guard foreground != self.foreground || game != self.game else { return }
         self.foreground = foreground
         self.game = game
+        liveNeedsBreak = true
+        if game { setDriving(false) }
         if !foreground || game {
             pendingPrediction = nil
             recorder.pause()
@@ -101,6 +138,7 @@ final class TripReplayStore: ObservableObject {
             point.lateralG = force.lateral
             point.longitudinalG = force.longitudinal
         }
+        appendDrivingPoint(point)
         let previousActive = recorder.archive.activeID
         recorder.append(point, automotive: automotive, pedestrian: pedestrian)
         if let pendingPrediction { recorder.attachPrediction(pendingPrediction) }
@@ -161,8 +199,13 @@ final class TripReplayStore: ObservableObject {
         if let result = tracker.lastCompleted, result.endedAt != lastEventTime {
             lastEventTime = result.endedAt
             let end = Date().addingTimeInterval(result.endedAt - uptime)
-            pendingEvents.append(TripReplayEvent(id: UUID(), start: end.addingTimeInterval(-result.duration),
-                end: end, action: result.action, peakG: result.peak, score: result.score))
+            let event = TripReplayEvent(id: UUID(), start: end.addingTimeInterval(-result.duration),
+                end: end, action: result.action, peakG: result.peak, score: result.score)
+            pendingEvents.append(event)
+            if var trip = drivingTrip, event.start >= trip.start {
+                trip.events.append(event)
+                drivingTrip = trip
+            }
         }
     }
 

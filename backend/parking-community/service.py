@@ -56,10 +56,12 @@ def request_key(value):
 
 
 class Service:
-    def __init__(self, database, secret, deliver, clock=time.time, providers=None):
+    def __init__(self, database, secret, deliver, clock=time.time, providers=None, android_release=None, apple=None):
         require(len(secret) >= 32, 'server_secret_too_short', 500)
         self.database, self.secret, self.deliver, self.clock = str(database), secret.encode(), deliver, clock
         self.providers = providers or {}
+        self.android_release = android_release
+        self.apple = apple
         self.lock = threading.RLock()
         with self.db() as db:
             db.executescript(Path(__file__).with_name('schema.sql').read_text())
@@ -142,6 +144,7 @@ class Service:
 
     def cleanup(self):
         with self.db() as db:
+            db.execute('DELETE FROM apple_challenges WHERE expires<=?', (self.clock(),))
             now = self.clock()
             db.execute('DELETE FROM threads WHERE expires<=?', (now,))
             db.execute('DELETE FROM sessions WHERE expires<=?', (now,))
@@ -175,19 +178,110 @@ class Service:
                                [(str(uuid.uuid4()), outbox_id, device['id']) for device in devices])
                 db.execute('INSERT INTO outbox_prepared VALUES (?)', (outbox_id,))
 
-    def message_result(self, row):
-        return {'id': row['id'], 'authorId': row['author_id'], 'text': row['body'], 'createdAt': row['created']}
+    def message_result(self, row, uid):
+        return {'id': row['id'], 'authorId': row['author_id'], 'mine': row['author_id'] == uid, 'text': row['body'], 'createdAt': row['created']}
+
+    def apple_challenge(self, body, token, ip):
+        require(self.apple is not None, 'apple_unavailable', 503)
+        purpose = body.get('purpose', 'login')
+        require(purpose in ['login', 'link'])
+        uid = self.authenticate(token) if purpose == 'link' else None
+        nonce, challenge = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
+        with self.db() as db:
+            self.limit(db, 'apple-challenge:' + self.digest(ip), 20, 3600)
+            db.execute('DELETE FROM apple_challenges WHERE expires<=?', (self.clock(),))
+            if uid:
+                session = db.execute('SELECT expires FROM sessions WHERE digest=?', (self.digest(token),)).fetchone()
+                require(session and session['expires'] - 30 * 86400 >= self.clock() - 300, 'recent_login_required', 401)
+                self.limit(db, 'apple-link:' + uid, 5, 3600)
+            db.execute('INSERT INTO apple_challenges VALUES (?,?,?,?,?)',
+                       (self.digest(challenge), hashlib.sha256(nonce.encode()).hexdigest(), purpose, uid, self.clock() + 300))
+        return {'challengeId': challenge, 'nonce': nonce, 'expiresIn': 300}
+
+    def apple_login(self, body, token, ip):
+        require(self.apple is not None, 'apple_unavailable', 503)
+        challenge = body.get('challengeId')
+        require(isinstance(challenge, str) and 1 <= len(challenge) <= 128)
+        with self.db() as db:
+            self.limit(db, 'apple-verify:' + self.digest(ip), 30, 3600)
+            row = db.execute('SELECT * FROM apple_challenges WHERE digest=? AND expires>?',
+                             (self.digest(challenge), self.clock())).fetchone()
+        require(row is not None, 'apple_challenge_expired', 401)
+        uid = self.authenticate(token) if row['purpose'] == 'link' else None
+        require(row['purpose'] != 'link' or uid == row['user_id'], 'apple_verification_failed', 401)
+        try:
+            subject, refresh = self.apple.exchange(body.get('identityToken'), body.get('authorizationCode'), row['nonce_hash'])
+            encrypted = self.apple.encrypt(refresh)
+        except (ValueError, TypeError, KeyError):
+            raise APIError(401, 'apple_verification_failed')
+        except Exception:
+            raise APIError(503, 'apple_unavailable')
+        with self.db() as db:
+            # Consume the server challenge once, after Apple verifies both tokens.
+            found = db.execute('DELETE FROM apple_challenges WHERE digest=? AND expires>?',
+                               (self.digest(challenge), self.clock())).rowcount
+            require(found == 1, 'apple_challenge_expired', 401)
+            existing = db.execute('SELECT user_id FROM apple_identities WHERE subject=?', (subject,)).fetchone()
+            if uid:
+                require(not existing or existing['user_id'] == uid, 'apple_already_linked', 409)
+                other = db.execute('SELECT subject FROM apple_identities WHERE user_id=?', (uid,)).fetchone()
+                require(not other or other['subject'] == subject, 'apple_already_linked', 409)
+            elif existing:
+                uid = existing['user_id']
+            else:
+                uid = str(uuid.uuid4())
+                # Apple-only accounts have no email-based login until explicitly linked.
+                db.execute('INSERT INTO users VALUES (?,?)', (uid, 'apple:' + self.digest(subject)))
+            db.execute('INSERT OR IGNORE INTO apple_identities VALUES (?,?)', (subject, uid))
+            db.execute('INSERT OR IGNORE INTO apple_tokens VALUES (?,?,?)', (self.digest(refresh), uid, encrypted))
+            session = secrets.token_urlsafe(32)
+            expires = self.clock() + 30 * 86400
+            db.execute('INSERT INTO sessions VALUES (?,?,?)', (self.digest(session), uid, expires))
+        return {'token': session, 'userId': uid, 'expiresAt': expires}
+
+    def revoke_apple_pending(self):
+        if self.apple is None:
+            return
+        with self.db() as db:
+            rows = db.execute('SELECT * FROM apple_revocations WHERE next_attempt<=? LIMIT 4', (self.clock(),)).fetchall()
+        for row in rows:
+            try:
+                self.apple.revoke_encrypted(row['encrypted'])
+            except Exception:
+                with self.db() as db:
+                    db.execute('UPDATE apple_revocations SET attempts=attempts+1,next_attempt=? WHERE digest=?',
+                               (self.clock() + min(3600, 15 * 2 ** min(row['attempts'], 8)), row['digest']))
+            else:
+                with self.db() as db:
+                    db.execute('DELETE FROM apple_revocations WHERE digest=?', (row['digest'],))
 
     def dispatch(self, method, path, body, token='', ip='local'):
         require(isinstance(body, dict))
         if method == 'GET' and path == '/capabilities':
-            return {'push': {p: p in self.providers for p in ['apns','fcm']}}
+            return {'service': 'gorilla-parking-community', 'apiVersion': 1,
+                    'features': ['recipient_lookup', 'message_ownership'],
+                    'auth': {'apple': self.apple is not None},
+                    'push': {p: p in self.providers for p in ['apns','fcm']}}
         if method == 'POST' and path == '/auth/start':
             return self.start_login(body, ip)
         if method == 'POST' and path == '/auth/verify':
             return self.finish_login(body, ip)
+        if method == 'POST' and path == '/auth/apple/challenge':
+            return self.apple_challenge(body, token, ip)
+        if method == 'POST' and path == '/auth/apple':
+            return self.apple_login(body, token, ip)
+        if method == 'GET' and path == '/android/update':
+            return self.android_release.manifest() if self.android_release else {'available': False}
         uid = self.authenticate(token)
         self.cleanup()
+        if method == 'POST' and path == '/plates/lookup':
+            # Exact, authenticated, rate-limited availability only; never expose owners.
+            with self.db() as db:
+                self.limit(db, 'lookup:' + uid, 30, 3600)
+                _, key = plate_value(body.get('plate'))
+                available = any(not self.blocked(db, uid, r['user_id']) for r in db.execute(
+                    'SELECT user_id FROM bindings WHERE plate_key=? AND user_id<>?', (key, uid)))
+            return {'available': available}
         if method == 'POST':
             with self.db() as db:
                 if path == '/threads':
@@ -197,11 +291,14 @@ class Service:
                 elif path.endswith('/messages'):
                     self.limit(db, 'reply:' + uid, 60, 3600)
         with self.db() as db:
+            if path == '/me/session' and method == 'GET':
+                return {'userId': uid}
             if path == '/auth/logout' and method == 'POST':
                 db.execute('DELETE FROM devices WHERE id IN (SELECT device_id FROM device_sessions WHERE session_digest=?)', (self.digest(token),))
                 db.execute('DELETE FROM sessions WHERE digest=?', (self.digest(token),))
                 return {'status': 'signed_out'}
             if path == '/me' and method == 'DELETE':
+                db.execute('INSERT OR IGNORE INTO apple_revocations (digest,encrypted) SELECT digest,encrypted FROM apple_tokens WHERE user_id=?', (uid,))
                 db.execute('DELETE FROM users WHERE id=?', (uid,))
                 return {'status': 'deleted'}
             if path == '/me/plates':
@@ -228,9 +325,9 @@ class Service:
                 text, req = text_value(body.get('text')), request_key(body.get('idempotencyKey'))
                 old = db.execute('SELECT * FROM threads WHERE sender_id=? AND request_key=?', (uid, req)).fetchone()
                 if old:
-                    first = db.execute('SELECT body FROM messages WHERE thread_id=? ORDER BY rowid LIMIT 1', (old['id'],)).fetchone()
+                    first = db.execute('SELECT id,body FROM messages WHERE thread_id=? ORDER BY rowid LIMIT 1', (old['id'],)).fetchone()
                     require(old['plate'] == plate and first and first['body'] == text, 'idempotency_conflict', 409)
-                    return {'threadId': old['id'], 'expiresAt': old['expires'], 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
+                    return {'threadId': old['id'], 'messageId': first['id'], 'expiresAt': old['expires'], 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
                 recipients = [r['user_id'] for r in db.execute('SELECT user_id FROM bindings WHERE plate_key=? AND user_id<>?', (key, uid)) if not self.blocked(db, uid, r['user_id'])]
                 require(recipients, 'recipient_unavailable', 404)
                 tid, mid, now = str(uuid.uuid4()), str(uuid.uuid4()), self.clock()
@@ -239,7 +336,7 @@ class Service:
                 db.execute('INSERT INTO messages VALUES (?,?,?,?,?,?)', (mid, tid, uid, req, text, now))
                 thread = db.execute('SELECT * FROM threads WHERE id=?', (tid,)).fetchone()
                 self.enqueue(db, thread, mid, uid)
-                return {'threadId': tid, 'expiresAt': now + WEEK, 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
+                return {'threadId': tid, 'messageId': mid, 'expiresAt': now + WEEK, 'status': 'accepted', 'pushStatus': 'queued' if self.providers else 'not_configured'}
             if path == '/threads' and method == 'GET':
                 rows = db.execute('SELECT DISTINCT t.* FROM threads t LEFT JOIN recipients r ON r.thread_id=t.id WHERE (t.sender_id=? OR r.user_id=?) AND t.expires>? ORDER BY t.created DESC,t.id LIMIT 100', (uid, uid, self.clock())).fetchall()
                 result = []
@@ -247,14 +344,14 @@ class Service:
                     if self.blocked(db, uid, row['sender_id']):
                         continue
                     last = db.execute('SELECT * FROM messages WHERE thread_id=? AND author_id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id=? UNION SELECT blocker_id FROM blocks WHERE blocked_id=?) ORDER BY created DESC,rowid DESC LIMIT 1', (row['id'], uid, uid)).fetchone()
-                    result.append({'id': row['id'], 'plate': row['plate'], 'expiresAt': row['expires'], 'lastMessage': self.message_result(last) if last else None})
+                    result.append({'id': row['id'], 'plate': row['plate'], 'createdAt': row['created'], 'expiresAt': row['expires'], 'lastMessage': self.message_result(last, uid) if last else None})
                 return {'threads': result}
             parts = path.strip('/').split('/')
             if len(parts) == 3 and parts[0] == 'threads' and parts[2] == 'messages':
                 thread = self.visible(db, parts[1], uid)
                 if method == 'GET':
                     rows = db.execute('SELECT * FROM (SELECT rowid AS sequence,* FROM messages WHERE thread_id=? AND author_id NOT IN (SELECT blocked_id FROM blocks WHERE blocker_id=? UNION SELECT blocker_id FROM blocks WHERE blocked_id=?) ORDER BY rowid DESC LIMIT 200) ORDER BY sequence', (parts[1], uid, uid))
-                    return {'messages': [self.message_result(r) for r in rows], 'expiresAt': thread['expires']}
+                    return {'messages': [self.message_result(r, uid) for r in rows], 'expiresAt': thread['expires']}
                 if method == 'POST':
                     text, req = text_value(body.get('text')), request_key(body.get('idempotencyKey'))
                     old = db.execute('SELECT * FROM messages WHERE author_id=? AND request_key=?', (uid, req)).fetchone()
@@ -308,7 +405,9 @@ def smtp_deliver(email, code):
     message = EmailMessage()
     message['Subject'] = 'Gorilla Leading 登入驗證碼'
     message['From'], message['To'] = sender, email
-    message.set_content(f'登入驗證碼：{code}\n10 分鐘內有效。若非你要求登入，請忽略。')
+    message.set_content(f'登入驗證碼：{code}\n10 分鐘內有效。\n只在你剛剛開啟的 Gorilla Leading App 輸入。'
+                        '\n我們不會透過電話、訊息或客服要求你透露驗證碼。'
+                        '\n若非你要求登入，請忽略；不要將驗證碼交給其他人。')
     with smtplib.SMTP(host, int(os.getenv('COMMUNITY_SMTP_PORT', '587')), timeout=15) as smtp:
         smtp.starttls(context=ssl.create_default_context())
         if os.getenv('COMMUNITY_SMTP_USER'):
@@ -325,6 +424,19 @@ def make_handler(service):
             try:
                 parsed = urlparse(self.path)
                 require(parsed.path.startswith(PREFIX + '/'), 'not_found', 404)
+                if self.command == 'GET' and parsed.path == PREFIX + '/android/apk':
+                    require(service.android_release is not None, 'not_found', 404)
+                    metadata = service.android_release.manifest()
+                    with service.android_release.path.open('rb') as source:
+                        self.send_response(200)
+                        self.send_header('Content-Type', 'application/vnd.android.package-archive')
+                        self.send_header('Content-Length', str(metadata['bytes']))
+                        self.send_header('Cache-Control', 'no-store')
+                        self.send_header('X-Content-Type-Options', 'nosniff')
+                        self.end_headers()
+                        while chunk := source.read(65536):
+                            self.wfile.write(chunk)
+                    return
                 length = int(self.headers.get('Content-Length', '0'))
                 require(0 <= length <= 16384, 'request_too_large', 413)
                 require(not self.headers.get('Transfer-Encoding'), 'invalid_request')
@@ -369,7 +481,13 @@ def main():
         transports = load_transports(os.environ.get('COMMUNITY_PUSH_CONFIG', ''))
     except Exception:
         parser.error('Push configuration could not be loaded; check local key paths and dependencies. No key values logged.')
-    service = Service(args.db, secret, smtp_deliver, providers=transports)
+    from android_release import AndroidRelease
+    from apple_identity import AppleIdentity
+    try:
+        apple = AppleIdentity.configured(secret)
+    except Exception:
+        parser.error('Apple sign-in configuration could not be loaded. No key values logged.')
+    service = Service(args.db, secret, smtp_deliver, providers=transports, android_release=AndroidRelease.configured(), apple=apple)
     service.cleanup()
     stop = threading.Event()
     def cleanup_worker():
@@ -379,6 +497,14 @@ def main():
             except sqlite3.Error:
                 print('Retention cleanup failed', flush=True)
     threading.Thread(target=cleanup_worker, daemon=True).start()
+    def apple_revocation_worker():
+        while not stop.wait(2):
+            try:
+                service.revoke_apple_pending()
+            except Exception:
+                print('Apple authorization revocation pending; no credentials logged', flush=True)
+    if apple:
+        threading.Thread(target=apple_revocation_worker, daemon=True).start()
     worker = Worker(service, transports)
     def push_worker():
         while not stop.wait(2):

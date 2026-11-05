@@ -126,7 +126,8 @@ struct GorillaActivityAttributes: ActivityAttributes {
         var area: String?       // P1區域
         var floor: String?      // B2
         var spot: String?       // B1258
-        // Driving context (開車中) — road/eta also reused by 停留中
+        // Legacy optional fields decode activities created by older builds.
+        // New presentations and sync payloads no longer use speed, ETA or distance.
         var speedKmh: Int?      // 2
         var speedKmhExact: Double? = nil
         var speedUnitRaw: String? = nil
@@ -147,5 +148,16 @@ struct GorillaActivityAttributes: ActivityAttributes {
         /// binary (otherwise iOS can keep showing a stale render forever).
         /// Optional → old archived payloads decode fine (decodeIfPresent).
         var renderNonce: Int? = nil
+
+        var stablePresentation: Self {
+            var copy = self
+            copy.speedKmh = nil
+            copy.speedKmhExact = nil
+            copy.speedUnitRaw = nil
+            copy.etaMinutes = nil
+            copy.distanceText = nil
+            copy.road = nil
+            return copy
+        }
     }
 }

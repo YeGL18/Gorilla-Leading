@@ -284,6 +284,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     /// 注意 .unknown 唔算失聯：佢只係「未有質素判定」（冷啟動／權限回調
     /// 重新廣播），只要仲有新 fix 就唔應該凍結時速顯示。
     var isGPSLost: Bool {
+        if backgroundStationarySampling { return false } // intentional silence, not a tunnel
         if gpsQuality == .bad { return true }
         guard let loc = lastLocation else { return true }
         return Date().timeIntervalSince(loc.timestamp) > 2.5
@@ -348,19 +349,56 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
     private var learnedDepartureVisits: Set<UUID> = []
     private let learnedTripsKey = "trip_learned_arrival_ids_v1"
     private var energyPolicy = LocationEnergyPolicy()
+    private var restPolicy = BackgroundLocationRestPolicy()
+    private var restDeadline: DispatchWorkItem?
+    private var backgroundStationarySampling = false
+    private var lifecycleObservers: [NSObjectProtocol] = []
 
     func restoreNavigationAccuracy() {
+        restDeadline?.cancel()
+        restDeadline = nil
+        restPolicy.reset()
         energyPolicy.reset()
         manager.desiredAccuracy = kCLLocationAccuracyBestForNavigation
         manager.distanceFilter = kCLDistanceFilterNone
+        backgroundStationarySampling = false
     }
 
     private func updateLocationAccuracy(_ location: CLLocation) {
+        if location.speed >= 1, (0...50).contains(location.horizontalAccuracy),
+           abs(location.timestamp.timeIntervalSinceNow) < 10 {
+            restPolicy.reset()
+            restDeadline?.cancel()
+            restDeadline = nil
+        }
         let mode = energyPolicy.observe(location, captureActive: ParkingFloorStore.shared.barometer.isUpdating)
-        let accuracy = mode == .stationary ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyBestForNavigation
-        if manager.desiredAccuracy != accuracy { manager.desiredAccuracy = accuracy }
-        // Keep regular callbacks: a distance filter would make the existing
-        // GPS-loss watchdog interpret an intentionally quiet receiver as a tunnel.
+        let background = UIApplication.shared.applicationState == .background
+        let captureActive = ParkingFloorStore.shared.barometer.isUpdating
+        let plan = LocationSamplingPlan(mode: mode, background: background,
+                                        captureActive: captureActive,
+                                        resting: restPolicy.canRest(at: Date(), captureActive: captureActive))
+        backgroundStationarySampling = plan.distanceFilter > 0
+        if manager.desiredAccuracy != plan.accuracy { manager.desiredAccuracy = plan.accuracy }
+        if manager.distanceFilter != plan.distanceFilter { manager.distanceFilter = plan.distanceFilter }
+    }
+
+    private func updateRestEvidence(_ activity: CMMotionActivity?) {
+        guard let activity else { return }
+        let stationary = activity.confidence != .low && activity.stationary
+            && !activity.automotive && !activity.walking && !activity.running && !activity.cycling
+        restPolicy.observe(stationary: stationary, at: Date())
+        restDeadline?.cancel()
+        restDeadline = nil
+        guard UIApplication.shared.applicationState == .background else { return }
+        if let location = lastLocation { updateLocationAccuracy(location) }
+        guard let deadline = restPolicy.deadline, deadline > Date() else { return }
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, UIApplication.shared.applicationState == .background,
+                  let location = self.lastLocation else { return }
+            self.updateLocationAccuracy(location)
+        }
+        restDeadline = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + deadline.timeIntervalSinceNow, execute: work)
     }
 
     override init() {
@@ -371,6 +409,29 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.activityType = .automotiveNavigation
         manager.pausesLocationUpdatesAutomatically = false
         manager.allowsBackgroundLocationUpdates = true
+        lifecycleObservers = [
+            NotificationCenter.default.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.manager.stopUpdatingHeading()
+                self.updateRestEvidence(self.currentMotionActivity)
+                if let location = self.lastLocation { self.updateLocationAccuracy(location) }
+            },
+            NotificationCenter.default.addObserver(forName: UIApplication.didBecomeActiveNotification,
+                object: nil, queue: .main) { [weak self] _ in
+                guard let self, self.locationServicesStarted else { return }
+                self.restoreNavigationAccuracy()
+                if CLLocationManager.headingAvailable() {
+                    self.manager.headingOrientation = Self.currentDeviceOrientation()
+                    self.manager.startUpdatingHeading()
+                }
+            }
+        ]
+    }
+
+    deinit {
+        restDeadline?.cancel()
+        lifecycleObservers.forEach(NotificationCenter.default.removeObserver)
     }
 
     private var historyPrepared = false
@@ -456,7 +517,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
         manager.startMonitoringVisits()
-        if CLLocationManager.headingAvailable() {
+        if UIApplication.shared.applicationState != .background, CLLocationManager.headingAvailable() {
             manager.headingOrientation = Self.currentDeviceOrientation()
             manager.startUpdatingHeading()
         }
@@ -475,6 +536,7 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             if activity.walking || activity.running || activity.cycling || (activity.automotive && !activity.stationary) {
                 self?.restoreNavigationAccuracy()
             }
+            self?.updateRestEvidence(activity)
             ParkingFloorStore.shared.barometer.updateMotion(activity)
             let now = Date()
             if activity.automotive {
@@ -878,10 +940,9 @@ class LocationManager: NSObject, ObservableObject, CLLocationManagerDelegate {
             let speedNow = location.speed >= 0 ? location.speed * 3.6 : self.speed
             let movedFar = self.lastGeocodeLocation == nil ||
                 location.distance(from: self.lastGeocodeLocation!) > 50
-            if movedFar {
-                let throttled = speedNow >= 60 &&
-                    self.lastGeocodeTime != nil &&
-                    Date().timeIntervalSince(self.lastGeocodeTime!) < 5
+            if movedFar && UIApplication.shared.applicationState == .active {
+                let minimumInterval: TimeInterval = UIApplication.shared.applicationState == .background ? 60 : (speedNow >= 60 ? 5 : 0)
+                let throttled = self.lastGeocodeTime.map { now.timeIntervalSince($0) < minimumInterval } ?? false
                 if !throttled {
                     self.reverseGeocode(location: location)
                 }
@@ -3660,6 +3721,11 @@ struct LocationEnergyPolicy {
     private var stationarySince: Date?
     private var lastFixTimestamp: Date?
 
+    private var hasObservedStableStop: Bool {
+        guard let stationarySince, let lastFixTimestamp else { return false }
+        return lastFixTimestamp.timeIntervalSince(stationarySince) >= 60
+    }
+
     mutating func reset() { anchor = nil; stationarySince = nil; lastFixTimestamp = nil }
 
     mutating func observe(_ fix: CLLocation, captureActive: Bool, now: Date = Date()) -> Mode {
@@ -3671,7 +3737,7 @@ struct LocationEnergyPolicy {
         }
         if let previous = lastFixTimestamp {
             let gap = fix.timestamp.timeIntervalSince(previous)
-            if gap > 5 || gap < 0 { reset() }
+            if gap < 0 || (gap > 5 && !hasObservedStableStop) { reset() }
         }
         lastFixTimestamp = fix.timestamp
         if anchor == nil || fix.distance(from: anchor!) > 15 {
@@ -3679,6 +3745,42 @@ struct LocationEnergyPolicy {
             stationarySince = fix.timestamp
         }
         return fix.timestamp.timeIntervalSince(stationarySince ?? fix.timestamp) >= 60 ? .stationary : .navigation
+    }
+}
+
+/// Keep precise, unfiltered fixes for movement/floor capture; coalesce a confirmed background stop.
+struct LocationSamplingPlan {
+    let accuracy: CLLocationAccuracy
+    let distanceFilter: CLLocationDistance
+
+    init(mode: LocationEnergyPolicy.Mode, background: Bool, captureActive: Bool, resting: Bool = false) {
+        if background && resting && !captureActive {
+            accuracy = kCLLocationAccuracyHundredMeters
+            distanceFilter = 50
+        } else if background && mode == .stationary && !captureActive {
+            accuracy = kCLLocationAccuracyNearestTenMeters
+            distanceFilter = 20
+        } else {
+            accuracy = mode == .stationary && !captureActive
+                ? kCLLocationAccuracyNearestTenMeters : kCLLocationAccuracyBestForNavigation
+            distanceFilter = kCLDistanceFilterNone
+        }
+    }
+}
+
+/// Reliable motion evidence can settle an indoor stop without demanding good
+/// GPS indefinitely. Moving/uncertain evidence immediately removes the rest mode.
+struct BackgroundLocationRestPolicy {
+    static let delay: TimeInterval = 300
+    private var stationarySince: Date?
+    var deadline: Date? { stationarySince?.addingTimeInterval(Self.delay) }
+    mutating func reset() { stationarySince = nil }
+    mutating func observe(stationary: Bool, at date: Date) {
+        if !stationary { reset() }
+        else if stationarySince == nil { stationarySince = date }
+    }
+    func canRest(at date: Date, captureActive: Bool) -> Bool {
+        !captureActive && deadline.map { date >= $0 } == true
     }
 }
 
@@ -3764,6 +3866,16 @@ struct ParkingAltitudeCapture {
         guard speed > 2, let since = stationarySince else { return false }
         let elapsed = date.timeIntervalSince(since)
         return elapsed >= 1
+    }
+}
+
+enum ParkingCaptureEndPolicy {
+    enum Decision { case keepSampling, finishStableStop, timeout }
+    static func decision(age: TimeInterval, stableAge: TimeInterval,
+                         hasStableCandidate: Bool, stationaryEvidence: Bool, manual: Bool) -> Decision {
+        guard !manual else { return .keepSampling }
+        if hasStableCandidate && stationaryEvidence && stableAge >= 90 { return .finishStableStop }
+        return age >= 900 ? .timeout : .keepSampling
     }
 }
 
@@ -3996,6 +4108,22 @@ final class BarometerSessionManager: NSObject, ObservableObject {
                     // Freeze its estimate once stable, even if the picker is never touched.
                     if stableStop, self.capturePointID != nil {
                         self.finishCapture()
+                        return
+                    }
+                    let decision = ParkingCaptureEndPolicy.decision(
+                        age: timestamp.timeIntervalSince(self.startedAt ?? timestamp),
+                        stableAge: self.capture.stationarySince.map { timestamp.timeIntervalSince($0) } ?? 0,
+                        hasStableCandidate: stableStop, stationaryEvidence: self.motionStationary && !self.motionAutomotive,
+                        manual: self.manualSampling)
+                    if decision == .finishStableStop {
+                        self.finishCapture(useCandidate: true)
+                        return
+                    }
+                    if decision == .timeout {
+                        // No reliable floor is invented at timeout. A new driving
+                        // episode (or explicit manual capture) can start again.
+                        self.cancelCapture()
+                        self.lastDrivingTime = nil
                         return
                     }
                     self.stopConfirmation.update(stableStop: stableStop,

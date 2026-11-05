@@ -504,7 +504,132 @@ final class ScaledMarkerAnnotationView: FadingMarkerAnnotationView {
     }
 }
 
+/// Receives only touches actually delivered to the map, unlike hit-test probes
+/// beneath SwiftUI overlays. Failing immediately never holds up MapKit gestures.
+final class MapBlankTapGestureRecognizer: UITapGestureRecognizer {
+    private var origin: CGPoint?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        if let touch = touches.first { origin = touch.location(in: view) }
+    }
+
+    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesMoved(touches, with: event)
+        guard state == .possible, let origin, let touch = touches.first else { return }
+        let current = touch.location(in: view)
+        if hypot(current.x - origin.x, current.y - origin.y) > 4 { state = .failed }
+    }
+
+    override func reset() {
+        super.reset()
+        origin = nil
+    }
+}
+
+private final class MapTouchDeliveryObserver: UIGestureRecognizer {
+    var delivered: ((Set<UITouch>) -> Void)?
+
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        state = .failed
+        delivered?(touches)
+    }
+
+    override func canPrevent(_ other: UIGestureRecognizer) -> Bool { false }
+    override func canBePrevented(by other: UIGestureRecognizer) -> Bool { false }
+}
+
+/// The same narrow, translucent white casing used by trip replay. Draw it
+/// inside the renderer so route replacement and animation cannot orphan a line.
+class OutlinedRoutePolylineRenderer: MKPolylineRenderer {
+    override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
+        if path == nil { createPath() }
+        guard let path, zoomScale > 0 else { return }
+        drawOutlinedPath(path, zoomScale: zoomScale, in: context)
+    }
+
+    func drawOutlinedPath(_ path: CGPath, zoomScale: MKZoomScale, in context: CGContext) {
+        guard zoomScale > 0 else { return }
+        context.saveGState()
+        applyStrokeProperties(to: context, atZoomScale: zoomScale)
+        strokeOutlinedPath(path, in: context, width: lineWidth / CGFloat(zoomScale))
+        context.restoreGState()
+    }
+
+    func strokeOutlinedPath(_ path: CGPath, in context: CGContext, width: CGFloat) {
+        context.saveGState()
+        context.setLineWidth(width * ((lineWidth + 2) / max(0.01, lineWidth)))
+        context.setStrokeColor(UIColor.white.withAlphaComponent(0.55 * (strokeColor?.cgColor.alpha ?? 1)).cgColor)
+        context.beginPath()
+        context.addPath(path)
+        context.strokePath()
+        context.restoreGState()
+        // Do not inherit MKOverlayPathRenderer's adjusted stroke width. Both
+        // strokes must use the same explicit map-to-screen conversion.
+        context.saveGState()
+        context.setLineWidth(width)
+        context.setStrokeColor((strokeColor ?? .clear).cgColor)
+        context.beginPath()
+        context.addPath(path)
+        context.strokePath()
+        context.restoreGState()
+    }
+}
+
 class NonAdjustingMapView: MKMapView {
+    func isAnnotationHit(at point: CGPoint) -> Bool {
+        for annotation in annotations {
+            guard let marker = self.view(for: annotation), !marker.isHidden, marker.alpha > 0.01 else { continue }
+            if annotation is MKUserLocation {
+                let center = convert(annotation.coordinate, toPointTo: self)
+                if hypot(point.x - center.x, point.y - center.y) <= 18 { return true }
+                continue
+            }
+            let local = convert(point, to: marker)
+            if marker.bounds.contains(local) { return true }
+            // Native annotation titles can sit outside the pin's bounds.
+            func hitsLabel(_ view: UIView) -> Bool {
+                guard !view.isHidden, view.alpha > 0.01 else { return false }
+                if view is UILabel, view.bounds.contains(convert(point, to: view)) { return true }
+                return view.subviews.contains(where: hitsLabel)
+            }
+            if marker.subviews.contains(where: hitsLabel) { return true }
+        }
+        return false
+    }
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        installTouchObservation()
+    }
+
+    required init?(coder: NSCoder) {
+        super.init(coder: coder)
+        installTouchObservation()
+    }
+
+    private func installTouchObservation() {
+        let observer = MapTouchDeliveryObserver(target: nil, action: nil)
+        observer.cancelsTouchesInView = false
+        observer.delaysTouchesBegan = false
+        observer.delaysTouchesEnded = false
+        observer.delivered = { [weak self] touches in self?.receivedMapTouches(touches) }
+        addGestureRecognizer(observer)
+    }
+
+    private func receivedMapTouches(_ touches: Set<UITouch>) {
+        guard onTouchBegan != nil || onTouchEnded != nil else { return }
+        activeTouches.formUnion(touches)
+        guard touchPollTimer == nil else { return }
+        beginAnnotationTouch()
+        allowsUserCameraChanges = true
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.checkTouchRelease() }
+        }
+        touchPollTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+        // This is still the initial touch delivery, before pan recognition.
+        onTouchBegan?()
+    }
     func annotationsDidAppear(_ views: [MKAnnotationView]) {
         for case let view as FadingMarkerAnnotationView in views {
             view.animateAppearance()
@@ -577,32 +702,23 @@ class NonAdjustingMapView: MKMapView {
         return camera.copy() as! MKMapCamera
     }
 
-    // Observe delivery, not recognition: a recognizer remaining .possible can make
-    // MapKit's native pan/pinch wait even when canPrevent returns false.
+    // Collect any additional fingers while a delivered map touch is held.
+    // Never start camera ownership from hitTest: overlays may win the touch.
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
         let hit = super.hitTest(point, with: event)
         guard hit != nil, let event, event.type == .touches,
               onTouchBegan != nil || onTouchEnded != nil,
               bounds.contains(point) else { return hit }
-        if touchPollTimer == nil {
-            beginAnnotationTouch()
-            allowsUserCameraChanges = true
-            // UIKit updates the original touch objects through end/cancellation.
-            // Poll only while held; no added recognizer or per-frame idle work.
-            let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in
-                MainActor.assumeIsolated { self?.checkTouchRelease() }
-            }
-            touchPollTimer = timer
-            RunLoop.main.add(timer, forMode: .common)
-            onTouchBegan?()
-        }
-        // UIKit creates/assigns the touches after hit testing. Collect them after
-        // delivery, while ownership is already manual before native recognition.
+        // hitTest is also a probe beneath SwiftUI overlays. It does not mean the
+        // touch was delivered here (a text field or button may win instead).
+        // Wait for UIKit to assign touch.view before taking camera ownership.
         DispatchQueue.main.async { [weak self] in
-            guard let self, self.touchPollTimer != nil else { return }
-            self.activeTouches.formUnion((event.allTouches ?? []).filter {
-                $0.view?.isDescendant(of: self) == true
-            })
+            guard let self, self.window != nil, self.touchPollTimer != nil else { return }
+            let delivered = (event.allTouches ?? []).filter {
+                $0.view?.isDescendant(of: self) == true && $0.phase != .ended && $0.phase != .cancelled
+            }
+            guard !delivered.isEmpty else { return }
+            self.activeTouches.formUnion(delivered)
         }
         return hit
     }

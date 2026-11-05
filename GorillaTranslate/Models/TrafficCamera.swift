@@ -15,7 +15,10 @@ struct TrafficCamera: Codable, Identifiable {
     var coordinate: CLLocationCoordinate2D { .init(latitude: latitude, longitude: longitude) }
     var title: String { kind == "sec" ? String(localized: "測速相機") : String(localized: "衝紅燈相機") }
     var symbol: String { kind == "sec" ? "camera.fill" : "trafficlight.fill" }
-    var localizedName: String { Locale.preferredLanguages.first?.hasPrefix("zh") == true ? name : english }
+    var localizedName: String {
+        let language = LanguageManager.languageCode
+        return language.hasPrefix("zh") || language.hasPrefix("yue") ? name : english
+    }
     // Cardinal direction is supplied in the site description, not a surveyed heading.
     var direction: Double? {
         let directions: [(String, Double)] = [("NORTHEAST",45),("NORTHWEST",315),("SOUTHEAST",135),
@@ -76,7 +79,7 @@ struct CameraApproachPolicy {
 }
 
 enum MapMarkerOverviewMode {
-    case nearby, cameras, meters, landmarks
+    case nearby, cameras, meters, landmarks, airport
 }
 
 enum CameraSpeechFormat: String, CaseIterable, Identifiable {
@@ -87,36 +90,136 @@ enum CameraSpeechFormat: String, CaseIterable, Identifiable {
         switch self {
         case .beepOnly: return String(localized: "只嗶嗶兩聲")
         case .number: return String(localized: "嗶嗶 + 80")
-        case .short: return String(localized: "嗶嗶 + Speed limit is 80")
-        case .full: return String(localized: "嗶嗶 + Speed limit is 80 kilometers per hour")
+        case .short: return String(localized: "嗶嗶 + 簡短限速")
+        case .full: return String(localized: "嗶嗶 + 限速及單位")
         }
+    }
+}
+
+enum CameraSpeechLanguage: String, CaseIterable, Identifiable {
+    case english = "en", cantonese = "yue", traditionalChinese = "zh-Hant", simplifiedChinese = "zh-Hans"
+    case japanese = "ja", korean = "ko", french = "fr", german = "de", spanish = "es", portuguese = "pt"
+    case italian = "it", dutch = "nl", polish = "pl", turkish = "tr", russian = "ru", ukrainian = "uk"
+    case indonesian = "id", malay = "ms", thai = "th", vietnamese = "vi"
+    static let preferenceKey = "trafficCameraSpeechLanguage"
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .english: "English"
+        case .cantonese: "粵語"
+        case .traditionalChinese: "繁體中文"
+        case .simplifiedChinese: "简体中文"
+        case .japanese: "日本語"
+        case .korean: "한국어"
+        case .french: "Français"
+        case .german: "Deutsch"
+        case .spanish: "Español"
+        case .portuguese: "Português"
+        case .italian: "Italiano"
+        case .dutch: "Nederlands"
+        case .polish: "Polski"
+        case .turkish: "Türkçe"
+        case .russian: "Русский"
+        case .ukrainian: "Українська"
+        case .indonesian: "Bahasa Indonesia"
+        case .malay: "Bahasa Melayu"
+        case .thai: "ไทย"
+        case .vietnamese: "Tiếng Việt"
+        }
+    }
+    var voiceTags: [String] {
+        switch self {
+        case .english: ["en-GB", "en-US"]
+        case .cantonese: ["yue-HK", "zh-HK"]
+        case .traditionalChinese: ["zh-TW"]
+        case .simplifiedChinese: ["zh-CN"]
+        case .japanese: ["ja-JP"]
+        case .korean: ["ko-KR"]
+        case .french: ["fr-FR", "fr-CA"]
+        case .german: ["de-DE"]
+        case .spanish: ["es-ES", "es-MX"]
+        case .portuguese: ["pt-PT", "pt-BR"]
+        case .italian: ["it-IT"]
+        case .dutch: ["nl-NL", "nl-BE"]
+        case .polish: ["pl-PL"]
+        case .turkish: ["tr-TR"]
+        case .russian: ["ru-RU"]
+        case .ukrainian: ["uk-UA"]
+        case .indonesian: ["id-ID"]
+        case .malay: ["ms-MY"]
+        case .thai: ["th-TH"]
+        case .vietnamese: ["vi-VN"]
+        }
+    }
+    static func from(_ tag: String) -> Self? {
+        let code = tag.replacingOccurrences(of: "_", with: "-").lowercased()
+        if code.hasPrefix("yue") || code == "zh-hk" || code.hasPrefix("zh-hant-hk") { return .cantonese }
+        if code.hasPrefix("zh-hant") || code == "zh-tw" || code == "zh-mo" { return .traditionalChinese }
+        if code.hasPrefix("zh") { return .simplifiedChinese }
+        let base = code.split(separator: "-").first.map(String.init) ?? ""
+        return allCases.first { $0.rawValue.lowercased() == base }
+    }
+    static func resolve(preference: String, appLanguage: String, systemLanguages: [String]) -> Self {
+        let requested = preference == "app" ? appLanguage : (preference == "system" ? systemLanguages.first ?? "en" : preference)
+        return from(requested) ?? .english
+    }
+    func acceptsVoice(_ tag: String) -> Bool {
+        Self.from(tag) == self
     }
 }
 
 enum CameraAlertSpeech {
     static func text(for camera: TrafficCamera?, format: CameraSpeechFormat = .full,
                      speedKmh: Double? = nil, includeSlowDown: Bool = true,
-                     announceRedLight: Bool = true) -> String {
+                     announceRedLight: Bool = true, language: CameraSpeechLanguage = .english) -> String {
         guard format != .beepOnly else { return "" }
-        if camera?.kind == "rlc" { return announceRedLight ? "Red-light camera ahead." : "" }
+        let phrases = phrases(language)
+        if camera?.kind == "rlc" { return announceRedLight ? phrases.redLight : "" }
         let limit = camera?.displayedSpeedLimitKmh ?? 80
         if format == .number { return "\(limit)" }
         let warning = includeSlowDown && speedKmh.map { $0.isFinite && $0 > Double(limit) } == true
-            ? "Slow down. " : ""
-        let units = format == .full ? " kilometers per hour" : ""
-        return "\(warning)Speed limit is \(limit)\(units)."
+            ? phrases.slowDown + " " : ""
+        let sentence = format == .full ? phrases.full : phrases.short
+        return warning + sentence.replacingOccurrences(of: "{limit}", with: String(limit))
+    }
+    private struct Phrases { let short: String; let full: String; let slowDown: String; let redLight: String }
+    private static func phrases(_ language: CameraSpeechLanguage) -> Phrases {
+        let values: (String, String, String, String)
+        switch language {
+        case .english: values = ("Speed limit is {limit}.", "Speed limit is {limit} kilometers per hour.", "Slow down.", "Red-light camera ahead.")
+        case .cantonese: values = ("限速{limit}。", "限速每小時{limit}公里。", "請減速。", "前面有衝紅燈相機。")
+        case .traditionalChinese: values = ("限速{limit}。", "速限每小時{limit}公里。", "請減速。", "前方有闖紅燈照相機。")
+        case .simplifiedChinese: values = ("限速{limit}。", "限速每小时{limit}公里。", "请减速。", "前方有闯红灯摄像头。")
+        case .japanese: values = ("制限速度は{limit}です。", "制限速度は時速{limit}キロメートルです。", "速度を落としてください。", "この先に信号無視取締カメラがあります。")
+        case .korean: values = ("제한 속도는 {limit}입니다.", "제한 속도는 시속 {limit}킬로미터입니다.", "속도를 줄이세요.", "전방에 신호 위반 단속 카메라가 있습니다.")
+        case .french: values = ("Vitesse limitée à {limit}.", "Vitesse limitée à {limit} kilomètres par heure.", "Ralentissez.", "Radar de feu rouge à venir.")
+        case .german: values = ("Tempolimit {limit}.", "Tempolimit {limit} Kilometer pro Stunde.", "Bitte langsamer fahren.", "Rotlichtkamera voraus.")
+        case .spanish: values = ("El límite de velocidad es {limit}.", "El límite de velocidad es {limit} kilómetros por hora.", "Reduzca la velocidad.", "Cámara de semáforo en rojo más adelante.")
+        case .portuguese: values = ("O limite de velocidade é {limit}.", "O limite de velocidade é {limit} quilómetros por hora.", "Reduza a velocidade.", "Câmara de controlo de semáforo à frente.")
+        case .italian: values = ("Il limite di velocità è {limit}.", "Il limite di velocità è {limit} chilometri orari.", "Rallentare.", "Telecamera per il controllo del semaforo rosso più avanti.")
+        case .dutch: values = ("De maximumsnelheid is {limit}.", "De maximumsnelheid is {limit} kilometer per uur.", "Verminder uw snelheid.", "Roodlichtcamera verderop.")
+        case .polish: values = ("Ograniczenie prędkości do {limit}.", "Ograniczenie prędkości do {limit} kilometrów na godzinę.", "Zwolnij.", "Przed tobą kamera rejestrująca przejazd na czerwonym świetle.")
+        case .turkish: values = ("Hız sınırı {limit}.", "Hız sınırı saatte {limit} kilometre.", "Yavaşlayın.", "İleride kırmızı ışık kamerası var.")
+        case .russian: values = ("Ограничение скорости {limit}.", "Ограничение скорости {limit} километров в час.", "Снизьте скорость.", "Впереди камера контроля проезда на красный свет.")
+        case .ukrainian: values = ("Обмеження швидкості {limit}.", "Обмеження швидкості {limit} кілометрів на годину.", "Зменште швидкість.", "Попереду камера контролю проїзду на червоне світло.")
+        case .indonesian: values = ("Batas kecepatan {limit}.", "Batas kecepatan {limit} kilometer per jam.", "Kurangi kecepatan.", "Ada kamera lampu merah di depan.")
+        case .malay: values = ("Had laju {limit}.", "Had laju {limit} kilometer sejam.", "Kurangkan kelajuan.", "Kamera lampu isyarat merah di hadapan.")
+        case .thai: values = ("จำกัดความเร็ว {limit}", "จำกัดความเร็ว {limit} กิโลเมตรต่อชั่วโมง", "กรุณาลดความเร็ว", "ข้างหน้ามีกล้องตรวจจับการฝ่าไฟแดง")
+        case .vietnamese: values = ("Giới hạn tốc độ là {limit}.", "Giới hạn tốc độ là {limit} ki lô mét mỗi giờ.", "Hãy giảm tốc độ.", "Phía trước có camera ghi hình vượt đèn đỏ.")
+        }
+        return Phrases(short: values.0, full: values.1, slowDown: values.2, redLight: values.3)
     }
 }
 
 struct CameraMarkerPolicy {
     static func visible(_ cameras: [TrafficCamera], enabled: Bool, location: CLLocation?,
                         mode: MapMarkerOverviewMode) -> [TrafficCamera] {
-        if mode == .meters || mode == .landmarks { return [] }
+        if mode == .meters || mode == .landmarks || mode == .airport { return [] }
         if mode == .cameras { return cameras }
         guard enabled, let location, location.horizontalAccuracy >= 0,
               CLLocationCoordinate2DIsValid(location.coordinate) else { return [] }
         return cameras.filter {
-            location.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) <= 2000
+            location.distance(from: CLLocation(latitude: $0.latitude, longitude: $0.longitude)) <= 1000
         }
     }
 }
@@ -125,6 +228,9 @@ struct CameraMarkerPolicy {
 final class MapMarkerOverviewState: ObservableObject {
     static let shared = MapMarkerOverviewState()
     @Published var mode: MapMarkerOverviewMode = .nearby
+    @Published var airportTarget: AirportDropOffCatalog.Zone?
+    @Published var airportWaitingForLocation = false
+    var airportAnimateEntry = false
 }
 
 struct MapMarkerOverviewMenu: View {
@@ -137,6 +243,7 @@ struct MapMarkerOverviewMenu: View {
             option("衝紅燈及測速相機", symbol: "camera.fill", color: .orange, mode: .cameras)
             option("全港咪錶位", symbol: "parkingsign.circle", color: Color(red: 70/255, green: 173/255, blue: 184/255), mode: .meters)
             option("全港標點", symbol: "mappin.and.ellipse", color: .yellow, mode: .landmarks)
+            option("機場落客指南", symbol: "airplane.departure", color: .cyan, mode: .airport)
         }
         .padding(8).frame(width: 280)
         .foregroundStyle(colorScheme == .dark ? Color.white : Color.primary)
@@ -164,7 +271,7 @@ final class TrafficCameraStore: NSObject, ObservableObject, AVAudioPlayerDelegat
     private var policy = CameraApproachPolicy()
     private var player: AVAudioPlayer?
     private let speaker = AVSpeechSynthesizer()
-    private var pendingSpeech: String?
+    private var pendingSpeech: AVSpeechUtterance?
     private var expiry: Task<Void, Never>?
 
     override init() {
@@ -201,10 +308,21 @@ final class TrafficCameraStore: NSObject, ObservableObject, AVAudioPlayerDelegat
         stopAudio()
         let defaults = UserDefaults.standard
         let format = CameraSpeechFormat(rawValue: defaults.string(forKey: CameraSpeechFormat.preferenceKey) ?? "") ?? .full
-        let text = CameraAlertSpeech.text(for: camera, format: format, speedKmh: speedKmh,
-            includeSlowDown: defaults.object(forKey: "trafficCameraSlowDown") as? Bool ?? true,
-            announceRedLight: defaults.object(forKey: "trafficCameraRedLightSpeech") as? Bool ?? true)
-        pendingSpeech = text.isEmpty ? nil : text
+        if format != .beepOnly {
+            let requested = CameraSpeechLanguage.resolve(
+                preference: defaults.string(forKey: CameraSpeechLanguage.preferenceKey) ?? "app",
+                appLanguage: LanguageManager.languageCode, systemLanguages: Locale.preferredLanguages)
+            let plan = CameraSystemVoice.resolve(requested)
+            let text = CameraAlertSpeech.text(for: camera, format: format, speedKmh: speedKmh,
+                includeSlowDown: defaults.object(forKey: "trafficCameraSlowDown") as? Bool ?? true,
+                announceRedLight: defaults.object(forKey: "trafficCameraRedLightSpeech") as? Bool ?? true,
+                language: plan.language)
+            if !text.isEmpty, let voice = plan.voice {
+                let utterance = AVSpeechUtterance(string: text)
+                utterance.voice = voice
+                pendingSpeech = utterance
+            }
+        }
         // Match the app's ambient session: respect silent mode, mix with music.
         try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
         try? AVAudioSession.sharedInstance().setActive(true)
@@ -232,21 +350,29 @@ final class TrafficCameraStore: NSObject, ObservableObject, AVAudioPlayerDelegat
     }
 
     private func speakPendingAlert() {
-        guard let text = pendingSpeech else { return }
+        guard let utterance = pendingSpeech else { return }
         pendingSpeech = nil
-        let utterance = AVSpeechUtterance(string: text)
-        let voices = AVSpeechSynthesisVoice.speechVoices().filter {
-            $0.language.hasPrefix("en-") && $0.gender == .female && !$0.voiceTraits.contains(.isNoveltyVoice)
-        }
-        let voice = voices.sorted {
-            if $0.quality.rawValue != $1.quality.rawValue { return $0.quality.rawValue > $1.quality.rawValue }
-            if ($0.language == "en-GB") != ($1.language == "en-GB") { return $0.language == "en-GB" }
-            return $0.identifier < $1.identifier
-        }.first
-        guard let voice else { return }
-        utterance.voice = voice
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.94
         speaker.speak(utterance)
+    }
+}
+
+/// Ask iOS for its preferred available voice; do not pin a gender/model or Siri ID.
+enum CameraSystemVoice {
+    struct Plan { let language: CameraSpeechLanguage; let voice: AVSpeechSynthesisVoice? }
+    static func resolve(_ language: CameraSpeechLanguage) -> Plan {
+        if let voice = availableVoice(language) { return Plan(language: language, voice: voice) }
+        return Plan(language: .english, voice: availableVoice(.english))
+    }
+    private static func availableVoice(_ language: CameraSpeechLanguage) -> AVSpeechSynthesisVoice? {
+        if let preferred = AVSpeechSynthesisVoice(language: nil), language.acceptsVoice(preferred.language),
+           !preferred.voiceTraits.contains(.isNoveltyVoice), !preferred.voiceTraits.contains(.isPersonalVoice) { return preferred }
+        for tag in language.voiceTags {
+            if let voice = AVSpeechSynthesisVoice(language: tag), language.acceptsVoice(voice.language),
+               !voice.voiceTraits.contains(.isNoveltyVoice), !voice.voiceTraits.contains(.isPersonalVoice) { return voice }
+        }
+        return AVSpeechSynthesisVoice.speechVoices().filter {
+            language.acceptsVoice($0.language) && !$0.voiceTraits.contains(.isNoveltyVoice) && !$0.voiceTraits.contains(.isPersonalVoice)
+        }.sorted { $0.quality.rawValue > $1.quality.rawValue }.first
     }
 }
 
@@ -405,6 +531,7 @@ struct TrafficCameraSettingsView: View {
     @AppStorage("trafficCameraEnabled") private var enabled = true
     @AppStorage("trafficCameraSound") private var sound = true
     @AppStorage(CameraSpeechFormat.preferenceKey) private var speechFormat = CameraSpeechFormat.full.rawValue
+    @AppStorage(CameraSpeechLanguage.preferenceKey) private var speechLanguage = "app"
     @AppStorage("trafficCameraSlowDown") private var slowDown = true
     @AppStorage("trafficCameraRedLightSpeech") private var redLightSpeech = true
     var body: some View {
@@ -417,8 +544,15 @@ struct TrafficCameraSettingsView: View {
                 }
                 .disabled(!enabled || !sound)
                 if speechFormat != CameraSpeechFormat.beepOnly.rawValue {
+                    Picker("朗讀語言", selection: $speechLanguage) {
+                        Text("跟隨 App 語言").tag("app")
+                        Text("跟隨系統語言").tag("system")
+                        ForEach(CameraSpeechLanguage.allCases) { Text(verbatim: $0.title).tag($0.rawValue) }
+                    }
+                    .accessibilityIdentifier("cameraSpeechLanguage")
+                    .disabled(!enabled || !sound)
                     if speechFormat != CameraSpeechFormat.number.rawValue {
-                        Toggle("超速時加讀 Slow down", isOn: $slowDown)
+                        Toggle("超速時加讀減速提醒", isOn: $slowDown)
                             .disabled(!enabled || !sound)
                     }
                     Toggle("朗讀衝紅燈相機提醒", isOn: $redLightSpeech)
@@ -426,10 +560,10 @@ struct TrafficCameraSettingsView: View {
                 }
                 Button("試聽相機提醒", systemImage: "speaker.wave.2") { TrafficCameraStore.shared.playSound() }
                 NavigationLink { CameraVoiceHelpView() } label: {
-                    Label("女聲與下載聲線", systemImage: "person.wave.2")
-                }
+                    Label("聲線與下載", systemImage: "person.wave.2")
+                }.accessibilityIdentifier("cameraVoiceHelp")
             } footer: {
-                Text("App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按設定朗讀；只有目前車速高於參考限速才會加讀 Slow down。音效遵從 iPhone 靜音設定。")
+                Text("App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。")
             }
             Section {
                 NavigationLink { TrafficDataSourcesView() } label: {
@@ -451,19 +585,40 @@ struct TrafficCameraSettingsView: View {
 }
 
 struct CameraVoiceHelpView: View {
+    @Environment(\.scenePhase) private var scenePhase
+    @AppStorage(CameraSpeechLanguage.preferenceKey) private var speechLanguage = "app"
+    @State private var plan: CameraSystemVoice.Plan?
+    private var requested: CameraSpeechLanguage {
+        CameraSpeechLanguage.resolve(preference: speechLanguage, appLanguage: LanguageManager.languageCode,
+                                     systemLanguages: Locale.preferredLanguages)
+    }
     var body: some View {
         List {
-            Section("下載英文女聲") {
-                Text("iPhone「設定」→「輔助使用」→「閱讀與朗讀」（舊版本為「朗讀內容」）→「聲音」→「英文」。")
-                Text("選擇女聲並按下載圖標，可下載增強或優質版本。無需開啟 VoiceOver。")
-                Link("Apple 聲線下載說明", destination: URL(string: "https://support.apple.com/en-ie/111798")!)
+            Section("自動聲線") {
+                LabeledContent("朗讀語言", value: requested.title)
+                    .accessibilityIdentifier("cameraVoiceLanguage")
+                    .accessibilityValue(requested.title)
+                if let plan {
+                    LabeledContent("目前聲線", value: plan.voice?.name ?? String(localized: "只有提示音"))
+                    if plan.language != requested {
+                        Text("此裝置未提供所選語言的可用聲線，會改用英文朗讀。")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                Text("Gorilla 按朗讀語言自動使用 iOS 提供的聲線，無需手動選擇模型。部分 Siri 聲線不開放給第三方 App，屆時會使用同語言的可用聲線。")
             }
-            Section("相機提醒") {
-                Text("Gorilla 只使用系統已安裝、可供 App 使用的英文女聲，優先選擇高品質版本。聲線不會由 App 自動下載；部分 Siri 聲線不可供第三方 App 使用。")
-                Text("下載後返回 App，再按「試聽相機提醒」。若沒有適用女聲，只會播放兩聲提示音。")
+            Section("下載聲線") {
+                Text("iPhone「設定」→「輔助使用」→「閱讀與朗讀」（舊版本為「朗讀內容」）→「聲音」，再選擇朗讀語言。")
+                Text("按聲線旁的下載圖標取得增強或優質版本，無需開啟 VoiceOver。App 不會自動下載聲線。")
+                Link("Apple 聲線下載說明", destination: URL(string: "https://support.apple.com/en-ie/111798")!)
+                Text("下載後返回 App，再按「試聽相機提醒」。沒有可用英文聲線時，只播放兩聲提示音。")
             }
         }
-        .navigationTitle("女聲與下載聲線")
+        .navigationTitle("聲線與下載")
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            plan = CameraSystemVoice.resolve(requested)
+        }
     }
 }
 

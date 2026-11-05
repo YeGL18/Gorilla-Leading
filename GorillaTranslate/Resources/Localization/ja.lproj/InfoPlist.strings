@@ -5,3 +5,6 @@
 "NSMicrophoneUsageDescription" = "音声入力のためにマイクを使用します。";
 "NSMotionUsageDescription" = "移動履歴から運転と歩行を識別し、高度データから駐車した階を検知します。";
 "NSSpeechRecognitionUsageDescription" = "音声を翻訳用の文字に変換するために音声認識を使用します。";
+
+/* Additional interface translations, generated and checked locally. */
+"NSLocalNetworkUsageDescription" = "同じローカルネットワーク上の Windows PC に接続して、Assetto Corsa のゲームテレメトリを受信してください。";

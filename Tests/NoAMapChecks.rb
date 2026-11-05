@@ -20,7 +20,9 @@ paths = Dir[File.join(root, 'GorillaTranslate/**/*.swift')] + [
 paths.each do |path|
   raise "AMap integration remains: #{path}" if File.read(path).match?(/import AMap|restapi\.amap\.com|AMapConfig|AmapNavi|LaneNavigationTestView|FloatingLaneGuidanceView|Pods\/Pods|\[CP\]/)
 end
-raise 'Missing export-compliance setting' unless File.read(File.join(root, 'GorillaTranslate/Info.plist')).match?(/ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/)
+explicit_flag = File.read(File.join(root, 'GorillaTranslate/Info.plist')).match?(/ITSAppUsesNonExemptEncryption<\/key>\s*<false\/>/)
+generated_flags = File.read(File.join(root, 'GorillaTranslation.xcodeproj/project.pbxproj')).scan(/INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;/).size
+raise 'Missing export-compliance setting' unless explicit_flag || generated_flags == 2
 
 if ARGV[0]
   app = File.join(ARGV[0], 'Products/Applications/GorillaTranslate.app')

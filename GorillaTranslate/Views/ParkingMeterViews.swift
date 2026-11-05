@@ -461,11 +461,11 @@ struct MeterDetailCapsule: View {
 
 private struct MeterPopupActionLabel: View {
     let title: String
-    let symbol: String
+    var symbol: String? = nil
 
     var body: some View {
         HStack(alignment: .center, spacing: 6) {
-            Image(systemName: symbol).frame(width: 18)
+            if let symbol { Image(systemName: symbol).frame(width: 18) }
             Text(title)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
@@ -534,10 +534,11 @@ struct MeterNoticeCapsule: View {
                 nearbyActions
             } else {
                 HStack(spacing: 12) {
-                    Button("取消", action: onCancel)
-                        .frame(maxWidth: .infinity, minHeight: 44)
-                        .buttonStyle(.glass)
-                        .foregroundStyle(.tint)
+                    Button(action: onCancel) {
+                        MeterPopupActionLabel(title: String(localized: "取消"))
+                    }
+                    .buttonStyle(.glass)
+                    .foregroundStyle(.tint)
                     Button(action: onAction) {
                         MeterPopupActionLabel(title: notice.actionTitle, symbol: notice.actionSymbol)
                     }
@@ -837,6 +838,7 @@ struct MeterTestMap: UIViewRepresentable {
 }
 
 struct MeterSimulationView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var manager = ParkingMeterManager.shared
     @State private var latitude = "22.3000"
     @State private var longitude = "114.1700"
@@ -847,7 +849,6 @@ struct MeterSimulationView: View {
     @State private var meters: [ParkingMeter] = []
     @State private var mapID = UUID()
     @State private var selected: ParkingMeter?
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     private var location: CLLocation {
         CLLocation(latitude: Double(latitude) ?? 22.3, longitude: Double(longitude) ?? 114.17)
     }
@@ -891,9 +892,13 @@ struct MeterSimulationView: View {
             .navigationTitle("範圍與速度模擬").navigationBarTitleDisplayMode(.inline)
             .onAppear { index = MeterSpatialIndex(manager.allMeters) }
             .onChange(of: manager.allMeters) { _, meters in index = MeterSpatialIndex(meters) }
-            .onReceive(timer) { now in
-                let candidates = index.nearby(location, radius: radius * 2)
-                meters = visibility.update(candidates: candidates, location: location, speed: speed, radius: radius, now: now)
+            .task(id: scenePhase) {
+                guard scenePhase == .active else { return }
+                while !Task.isCancelled {
+                    let candidates = index.nearby(location, radius: radius * 2)
+                    meters = visibility.update(candidates: candidates, location: location, speed: speed, radius: radius, now: .now)
+                    do { try await Task.sleep(for: .seconds(1)) } catch { return }
+                }
             }
             .modifier(MeterPaymentHelp(manager: manager))
         }

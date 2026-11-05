@@ -1,3 +1,5 @@
+> Background follow-up (2026-11-04): see [background-energy-audit.md](background-energy-audit.md). Confirmed background stops now use a 20 m distance filter; foreground and active floor capture remain unfiltered. The original v3 table below describes the earlier baseline.
+
 # Energy Optimization, Round 3
 
 This work is on `ours/next`, layered over existing uncommitted parking, visit,

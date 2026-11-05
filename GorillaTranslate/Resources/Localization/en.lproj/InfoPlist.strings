@@ -5,3 +5,5 @@
 "NSMicrophoneUsageDescription" = "This app needs microphone access for voice input.";
 "NSMotionUsageDescription" = "This app uses motion history to identify driving and walking journeys, and altitude data to detect parking floor level.";
 "NSSpeechRecognitionUsageDescription" = "This app uses speech recognition to convert your voice to text for translation.";
+
+"NSLocalNetworkUsageDescription" = "Connect to a Windows PC on the same local network to receive Assetto Corsa game telemetry.";

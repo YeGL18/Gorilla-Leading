@@ -607,7 +607,7 @@ struct AboutGorillaLeadingView: View {
 }
 
 enum GorillaSupport {
-    static let website = URL(string: "https://gorilla-leading.divine-amber-0182.chatgpt.site")!
+    static let website = URL(string: "https://www.lucidtelos.com/apps/gorilla-leading/")!
     static let review = URL(string: "https://apps.apple.com/app/id6822058970?action=write-review")!
 }
 

@@ -9,6 +9,54 @@ final class EnergyRuntimeTests: XCTestCase {
     private let source = CLLocationCoordinate2D(latitude: 22.32, longitude: 114.17)
     private let target = CLLocationCoordinate2D(latitude: 22.34, longitude: 114.19)
 
+    func testBackgroundRejectsAutomaticAndForcedRouteRefreshes() async {
+        var requests = 0
+        let manager = DestinationManager { _, _ in requests += 1 }
+        manager.setRouteUpdatesActive(false)
+        var replies = 0
+        for force in [false, true] {
+            manager.requestRoute(from: source, to: target, force: force) { result in
+                XCTAssertNil(result); replies += 1
+            }
+        }
+        XCTAssertEqual(requests, 0)
+        XCTAssertEqual(replies, 2, "Suspension still resolves callers rather than leaving UI waiting")
+        manager.setRouteUpdatesActive(true)
+        manager.requestRoute(from: source, to: target) { _ in }
+        XCTAssertEqual(requests, 1, "Foreground gets a fresh route")
+        manager.invalidateRoute()
+    }
+
+    func testBackgroundCancelsPendingRouteAndIgnoresLateReplies() async {
+        var transportReply: ((MKDirections.Response?, Error?) -> Void)?
+        let manager = DestinationManager { _, reply in transportReply = reply }
+        var replies = 0
+        manager.requestRoute(from: source, to: target) { result in XCTAssertNil(result); replies += 1 }
+        manager.setRouteUpdatesActive(false)
+        XCTAssertEqual(replies, 1)
+        transportReply?(nil, URLError(.cancelled))
+        await Task.yield()
+        await Task.yield()
+        XCTAssertEqual(replies, 1, "Late callbacks cannot republish cancelled route work")
+    }
+
+    func testLiveActivityIgnoresLegacyTelemetryChanges() throws {
+        let old = GorillaActivityAttributes.ContentState(state: .parking, startDate: .now,
+            location: "Parking", area: "A", floor: "B2", spot: "128", speedKmh: 80,
+            road: "Old road", etaMinutes: 12, distanceText: "8 km")
+        let decoded = try JSONDecoder().decode(GorillaActivityAttributes.ContentState.self,
+            from: JSONEncoder().encode(old))
+        var changed = decoded
+        changed.speedKmh = 99; changed.etaMinutes = 8; changed.distanceText = "5 km"
+        XCTAssertEqual(decoded.stablePresentation, changed.stablePresentation,
+            "Speed/route changes cannot generate Live Activity updates")
+        XCTAssertEqual(decoded.stablePresentation.floor, "B2")
+        XCTAssertEqual(decoded.stablePresentation.startDate, old.startDate)
+        XCTAssertNil(decoded.stablePresentation.speedKmh)
+        XCTAssertNil(decoded.stablePresentation.etaMinutes)
+        XCTAssertNil(decoded.stablePresentation.distanceText)
+    }
+
     func testAutomaticRequestsCoalesceAndBackOff() async {
         var callbacks: [(MKDirections.Response?, Error?) -> Void] = []
         let manager = DestinationManager { _, callback in callbacks.append(callback) }

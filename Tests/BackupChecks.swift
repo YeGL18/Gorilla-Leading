@@ -19,6 +19,7 @@ import Foundation
         let before = GorillaBackup(createdAt: Date(), appVersion: "1", standard: try plist([
             "visit_records": Data("[]".utf8), "parking_photos_list": photoList, "appearanceMode": 2,
             "parallaxMode": "subtle", "speedUnit": "mph", "interactionHapticsEnabled": false,
+            "trafficCameraSpeechFormat": "short", "trafficCameraSpeechLanguage": "ja",
             "trip_replays_v1": Data("{\"version\":1,\"trips\":[]}".utf8),
             "tripReplayEnabled": true, "tripReplayRetentionDays": 30
         ]), shared: try plist(["parkingEntryTime": Date(timeIntervalSince1970: 123)]), photos: [name: Data([1, 2, 3])])
@@ -53,6 +54,8 @@ import Foundation
         precondition(standard.integer(forKey: "appearanceMode") == 2)
         precondition(standard.string(forKey: "parallaxMode") == "subtle")
         precondition(standard.string(forKey: "speedUnit") == "mph")
+        precondition(standard.string(forKey: "trafficCameraSpeechLanguage") == "ja")
+        precondition(standard.string(forKey: "trafficCameraSpeechFormat") == "short")
         precondition(standard.object(forKey: "interactionHapticsEnabled") as? Bool == false)
         precondition(standard.data(forKey: "trip_replays_v1") == Data("{\"version\":1,\"trips\":[]}".utf8))
         precondition(standard.bool(forKey: "tripReplayEnabled"))

@@ -159,6 +159,47 @@ final class MapInteractionCheckScene: UIResponder, UIWindowSceneDelegate {
         check(abs(map.region.center.latitude - origin.latitude) < 0.00001, "Native region changes are allowed")
         map.layoutIfNeeded()
         check(abs(map.region.center.latitude - origin.latitude) < 0.00001, "Layout does not undo manual browsing")
+        let pixels = CGContext(data: nil, width: 100, height: 40, bitsPerComponent: 8, bytesPerRow: 400,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        let route = OutlinedRoutePolylineRenderer(polyline: MKPolyline())
+        route.lineWidth = 5
+        route.strokeColor = .orange
+        // A renderer must set the core explicitly, even when the inherited
+        // context has a different colour/width (MapKit adjusts these at zoom).
+        pixels.setLineWidth(13)
+        pixels.setStrokeColor(UIColor.blue.cgColor)
+        let path = CGMutablePath()
+        path.move(to: CGPoint(x: 10, y: 20.5))
+        path.addLine(to: CGPoint(x: 90, y: 20.5))
+        route.strokeOutlinedPath(path, in: pixels, width: 5)
+        let rgba = pixels.data!.assumingMemoryBound(to: UInt8.self)
+        let centerPixel = 20 * 400 + 50 * 4
+        check(rgba[centerPixel + 3] > 240, "Route core stays opaque")
+        check(rgba[centerPixel] > 240 && rgba[centerPixel + 2] < 10, "Route core keeps its orange colour")
+        // Scan both edges: bitmap row orientation is independent of CGContext's
+        // drawing coordinates, so do not assume a single top/bottom row index.
+        let edges = (0..<40).map { $0 * 400 + 50 * 4 }.filter {
+            rgba[$0 + 3] > 100 && rgba[$0 + 3] < 180
+        }
+        print("Route alpha profile: \((14...26).map { Int(rgba[$0 * 400 + 50 * 4 + 3]) })")
+        fflush(stdout)
+        check(!edges.isEmpty, "Route outline is translucent")
+        check(edges.allSatisfy { rgba[$0] == rgba[$0 + 1] && rgba[$0 + 1] == rgba[$0 + 2] }, "Route outline is white")
+        for zoom in [1.0, 0.25, 0.01, 0.0005] {
+            let canvas = CGContext(data: nil, width: 100, height: 40, bitsPerComponent: 8, bytesPerRow: 400,
+                space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            canvas.scaleBy(x: zoom, y: zoom)
+            let zoomedPath = CGMutablePath()
+            zoomedPath.move(to: CGPoint(x: 10 / zoom, y: 20.5 / zoom))
+            zoomedPath.addLine(to: CGPoint(x: 90 / zoom, y: 20.5 / zoom))
+            route.drawOutlinedPath(zoomedPath, zoomScale: zoom, in: canvas)
+            let data = canvas.data!.assumingMemoryBound(to: UInt8.self)
+            let profile = (0..<40).map { data[$0 * 400 + 50 * 4 + 3] }
+            check(profile.filter { $0 > 240 }.count == 5, "Route core stays five screen points at zoom \(zoom)")
+            let shoulders = (0..<40).map { $0 * 400 + 50 * 4 }.filter { data[$0 + 3] > 100 && data[$0 + 3] < 180 }
+            check(shoulders.count == 2, "Both one-point shoulders stay visible at zoom \(zoom)")
+            check(shoulders.allSatisfy { data[$0] == data[$0 + 1] && data[$0 + 1] == data[$0 + 2] }, "Both shoulders stay white at zoom \(zoom)")
+        }
         print("PASS: \(checks) marker scale and manual camera checks")
         fflush(stdout)
         if ProcessInfo.processInfo.arguments.contains("--scale") {
@@ -636,7 +677,7 @@ final class MapAnnotationFadeCheckController: UIViewController, MKMapViewDelegat
     }
 }
 
-final class MapGestureCheckController: UIViewController {
+final class MapGestureCheckController: UIViewController, UIGestureRecognizerDelegate, MKMapViewDelegate {
     let map = NonAdjustingMapView()
     let status = UILabel()
     var cameraLink: CADisplayLink?
@@ -645,6 +686,7 @@ final class MapGestureCheckController: UIViewController {
     var ends = 0
     var touchStarted = Date()
     var heldMilliseconds = 0
+    var blankTaps = 0
     let origin = CLLocationCoordinate2D(latitude: 22.3193, longitude: 114.1694)
 
     override func viewDidLoad() {
@@ -657,6 +699,15 @@ final class MapGestureCheckController: UIViewController {
         status.numberOfLines = 0
         view.addSubview(map)
         view.addSubview(status)
+        map.delegate = self
+        let blankTap = MapBlankTapGestureRecognizer(target: self, action: #selector(blankTap))
+        blankTap.cancelsTouchesInView = false
+        blankTap.delegate = self
+        map.addGestureRecognizer(blankTap)
+        let pin = MKPointAnnotation()
+        pin.title = "Gesture test pin"
+        pin.coordinate = .init(latitude: origin.latitude + 0.0008, longitude: origin.longitude + 0.0008)
+        map.addAnnotation(pin)
         NSLayoutConstraint.activate([
             status.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 12),
             status.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 12),
@@ -673,9 +724,8 @@ final class MapGestureCheckController: UIViewController {
             begins += 1
             touchStarted = Date()
             map.allowsUserCameraChanges = true
-            map.allowCameraChange = true
-            map.setCamera(map.camera.copy() as! MKMapCamera, animated: false)
-            map.allowCameraChange = false
+            // Production now cancels tracking timers without reapplying the
+            // camera: a same-camera write here cancels the native gesture.
         }
         map.onTouchEnded = { [weak self] in
             guard let self else { return }
@@ -699,6 +749,22 @@ final class MapGestureCheckController: UIViewController {
         }
         let displacement = CLLocation(latitude: map.centerCoordinate.latitude, longitude: map.centerCoordinate.longitude)
             .distance(from: CLLocation(latitude: origin.latitude, longitude: origin.longitude))
-        status.text = "distance=\(Int(displacement)) zoom=\(Int(map.camera.centerCoordinateDistance)) heading=\(Int(map.camera.heading)) begins=\(begins) ends=\(ends) heldMs=\(heldMilliseconds)"
+        status.text = "distance=\(Int(displacement)) zoom=\(Int(map.camera.centerCoordinateDistance)) heading=\(Int(map.camera.heading)) begins=\(begins) ends=\(ends) heldMs=\(heldMilliseconds) blank=\(blankTaps)"
+    }
+
+    @objc private func blankTap() { blankTaps += 1 }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        !map.isAnnotationHit(at: touch.location(in: map))
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool { true }
+
+    func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+        let pin = MKMarkerAnnotationView(annotation: annotation, reuseIdentifier: nil)
+        pin.isAccessibilityElement = true
+        pin.accessibilityIdentifier = "gesturePin"
+        pin.canShowCallout = false
+        return pin
     }
 }

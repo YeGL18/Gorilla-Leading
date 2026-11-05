@@ -145,6 +145,10 @@ private struct ProtectedStartupView: View {
 
 private struct GorillaRootView: View {
     let appDelegate: AppDelegate
+    @Environment(\.scenePhase) private var scenePhase
+    @StateObject private var loginStore = ParkingCommunityStore()
+    @State private var showingLaunchLogin = false
+    @State private var offeredLoginThisActivation = false
     @StateObject private var destinationManager = DestinationManager.shared
     @StateObject private var locationManager = LocationManager.shared
     @StateObject private var parkingFloorStore = ParkingFloorStore.shared
@@ -165,6 +169,11 @@ private struct GorillaRootView: View {
 
     private var shouldShowOnboarding: Bool {
         (!hasCompletedLeadingOnboarding || forceOnboardingForDebug) && !forcedOnboardingDismissed
+    }
+
+    private var canOfferLogin: Bool {
+        scenePhase == .active && !showSplash && !shouldShowOnboarding
+            && !backupController.restoring && !backupController.recoveryRequired
     }
 
     private var debugOnboardingPage: Int {
@@ -239,6 +248,22 @@ private struct GorillaRootView: View {
             }
             .overlay(alignment: .top) { TrafficCameraWarningView().padding(.top, 70) }
             .overlay { TrafficCameraDetailOverlay() }
+            .sheet(isPresented: $showingLaunchLogin) {
+                CommunityLoginView(store: loginStore)
+            }
+            .onChange(of: canOfferLogin, initial: true) { _, ready in
+                guard ready, !offeredLoginThisActivation else { return }
+                offeredLoginThisActivation = true
+                // Local credentials remain valid during temporary server outages.
+                showingLaunchLogin = !loginStore.api.signedIn
+            }
+            .onChange(of: scenePhase, initial: true) { _, phase in
+                if phase == .active { AirportMapPreloader.shared.prepareForForeground() }
+                if phase == .background {
+                    offeredLoginThisActivation = false
+                    AirportMapPreloader.shared.stopForBackground()
+                }
+            }
             .alert("Backup & Restore", isPresented: Binding(get: { backupController.restoreMessage != nil },
                 set: { if !$0 { backupController.restoreMessage = nil } })) {
                     Button("確定", role: .cancel) { backupController.restoreMessage = nil }

@@ -98,6 +98,16 @@ private final class WindowBoundsView: UIView {
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
+        #if DEBUG && targetEnvironment(simulator)
+        if ProcessInfo.processInfo.arguments.contains("--duo-landscape-screenshot"), let scene = window?.windowScene {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight)) { error in
+                    NSLog("DuoCapture orientation: %@", error.localizedDescription)
+                }
+            }
+        }
+        #endif
         reportWindowBounds()
     }
 
@@ -161,16 +171,25 @@ private struct GorillaCapsuleGlass: ViewModifier {
 }
 
 struct GorillaMapControlAppearance: ViewModifier {
+    var accent: Color? = nil
     @AppStorage("capsuleDarkGlassEnabled") private var darkGlassEnabled = true
     @Environment(\.colorScheme) private var colorScheme
     private var usesDarkGlass: Bool {
         GorillaGlassStyle.usesDarkGlass(preferredDark: darkGlassEnabled)
     }
 
-    func body(content: Content) -> some View {
-        content
-            .foregroundStyle(usesDarkGlass ? Color.white : Color.primary)
-            .environment(\.colorScheme, usesDarkGlass ? .dark : colorScheme)
+    @ViewBuilder func body(content: Content) -> some View {
+        if let accent {
+            content
+                .symbolRenderingMode(.palette)
+                .foregroundStyle(accent, usesDarkGlass ? Color.white : Color.primary)
+                .tint(accent)
+                .environment(\.colorScheme, usesDarkGlass ? .dark : colorScheme)
+        } else {
+            content
+                .foregroundStyle(usesDarkGlass ? Color.white : Color.primary)
+                .environment(\.colorScheme, usesDarkGlass ? .dark : colorScheme)
+        }
     }
 }
 
@@ -191,9 +210,10 @@ private struct GorillaTabBarStyle: ViewModifier {
 
 private final class GorillaTabBarAppearanceView: UIView {
     var appearance: UITabBarAppearance?
+    var prefersDarkGlass = false
+    var stylesDuoToolbar = false
+    var controlAccent = UIColor.systemOrange
     private var updateScheduled = false
-    private weak var lastTabBar: UITabBar?
-    private var lastAppliedAppearance: UITabBarAppearance?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
@@ -213,8 +233,8 @@ private final class GorillaTabBarAppearanceView: UIView {
             self.updateScheduled = false
             guard let appearance = self.appearance,
                   let root = self.window?.rootViewController,
-                  let tabBar = self.tabController(in: root)?.tabBar else { return }
-            guard self.lastTabBar !== tabBar || self.lastAppliedAppearance?.isEqual(appearance) != true else { return }
+                  let tabs = self.tabController(in: root) else { return }
+            let tabBar = tabs.tabBar
             // UIAppearance does not update a bar that is already on screen.
             if !tabBar.standardAppearance.isEqual(appearance) {
                 tabBar.standardAppearance = appearance
@@ -222,9 +242,35 @@ private final class GorillaTabBarAppearanceView: UIView {
             if tabBar.scrollEdgeAppearance?.isEqual(appearance) != true {
                 tabBar.scrollEdgeAppearance = appearance
             }
-            self.lastTabBar = tabBar
-            self.lastAppliedAppearance = appearance.copy() as? UITabBarAppearance
+            if #available(iOS 27.0, *) {
+                if tabBar.overrideUserInterfaceStyle != appearance.overrideUserInterfaceStyle {
+                    tabBar.overrideUserInterfaceStyle = appearance.overrideUserInterfaceStyle
+                }
+            }
+            let barStyle: UIBarStyle = self.prefersDarkGlass ? .black : .default
+            if tabBar.barStyle != barStyle { tabBar.barStyle = barStyle }
+            // Duo hosts bottom toolbar items beside its tabs in the system side
+            // area. UITabBarAppearance alone never styles those UIToolbars.
+            if self.stylesDuoToolbar {
+                let toolbarAppearance = UIToolbarAppearance(barAppearance: appearance)
+                self.styleToolbars(in: tabs.view, appearance: toolbarAppearance)
+            }
         }
+    }
+
+    private func styleToolbars(in view: UIView, appearance: UIToolbarAppearance) {
+        if let toolbar = view as? UIToolbar {
+            if !toolbar.standardAppearance.isEqual(appearance) { toolbar.standardAppearance = appearance }
+            if toolbar.compactAppearance?.isEqual(appearance) != true { toolbar.compactAppearance = appearance }
+            if toolbar.scrollEdgeAppearance?.isEqual(appearance) != true { toolbar.scrollEdgeAppearance = appearance }
+            if toolbar.compactScrollEdgeAppearance?.isEqual(appearance) != true { toolbar.compactScrollEdgeAppearance = appearance }
+            let barStyle: UIBarStyle = prefersDarkGlass ? .black : .default
+            let style: UIUserInterfaceStyle = prefersDarkGlass ? .dark : .unspecified
+            if toolbar.barStyle != barStyle { toolbar.barStyle = barStyle }
+            if toolbar.overrideUserInterfaceStyle != style { toolbar.overrideUserInterfaceStyle = style }
+            if !toolbar.tintColor.isEqual(controlAccent) { toolbar.tintColor = controlAccent }
+        }
+        for child in view.subviews { styleToolbars(in: child, appearance: appearance) }
     }
 
     private func tabController(in controller: UIViewController) -> UITabBarController? {
@@ -238,6 +284,9 @@ private final class GorillaTabBarAppearanceView: UIView {
 
 private struct GorillaTabBarAppearanceReader: UIViewRepresentable {
     let appearance: UITabBarAppearance
+    var prefersDarkGlass = false
+    var stylesDuoToolbar = false
+    var controlAccent = UIColor.systemOrange
 
     func makeUIView(context: Context) -> GorillaTabBarAppearanceView {
         GorillaTabBarAppearanceView(frame: .zero)
@@ -245,6 +294,9 @@ private struct GorillaTabBarAppearanceReader: UIViewRepresentable {
 
     func updateUIView(_ view: GorillaTabBarAppearanceView, context: Context) {
         view.appearance = appearance
+        view.prefersDarkGlass = prefersDarkGlass
+        view.stylesDuoToolbar = stylesDuoToolbar
+        view.controlAccent = controlAccent
         view.scheduleUpdate()
     }
 }
@@ -839,7 +891,6 @@ struct ContentView: View {
     @State private var meterDirections: MKDirections?
     @State private var meterRouteError: String?
     @State private var presentedMeterNotice: MeterNotice?
-    private let meterTick = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
     @State private var isInForeground = true
     
     @State private var selectedTab: Int = 1
@@ -983,6 +1034,7 @@ struct ContentView: View {
     /// 輪播世代：重起時 +1，令舊嘅延遲切換自動作廢
     @State private var addressCarouselGeneration: Int = 0
     @State private var parkingEntryTime: Date = Date()
+    @State private var elapsedDisplayTimer: Timer?
     @State private var parkingTimer: Timer?
     @State private var parkingElapsed: TimeInterval = 0
     @State private var parkingCountdown: Int?
@@ -1004,7 +1056,8 @@ struct ContentView: View {
     @State private var manualParkingStartedAt: Date?
     @State private var manualParkingPointRecorded = false
     @State private var parkingVisitsDismissedThrough: Date?
-    @State private var activitySyncTimer: Timer?
+    @State private var backgroundStatusWorkItem: DispatchWorkItem?
+    @State private var lastBackgroundStatusRefresh = Date.distantPast
     @State private var capsuleDuration: TimeInterval = 0
     @State private var lastKnownArrivalDate: Date?
     @State private var timerRunning = false
@@ -1050,6 +1103,7 @@ struct ContentView: View {
     @State private var deleteOffsetY: CGFloat = 0
     @State private var showingAddDestination = false
     @State private var showingRoute = false
+    @State private var routeArrivalSince: Date?
     @State private var routePolyline: MKPolyline?
     @State private var routeAnimationPolyline: MKPolyline?
     @State private var departureTime: Date?
@@ -1210,6 +1264,13 @@ struct ContentView: View {
     @State private var renamingPointName = ""
     @State private var renamingPointFloor: Int?
     @State private var showRenamePointAlert = false
+    @State private var airportRouteDistance: Double?
+    @State private var airportRouteMessage: String?
+    @State private var airportRouteToken = UUID()
+    @State private var airportRouteTargetID: UUID?
+    @State private var airportPendingAirline: AirportDropOffCatalog.Airline?
+    @State private var airportSearchedAirline: AirportDropOffCatalog.Airline?
+    @State private var airportGuideStage: AirportDropOffGuide.Stage = .button
     @State private var selectedHKLocation: (title: String, coordinate: CLLocationCoordinate2D)?
     @AppStorage("colorSchemeIndex") private var colorSchemeIndex: Int = 0
     @AppStorage("appearanceMode") private var appearanceMode: Int = 0
@@ -1229,6 +1290,10 @@ struct ContentView: View {
         .resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnightMode, legacyTimeBased: useTimeBasedOrb)
     }
     private var darkKnightMode: Bool { colorGroup.usesSpecialMap }
+    private var duoControlAccent: Color {
+        let speed = acTelemetry.isReceiving ? (acTelemetry.sample?.speed ?? 0) : locationManager.speed
+        return Color(hex: colorGroup.dotColorHex(speed: speed, preset: orbColorPreset))
+    }
     /// 黑武士模式地圖圓角（橫屏更大）
     private var darkKnightMapCornerRadius: CGFloat { isLandscape ? 120 : 100 }
     @AppStorage("mapStyleIndex") private var mapStyleIndex: Int = 0
@@ -1351,7 +1416,7 @@ struct ContentView: View {
             NavigationStack {
                 SpeedView(
                     acTelemetry: acTelemetry,
-                    drivingState: visitStatus == "已開車",
+                    drivingState: isDrivingForSpeedDashboard,
                     showMap: showMap || showSatellite,
                     showSatellite: showSatellite,
                     cycleMapPresentation: cycleMapPresentation,
@@ -1377,6 +1442,7 @@ struct ContentView: View {
 
             NavigationStack {
                 homeContent
+                    .ignoresSafeArea(.keyboard, edges: markerOverview.mode == .airport ? .bottom : [])
                     .environment(\.homeMapContext, HomeMapContext(session: homeMapSession, isActive: selectedTab == 1))
                     .background {
                         if #available(iOS 27.1, *) {
@@ -1390,7 +1456,7 @@ struct ContentView: View {
                                     Button { showingParkingCommunity = true } label: {
                                         Label("泊車互助", systemImage: "viewfinder")
                                     }
-                                    .modifier(GorillaMapControlAppearance())
+                                    .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                                 }
                             }
 
@@ -1399,7 +1465,7 @@ struct ContentView: View {
                                 Button(action: cycleMapPresentation) {
                                     Label("切換地圖模式", systemImage: globeToggleIcon)
                                 }
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                             }
                             .visibilityPriority(.high)
                             .axisBehavior(.verticalPreferred)
@@ -1411,7 +1477,7 @@ struct ContentView: View {
                                     Label(mapHeadingMode.label, systemImage: mapHeadingMode.iconName)
                                 }
                                 .disabled(!showMap && !showSatellite)
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                             }
                             .visibilityPriority(.automatic)
                             .axisBehavior(.verticalPreferred)
@@ -1428,7 +1494,7 @@ struct ContentView: View {
                                 Button(action: cycleMapPresentation) {
                                     Label("切換地圖模式", systemImage: globeToggleIcon)
                                 }
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                             }
                             .visibilityPriority(.high)
                             ToolbarItem(placement: .bottomBar) {
@@ -1436,7 +1502,7 @@ struct ContentView: View {
                                     Label(mapHeadingMode.label, systemImage: mapHeadingMode.iconName)
                                 }
                                 .disabled(!showMap && !showSatellite)
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                             }
                             .visibilityPriority(.automatic)
                             ToolbarItem(placement: .bottomBar) { duoSearchMenu }
@@ -1444,6 +1510,9 @@ struct ContentView: View {
                         }
                     }
                     .toolbar(usesDuoToolbar ? .visible : .hidden, for: .bottomBar)
+                    .toolbarColorScheme(usesDarkGlass ? .dark : effectiveColorScheme, for: .bottomBar)
+                    .toolbarBackground(usesDarkGlass ? Color.black.opacity(GorillaGlassStyle.blackTintOpacity) : .clear, for: .bottomBar)
+                    .toolbarBackgroundVisibility(usesDarkGlass ? .visible : .automatic, for: .bottomBar)
             }
             .environment(\.colorScheme, effectiveColorScheme)
             .tint(.accentColor)
@@ -1530,7 +1599,11 @@ struct ContentView: View {
         }
         .modifier(GorillaTabBarStyle())
         .background {
-            GorillaTabBarAppearanceReader(appearance: Self.tabBarAppearance(darkGlassEnabled: usesDarkGlass))
+            GorillaTabBarAppearanceReader(
+                appearance: Self.tabBarAppearance(darkGlassEnabled: usesDarkGlass,
+                    selectedIconColor: isDuoDevice ? UIColor(duoControlAccent) : nil),
+                prefersDarkGlass: usesDarkGlass, stylesDuoToolbar: usesDuoToolbar,
+                controlAccent: UIColor(duoControlAccent))
                 .allowsHitTesting(false)
         }
         .onChange(of: usesDarkGlass) { _, _ in
@@ -1544,6 +1617,7 @@ struct ContentView: View {
     var body: some View {
         ZStack {
         mainTabView
+        .ignoresSafeArea(.keyboard, edges: markerOverview.mode == .airport ? .bottom : [])
         .background {
             if #available(iOS 27.1, *) {
                 DuoVerticalBarReader(isVertical: $hasDuoVerticalBar, verticalEdge: $duoVerticalBarEdge)
@@ -1561,6 +1635,8 @@ struct ContentView: View {
             showingParkingCommunity = true
         }
         .onAppear {
+            isInForeground = scenePhase == .active
+            destinationManager.setRouteUpdatesActive(isInForeground)
             if CommunityPushCoordinator.shared.pendingThreadID != nil { showingParkingCommunity = true }
         }
         .fullScreenCover(isPresented: $showingParkingCommunity) {
@@ -1587,12 +1663,16 @@ struct ContentView: View {
             }
         }
         .modifier(DuoHingeStateReader(isPartiallyOpen: $isDuoPartiallyOpen))
-        .onReceive(meterTick) { _ in
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
             meterManager.tick(location: locationManager.lastLocation, speed: locationManager.speed,
                               destination: destinationManager.selectedDestination,
                               canPresentNotices: selectedTab == 1 && selectedParkingPointID == nil
                                 && selectedHKLocation == nil && !showingTripConfirm
                                 && !meterManager.needsVehicleSelection && !meterManager.paymentHelpPresented)
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
         }
         .onChange(of: meterManager.notice?.id) { _, _ in
             if let notice = meterManager.notice, case .destination = notice.kind {
@@ -1628,21 +1708,26 @@ struct ContentView: View {
                 photoStorage.prepare()
                 startFloorCurveDetection()
                 startCapsuleUpdateTimer()
+                refreshElapsedDisplayTimers()
             }
             Task { @MainActor in
                 try? await Task.sleep(nanoseconds: 200_000_000)
             }
         }
         .onDisappear {
+            elapsedDisplayTimer?.invalidate()
+            elapsedDisplayTimer = nil
             cancelParkingImageRecognition()
             acTelemetry.disconnect()
             timePhaseManager.stop()
             UIApplication.shared.isIdleTimerDisabled = false
             stopFloorCurveDetection()
             stopCapsuleUpdateTimer()
+            backgroundStatusWorkItem?.cancel()
+            backgroundStatusWorkItem = nil
             if BackupController.shared.restoring {
-                [addressAlternatingTimer, parkingTimer, departureTimer, departureElapsedTimer,
-                 stationaryTimer, activitySyncTimer, parkingReminderTimer, cameraInactivityTimer,
+                [addressAlternatingTimer, elapsedDisplayTimer, parkingTimer, departureTimer, departureElapsedTimer,
+                 stationaryTimer, parkingReminderTimer, cameraInactivityTimer,
                  headingToastTimer, compactSlotTimer, llmPollTimer,
                  llmSoundStopTimer, parkingInfoSwitchTimer, floorCurveGateTimer,
                  floorCurveDismissTimer, orbGradualStopTimer].forEach { $0?.invalidate() }
@@ -1659,8 +1744,12 @@ struct ContentView: View {
             }
             meterManager.setActive(phase == .active)
             isInForeground = (phase == .active)
+            destinationManager.setRouteUpdatesActive(isInForeground)
             if phase == .active {
                 DispatchQueue.main.async {
+                    guard isInForeground, scenePhase == .active else { return }
+                    backgroundStatusWorkItem?.cancel()
+                    backgroundStatusWorkItem = nil
                     if LanguageManager.syncSharedLanguage() {
                         WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
                     }
@@ -1669,6 +1758,11 @@ struct ContentView: View {
                     locationManager.restoreNavigationAccuracy()
                     locationManager.startLocationServicesIfNeeded()
                     refreshVisitAndTimersForForeground()
+                    refreshElapsedDisplayTimers()
+                    startCapsuleUpdateTimer()
+                    startCompactRotation()
+                    startAddressAlternatingIfNeeded(force: true)
+                    if parkingInfoSwitchTimer == nil { resetParkingInfoSwitchTimer() }
                     // Force the Live Activity to re-render with the latest
                     // widget build — the system keeps the archived render of
                     // the previous build until the next content update.
@@ -1677,16 +1771,35 @@ struct ContentView: View {
                     syncLiveActivity(forceRefresh: true)
                     // 重新啟動樓層探測（背景回來後 timer 可能已被系統回收）
                     startFloorCurveDetection()
-                    // 啟動 60 秒定期同步 compact trailing 計時器
-                    startActivitySyncTimer()
+                    if timerRunning && !hasDeparted { startParkingReminderForegroundCheck() }
+                    if markerOverview.mode == .airport, let airline = airportSearchedAirline {
+                        startAirportDropOffRoute(airline)
+                    } else { refreshETA() }
                 }
-            } else if phase == .background {
+            } else {
                 timePhaseManager.stop()
                 stopFloorCurveDetection()
+                refreshElapsedDisplayTimers()
+                stopCompactRotation()
+                addressAlternatingTimer?.invalidate()
+                addressAlternatingTimer = nil
+                addressCarouselGeneration += 1
+                parkingInfoSwitchTimer?.invalidate()
+                parkingInfoSwitchTimer = nil
+                parkingReminderTimer?.invalidate()
+                parkingReminderTimer = nil
+                meterDirections?.cancel()
+                meterDirections = nil
+                routePriorityToken = nil
+                routePriorityAnchor = nil
+                airportRouteToken = UUID()
+                isRerouting = false
+                stopCapsuleUpdateTimer()
+                refreshBackgroundVisitStatus()
             }
         }
         .background { floorCaptureEvents }
-        .background { TripReplayCapture(telemetry: acTelemetry) }
+        .background { TripReplayCapture(telemetry: acTelemetry, driving: isDrivingForSpeedDashboard) }
         .onChange(of: acAutoConnectEnabled) { _, enabled in
             if enabled && scenePhase == .active { acTelemetry.ensureConnected(host: acComputerHost) }
             else { acTelemetry.disconnect() }
@@ -1700,21 +1813,35 @@ struct ContentView: View {
         }
         .onReceive(locationManager.$lastLocation) { location in
             guard let location = location else { return }
+            if markerOverview.mode == .airport, let pending = airportPendingAirline,
+               location.horizontalAccuracy >= 0, abs(location.timestamp.timeIntervalSinceNow) < 30 {
+                startAirportDropOffRoute(pending)
+            }
             ensureManualParkingPoint()
-            timePhaseManager.fetchSunTimes(for: location.coordinate)
+            if scenePhase == .active { timePhaseManager.fetchSunTimes(for: location.coordinate) }
             // 追蹤低速時的 GPS 位置（用於修正泊車位置）
             if parkingFloorStore.barometer.currentSpeedKmh >= 0,
                parkingFloorStore.barometer.currentSpeedKmh < BarometerSessionManager.captureSpeedThreshold {
                 parkingFloorStore.lastStationaryCoordinate = location.coordinate
             }
             // 有目的地時自動刷新 ETA
-            if destinationManager.selectedDestination != nil {
+            if scenePhase == .active, destinationManager.selectedDestination != nil {
                 refreshETA()
+            }
+            if scenePhase != .active {
+                DispatchQueue.main.async { refreshBackgroundVisitStatus(force: false) }
+            }
+        }
+        .onReceive(locationManager.$currentMotionActivity) { _ in
+            if scenePhase != .active {
+                DispatchQueue.main.async { refreshBackgroundVisitStatus() }
             }
         }
         .onReceive(locationManager.$lastLocation) { location in
             guard let location = location else { return }
             guard showingRoute, let polyline = routePolyline else { return }
+            if finishRouteIfArrived(location, polyline: polyline) { return }
+            guard scenePhase == .active else { return }
             guard locationManager.speed >= 15 else { return }
             if isRerouting || meterDirections != nil { return }
             if let last = lastRerouteRequestAt, Date().timeIntervalSince(last) < 8 { return }
@@ -1729,7 +1856,13 @@ struct ContentView: View {
                 reroute(from: location.coordinate)
             }
         }
-        .onReceive(locationManager.$visits, perform: handleVisitUpdates)
+        .onReceive(locationManager.$visits) { visits in
+            handleVisitUpdates(visits)
+            if scenePhase != .active {
+                DispatchQueue.main.async { refreshBackgroundVisitStatus() }
+            }
+        }
+        .onChange(of: showingRoute) { _, _ in routeArrivalSince = nil }
         .onChange(of: isNonAutomotiveArrival && !hasParkingSpotData) { _, isStay in
             guard isStay else { return }
             cancelParkingImageRecognition()
@@ -1812,6 +1945,7 @@ struct ContentView: View {
             drivingETASeconds = nil
             etaText = nil
             refreshETA()
+            syncLiveActivity()
         }
 
         } // ZStack
@@ -1835,6 +1969,7 @@ struct ContentView: View {
     /// force = 唔理指紋都重起相位：地址格入格時要由循環開頭開始數「一輪」。
     @discardableResult
     private func startAddressAlternatingIfNeeded(force: Bool = false) -> Bool {
+        guard isInForeground else { return false }
         let fp = addressCarouselFingerprint
         if !force, fp == addressCarouselState { return false }
         addressCarouselState = fp
@@ -1939,6 +2074,41 @@ struct ContentView: View {
         destinationManager.selectDestination(destination)
         if isCapsuleExpanded { refreshETA() }
         if showingRoute { recalculateRoute() }
+    }
+
+    private func finishRouteIfArrived(_ location: CLLocation, polyline: MKPolyline) -> Bool {
+        guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 35,
+              abs(location.timestamp.timeIntervalSinceNow) < 10, polyline.pointCount > 1 else {
+            routeArrivalSince = nil
+            return false
+        }
+        let endpoint = polyline.points()[polyline.pointCount - 1].coordinate
+        let mapCoordinate = location.coordinate.wgs84ToGCJ02
+        let distance = CLLocation(latitude: mapCoordinate.latitude, longitude: mapCoordinate.longitude)
+            .distance(from: CLLocation(latitude: endpoint.latitude, longitude: endpoint.longitude))
+        guard distance <= 45, locationManager.speed <= 8 else {
+            routeArrivalSince = nil
+            return false
+        }
+        if routeArrivalSince == nil { routeArrivalSince = location.timestamp }
+        guard location.timestamp.timeIntervalSince(routeArrivalSince!) >= 4 else { return false }
+        meterDirections?.cancel()
+        meterDirections = nil
+        meterRouteTarget = nil
+        routePriorityToken = nil
+        routePriorityAnchor = nil
+        routeOverlayToken = nil
+        routeOverlayAnimationToken = nil
+        isRerouting = false
+        lastRerouteRequestAt = nil
+        offRouteStrikeCount = 0
+        routeArrivalSince = nil
+        withAnimation(.easeOut(duration: 0.3)) {
+            showingRoute = false
+            routePolyline = nil
+            routeAnimationPolyline = nil
+        }
+        return true
     }
 
     private var searchDestinations: [Destination] {
@@ -2050,7 +2220,7 @@ struct ContentView: View {
         Menu { destinationSearchMenuContent } label: {
             Label("搜尋目的地", systemImage: "magnifyingglass")
         }
-        .modifier(GorillaMapControlAppearance())
+        .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
         .popover(item: $destinationSearchCategory) { category in destinationSearchItems(for: category) }
     }
 
@@ -2167,11 +2337,21 @@ struct ContentView: View {
                     // 膠囊置中對齊（左右對稱擴展），整體 offset 去欄旁邊
                     let centeredRightEdge = geo.size.width / 2 + compactHalfWidth
                     let targetRightEdge = geo.size.width - barInset - gap
-                    return targetRightEdge - centeredRightEdge
+                    let original = targetRightEdge - centeredRightEdge
+                    if innerLandscape && isParkingMemoryExpanded {
+                        // Preserve the existing compact/address position. Only
+                        // parking memory grows leftward, keeping the right edge.
+                        return original - (525 - 370) / 2
+                    }
+                    return original
                 } else {
                     let centeredLeftEdge = geo.size.width / 2 - compactHalfWidth
                     let targetLeftEdge = barInset + gap
-                    return targetLeftEdge - centeredLeftEdge
+                    let original = targetLeftEdge - centeredLeftEdge
+                    if innerLandscape && isParkingMemoryExpanded {
+                        return original + (525 - 370) / 2
+                    }
+                    return original
                 }
             }()
             let capsuleRightShift: CGFloat = (newLandscape && capsuleOnRight && !duoAnchorToBar)
@@ -2254,13 +2434,14 @@ struct ContentView: View {
 
                     ZStack {
                         // One live map, with a cached edge mask and native backdrop blur.
-                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, parkingPointsRevision: parkingFloorStore.mapRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                        VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, drivingState: isDrivingForSpeedDashboard, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, parkingPointsRevision: parkingFloorStore.mapRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                             withAnimation(.easeOut(duration: 0.28)) {
                                 selectedParkingPointID = id
                             }
                         }, onMoveParkingPoint: { id, coordinate in
                             parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
                         }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, softenedEdgeCornerRadius: darkKnightMapCornerRadius, radialVignetteOuterOpacity: 1, onMapBlankTap: {
+                            if markerOverview.mode == .airport { handleAirportBlankTap(); return }
                             guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
                             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                                 isCapsuleExpanded = false
@@ -2284,13 +2465,14 @@ struct ContentView: View {
                     .transition(.opacity.animation(.easeInOut(duration: 0.8)))
                 } else {
                     // 正常模式：全屏地圖
-                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, parkingPointsRevision: parkingFloorStore.mapRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
+                    VignetteMapView(savedRegion: $mapRegion, savedCamera: $mapCamera, firstFlyTrigger: $firstMapFlyTrigger, stationaryTrackingTrigger: stationaryTrackingTrigger, northOverrideTrackingToken: northOverrideTrackingToken, routeOverlay: routePolyline, routeAnimationOverlay: routeAnimationPolyline, followHeading: mapHeadingMode.isActive, continuousFollow: mapHeadingMode.isContinuous, drivingState: isDrivingForSpeedDashboard, hkDetailMode: hkDetailMode, parkingPoints: parkingFloorStore.mapPoints, parkingPointTitlePrefixesByID: parkingFloorStore.lotNameByPointID, parkingPointsRevision: parkingFloorStore.mapRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: { id in
                         withAnimation(.easeOut(duration: 0.28)) {
                             selectedParkingPointID = id
                         }
                     }, onMoveParkingPoint: { id, coordinate in
                         parkingFloorStore.setPointCoordinate(pointID: id, coordinate: coordinate.gcj02ToWGS84)
                     }, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterRouteTarget?.id, meterNavigationTargetCoordinate: meterRouteTarget?.coordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: mapCenterOffsetX, centerOffsetY: mapCenterOffsetY, hideCompass: isDuoDevice, compassBridge: mapCompassBridge, onMapBlankTap: {
+                        if markerOverview.mode == .airport { handleAirportBlankTap(); return }
                         guard isCapsuleExpanded || isParkingMemoryExpanded else { return }
                         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                             isCapsuleExpanded = false
@@ -2397,7 +2579,7 @@ struct ContentView: View {
                                 }
                                 .accessibilityLabel("泊車互助：掃描車牌")
                                 .buttonStyle(.glass)
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                                 if showMap || showSatellite {
                                     Button {
                                         withAnimation(.easeInOut(duration: 0.2)) {
@@ -2426,7 +2608,7 @@ struct ContentView: View {
                                             .animation(.easeInOut(duration: 0.25), value: mapHeadingMode)
                                     }
                                     .buttonStyle(.glass)
-                                    .modifier(GorillaMapControlAppearance())
+                                    .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                                     .overlay(alignment: .trailing) {
                                         if let toast = headingToastText {
                                             Text(toast)
@@ -2450,7 +2632,7 @@ struct ContentView: View {
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.glass)
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                                 .popover(item: $destinationSearchCategory) { category in destinationSearchItems(for: category) }
 
                                 Button(action: {
@@ -2474,7 +2656,7 @@ struct ContentView: View {
                                         .frame(width: 44, height: 44)
                                 }
                                 .buttonStyle(.glass)
-                                .modifier(GorillaMapControlAppearance())
+                                .modifier(GorillaMapControlAppearance(accent: isDuoDevice ? duoControlAccent : nil))
                             }
                             .padding(.leading, 16)
                             .padding(.bottom, centersLandscapeControls ? 0 : 72)
@@ -2554,6 +2736,16 @@ struct ContentView: View {
                     ).combined(with: .opacity)
                 )
                 .zIndex(23)
+            }
+
+            if (showMap || showSatellite), markerOverview.mode == .airport {
+                AirportDropOffGuide(maximumHeight: max(180, min(520, geo.size.height - 100)),
+                    maximumWidth: max(0, geo.size.width - 72), onSearch: startAirportDropOffRoute,
+                    routeDistanceMeters: airportRouteDistance, routeMessage: airportRouteMessage,
+                    waitingForLocation: markerOverview.airportWaitingForLocation, stage: $airportGuideStage)
+                    .offset(x: physicalCenterShift,
+                            y: appWindowBounds.isEmpty ? 0 : appWindowBounds.midY - globalFrame.midY)
+                    .zIndex(26)
             }
 
             if (showMap || showSatellite), let hkLoc = selectedHKLocation {
@@ -2659,12 +2851,14 @@ struct ContentView: View {
         }
         .frame(width: geo.size.width, height: geo.size.height)
         }
+        .ignoresSafeArea(.keyboard, edges: markerOverview.mode == .airport ? .bottom : [])
         .onChange(of: showMap) { _, newValue in
             if newValue {
                 if !hasShownMapFirstTime {
                     hasShownMapFirstTime = true
                 }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    guard !hkDetailMode else { return }
                     firstMapFlyTrigger += 1
                 }
             }
@@ -3042,15 +3236,7 @@ struct ContentView: View {
             if hasDeparted, let dep = departureTime {
                 departureElapsed = Date().timeIntervalSince(dep)
                 departureElapsedTimer?.invalidate()
-                let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-                    guard hasDeparted, let d = departureTime else { return }
-                    let e = Date().timeIntervalSince(d)
-                    DispatchQueue.main.async {
-                        departureElapsed = e
-                    }
-                }
-                departureElapsedTimer = timer
-                RunLoop.main.add(timer, forMode: .common)
+                refreshElapsedDisplayTimers()
             }
         } else {
             // 新的到訪：自動開始計時
@@ -3172,7 +3358,7 @@ struct ContentView: View {
                 }
             }
             .onReceive(parkingFloorStore.barometer.$samples.map { $0.last }.removeDuplicates()) { sample in
-                if let sample { appendFloorCurveSample(sample) }
+                if isInForeground, let sample { appendFloorCurveSample(sample) }
             }
             .onReceive(parkingFloorStore.barometer.$completedResult.map { $0?.id }.removeDuplicates()) { id in
                 DispatchQueue.main.async {
@@ -3285,7 +3471,7 @@ struct ContentView: View {
         floorCurveDismissTimer?.invalidate()
         floorCurveDismissTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: false) { _ in
             guard floorCurveCaptureID == id else { return }
-            dismissFloorCurve(openParkingMemory: true)
+            dismissFloorCurve()
         }
     }
 
@@ -3351,7 +3537,7 @@ struct ContentView: View {
     }
 
     /// 關閉彈窗
-    private func dismissFloorCurve(openParkingMemory: Bool = false) {
+    private func dismissFloorCurve() {
         let dismissedID = floorCurveCaptureID
         floorCurveDismissTimer?.invalidate()
         floorCurveDismissTimer = nil
@@ -3372,14 +3558,6 @@ struct ContentView: View {
             floorCurveLocked = false
             floorCurveConfirmed = false
             floorCurveLockAnimating = false
-            if openParkingMemory, selectedTab == 1, scenePhase == .active,
-               parkingFloorStore.barometer.completedResult?.id == dismissedID,
-               locationManager.speed < 8 {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
-                    isParkingMemoryExpanded = true
-                    orbOpacity = 0.5
-                }
-            }
         }
     }
 
@@ -3876,6 +4054,8 @@ struct ContentView: View {
         )
         .clipShape(.rect(cornerRadius: 34))
         .contentShape(Rectangle())
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("homeAddressCapsule")
         .scaleEffect(capsuleAnimationStyle == 1 ? capsuleDragScale : capsuleScale)
         .offset(y: capsuleAnimationStyle == 1 ? capsuleDragOffsetY : 0)
         .animation(capsuleDragState.active ? nil : .spring(response: 0.6, dampingFraction: 0.78), value: isCapsuleExpanded)
@@ -4230,9 +4410,6 @@ struct ContentView: View {
         .onChange(of: hasDeparted) { _, _ in
             syncLiveActivity()
         }
-        .onChange(of: drivingETASeconds) { _, _ in
-            syncLiveActivity()
-        }
         .onChange(of: parkingFloorStore.lots) { _, _ in syncLiveActivity() }
         .onChange(of: parkingFloorStore.floorMode) { _, _ in syncLiveActivity() }
         .onAppear {
@@ -4450,18 +4627,21 @@ struct ContentView: View {
 
     /// 更新 TabBar 外觀
     private func updateTabBarAppearance() {
-        let appearance = Self.tabBarAppearance(darkGlassEnabled: usesDarkGlass)
+        let appearance = Self.tabBarAppearance(darkGlassEnabled: usesDarkGlass,
+            selectedIconColor: isDuoDevice ? UIColor(duoControlAccent) : nil)
         UITabBar.appearance().standardAppearance = appearance
         UITabBar.appearance().scrollEdgeAppearance = appearance
     }
 
-    private static func tabBarAppearance(darkGlassEnabled: Bool) -> UITabBarAppearance {
+    private static func tabBarAppearance(darkGlassEnabled: Bool, selectedIconColor: UIColor? = nil) -> UITabBarAppearance {
         let appearance = UITabBarAppearance()
         appearance.configureWithDefaultBackground()
         if darkGlassEnabled {
             appearance.backgroundColor = UIColor.black.withAlphaComponent(GorillaGlassStyle.blackTintOpacity)
+            appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterialDark)
         } else {
             appearance.backgroundColor = .clear
+            appearance.backgroundEffect = UIBlurEffect(style: .systemChromeMaterial)
         }
         if #available(iOS 27.0, *) {
             appearance.overrideUserInterfaceStyle = darkGlassEnabled ? .dark : .unspecified
@@ -4469,7 +4649,7 @@ struct ContentView: View {
         let itemColor: UIColor = darkGlassEnabled ? .white : .label
         for layout in [appearance.stackedLayoutAppearance, appearance.inlineLayoutAppearance,
                        appearance.compactInlineLayoutAppearance] {
-            layout.selected.iconColor = itemColor
+            layout.selected.iconColor = selectedIconColor ?? itemColor
             layout.selected.titleTextAttributes = [.foregroundColor: itemColor]
             layout.normal.iconColor = itemColor.withAlphaComponent(0.7)
             layout.normal.titleTextAttributes = [.foregroundColor: itemColor.withAlphaComponent(0.7)]
@@ -4646,10 +4826,14 @@ struct ContentView: View {
                             request.transportType = .automobile
                             request.requestsAlternateRoutes = false
                             let directions = MKDirections(request: request)
+                            meterDirections?.cancel()
+                            meterDirections = directions
                             directions.calculate { response, error in
                                 guard let route = response?.routes.first, error == nil else {
                                     DispatchQueue.main.async {
-                                        guard meterRouteTarget == nil, routePriorityToken == routeToken else { return }
+                                        guard scenePhase == .active, meterDirections === directions,
+                                              meterRouteTarget == nil, routePriorityToken == routeToken else { return }
+                                        meterDirections = nil
                                         routePriorityToken = nil
                                         routePriorityAnchor = nil
                                         routeOverlayToken = nil
@@ -4658,7 +4842,9 @@ struct ContentView: View {
                                     return
                                 }
                                 DispatchQueue.main.async {
-                                    guard meterRouteTarget == nil, routePriorityToken == routeToken else { return }
+                                    guard scenePhase == .active, meterDirections === directions,
+                                          meterRouteTarget == nil, routePriorityToken == routeToken else { return }
+                                    meterDirections = nil
                                     withAnimation {
                                         showingRoute = true
                                         routePolyline = route.polyline
@@ -5182,6 +5368,11 @@ struct ContentView: View {
         return remainMins > 0 ? "\(hrs)h\(remainMins)m" : "\(hrs)h"
     }
 
+    /// Match the capsule's driving indication, including movement before visit departure is confirmed.
+    private var isDrivingForSpeedDashboard: Bool {
+        visitStatus == "已開車" || (!hasDeparted && preDepartureDriving)
+    }
+
     /// 泊車／停留狀態 —— 三格輪播「開場跟狀態」用嚟決定第一格
     /// （泊車／停留 → 狀態格先；開車／步行／騎車 → 速度+ETA 先）
     private var isParkedOrStationary: Bool {
@@ -5295,6 +5486,7 @@ struct ContentView: View {
     }
 
     private func reroute(from coordinate: CLLocationCoordinate2D) {
+        guard scenePhase == .active else { return }
         if let meter = meterRouteTarget {
             lastRerouteRequestAt = Date()
             startNavigationToMeter(meter)
@@ -5306,7 +5498,7 @@ struct ContentView: View {
         destinationManager.requestRoute(from: coordinate, to: destination.coordinate, force: true) { result in
             DispatchQueue.main.async {
                 defer { isRerouting = false }
-                guard meterRouteTarget == nil,
+                guard scenePhase == .active, showingRoute, meterRouteTarget == nil,
                       destinationManager.selectedDestination?.id == destination.id,
                       let route = result?.route else { return }
                 routeOverlayToken = UUID()
@@ -5392,30 +5584,38 @@ struct ContentView: View {
     /// Restart the stationary timer + departure elapsed timer + sync Live Activity.
     /// Called after cold-launch when `manualDeparted` and visit data hasn't changed.
     private func ensureStationaryTimerRunning() {
-        // Start stationary timer (counts up since departure)
-        if stationaryTimer == nil, let dep = departureTime {
-            let elapsed = Date().timeIntervalSince(dep)
-            stationaryElapsed = elapsed
+        if let dep = departureTime {
             stationaryStartTime = dep
-            let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-                let e = Date().timeIntervalSince(dep)
-                DispatchQueue.main.async { stationaryElapsed = e }
-            }
-            stationaryTimer = timer
-            RunLoop.main.add(timer, forMode: .common)
+            stationaryElapsed = Date().timeIntervalSince(dep)
+            departureElapsed = stationaryElapsed
         }
-        // Start departure elapsed timer (for the header label)
-        if departureElapsedTimer == nil, let dep = departureTime {
-            departureElapsed = Date().timeIntervalSince(dep)
-            let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-                guard hasDeparted, let d = departureTime else { return }
-                let e = Date().timeIntervalSince(d)
-                DispatchQueue.main.async { departureElapsed = e }
-            }
-            departureElapsedTimer = timer
-            RunLoop.main.add(timer, forMode: .common)
-        }
+        refreshElapsedDisplayTimers()
         syncLiveActivity()
+    }
+
+    /// Elapsed time is derived from saved dates. No UI clock is needed off screen.
+    private func refreshElapsedDisplayTimers() {
+        [elapsedDisplayTimer, parkingTimer, stationaryTimer, departureElapsedTimer].forEach { $0?.invalidate() }
+        elapsedDisplayTimer = nil
+        parkingTimer = nil
+        stationaryTimer = nil
+        departureElapsedTimer = nil
+        guard isInForeground else { return }
+        updateElapsedDisplay()
+        let timer = Timer(timeInterval: 1, repeats: true) { _ in updateElapsedDisplay() }
+        timer.tolerance = 0.2
+        elapsedDisplayTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func updateElapsedDisplay() {
+        guard isInForeground else { return }
+        if timerRunning {
+            parkingElapsed = max(0, Date().timeIntervalSince(parkingEntryTime))
+            capsuleDuration = parkingElapsed
+        }
+        if let start = stationaryStartTime { stationaryElapsed = max(0, Date().timeIntervalSince(start)) }
+        if hasDeparted, let departureTime { departureElapsed = max(0, Date().timeIntervalSince(departureTime)) }
     }
 
     private func refreshVisitAndTimersForForeground() {
@@ -5502,16 +5702,7 @@ struct ContentView: View {
 
             departureTime = dep
             departureElapsed = Date().timeIntervalSince(dep)
-            departureElapsedTimer?.invalidate()
-            let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-                guard hasDeparted, let d = departureTime else { return }
-                let e = Date().timeIntervalSince(d)
-                DispatchQueue.main.async {
-                    departureElapsed = e
-                }
-            }
-            departureElapsedTimer = timer
-            RunLoop.main.add(timer, forMode: .common)
+            refreshElapsedDisplayTimers()
         }
     }
 
@@ -5537,33 +5728,14 @@ struct ContentView: View {
         d.set(locationManager.currentAddress, forKey: "parkingEntryLocation")
         d.synchronize()
         syncLiveActivity()
-        parkingTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-            let entry = parkingEntryTime
-            let e = Date().timeIntervalSince(entry)
-            DispatchQueue.main.async {
-                parkingElapsed = e
-                capsuleDuration = e
-            }
-            WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
-        }
-        parkingTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        WidgetCenter.shared.reloadTimelines(ofKind: "ParkingTimerWidget")
+        refreshElapsedDisplayTimers()
     }
 
     private func startStationaryTimer() {
-        stationaryTimer?.invalidate()
-        let start = Date()
-        stationaryStartTime = start
+        stationaryStartTime = Date()
         stationaryElapsed = 0
-        let timer = Timer(timeInterval: 1.0, repeats: true) { _ in
-            let e = Date().timeIntervalSince(start)
-            DispatchQueue.main.async {
-                stationaryElapsed = e
-            }
-        }
-        stationaryTimer = timer
-        RunLoop.main.add(timer, forMode: .common)
+        refreshElapsedDisplayTimers()
     }
 
     private func stopStationaryTimer() {
@@ -5618,15 +5790,7 @@ struct ContentView: View {
                 selectedPhotoIndex = nil
                 departureElapsed = 0
                 departureElapsedTimer?.invalidate()
-                let t = Timer(timeInterval: 1.0, repeats: true) { _ in
-                    guard hasDeparted, let dep = departureTime else { return }
-                    let e = Date().timeIntervalSince(dep)
-                    DispatchQueue.main.async {
-                        departureElapsed = e
-                    }
-                }
-                departureElapsedTimer = t
-                RunLoop.main.add(t, forMode: .common)
+                refreshElapsedDisplayTimers()
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
                     withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                         parkingDeparted = false
@@ -5663,12 +5827,17 @@ struct ContentView: View {
 
         // 用 UNTimeIntervalNotificationTrigger 預先排程通知（後台都能觸發）
         scheduleParkingNotifications()
+        startParkingReminderForegroundCheck()
+    }
 
-        // 同時保留 Timer 用嚟更新 lastReminderMinute（前台時）
+    private func startParkingReminderForegroundCheck() {
+        parkingReminderTimer?.invalidate()
+        parkingReminderTimer = nil
+        guard isInForeground, timerRunning, !hasDeparted else { return }
         parkingReminderTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in
             DispatchQueue.main.async {
-                guard !hasDeparted, timerRunning else { return }
-                let elapsed = parkingElapsed
+                guard isInForeground, !hasDeparted, timerRunning else { return }
+                let elapsed = max(0, Date().timeIntervalSince(parkingEntryTime))
                 let minutes = Int(elapsed / 60)
                 guard minutes < 180 else {
                     self.stopParkingReminder()
@@ -5760,17 +5929,20 @@ struct ContentView: View {
 
     private func startCapsuleUpdateTimer() {
         stopCapsuleUpdateTimer()
-        let timer = Timer(timeInterval: 2.0, repeats: true) { _ in
+        guard isInForeground else { return }
+        let timer = Timer(timeInterval: 2, repeats: true) { _ in
             DispatchQueue.main.async {
+                guard isInForeground else { return }
                 // Driving-state gating must stay current on the speed page too.
                 updateVisitStatus()
-                if selectedTab == 1 {
+                if isInForeground && selectedTab == 1 {
                     if locationManager.speed >= 5 {
                         refreshETA()
                     }
                 }
             }
         }
+        timer.tolerance = 0.3
         capsuleUpdateTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
@@ -5778,6 +5950,28 @@ struct ContentView: View {
     private func stopCapsuleUpdateTimer() {
         capsuleUpdateTimer?.invalidate()
         capsuleUpdateTimer = nil
+    }
+
+    /// Native motion/location/visit events own background state changes. Only
+    /// schedule the next finite state deadline; never poll an invisible capsule.
+    private func refreshBackgroundVisitStatus(force: Bool = true) {
+        guard !isInForeground, locationManager.hasLoadedVisits else { return }
+        // GPS may arrive every second; motion and visits bypass this coalescing.
+        let now = Date()
+        guard force || now.timeIntervalSince(lastBackgroundStatusRefresh) >= 15 else { return }
+        lastBackgroundStatusRefresh = now
+        backgroundStatusWorkItem?.cancel()
+        backgroundStatusWorkItem = nil
+        updateVisitStatus()
+        let deadlines = [lastMovementTime?.addingTimeInterval(120),
+                         departureTime?.addingTimeInterval(120),
+                         preDepartureLastMoveAt?.addingTimeInterval(11)]
+        syncLiveActivity()
+        if force && timerRunning && isLongParkingHabit() { stopParkingReminder() }
+        guard let next = deadlines.compactMap({ $0 }).filter({ $0 > now }).min() else { return }
+        let work = DispatchWorkItem { refreshBackgroundVisitStatus() }
+        backgroundStatusWorkItem = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + next.timeIntervalSince(now), execute: work)
     }
 
     // MARK: - 緊湊態三格輪播（速度+ETA → 地址 → 狀態 循環）
@@ -5808,6 +6002,7 @@ struct ContentView: View {
     /// 排當前格嘅切換：時間到就順序跳下一格
     /// （速度+ETA → 地址 → 狀態 → 循環）
     private func scheduleCompactSlot() {
+        guard isInForeground else { return }
         compactSlotTimer?.invalidate()
         compactSlotGeneration += 1
         let gen = compactSlotGeneration
@@ -6221,11 +6416,11 @@ struct ContentView: View {
             // 一出世就喺最終位，唔會有右滑動畫）。直向維持水平正中。
             .offset(x: isLandscape ? 38 : 0, y: isLandscape ? 66 : 56)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isLandscape ? .trailing : .center)
-            .alert(renamingPointFloor == nil ? String(localized: "地點改名") : String(localized: "命名此樓層"),
-                   isPresented: $showRenamePointAlert) {
-                TextField("名稱", text: $renamingPointName)
-                Button("確定") {
-                    let newName = renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines)
+            .modifier(PlaceRenameAlert(isPresented: $showRenamePointAlert, name: $renamingPointName,
+                title: renamingPointFloor == nil ? String(localized: "地點改名") : String(localized: "命名此樓層"),
+                message: renamingPointFloor == nil ? String(localized: "改名會同步到地圖標點、學習地點同搜尋選單。")
+                    : String(localized: "樓層名稱會同步到這一樓層的停車點及到訪記錄。"),
+                allowsEmpty: renamingPointFloor != nil) { newName in
                     if let lot = currentLot {
                         if let floor = renamingPointFloor {
                             parkingFloorStore.setFloorName(lotID: lot.id, floor: floor, name: newName)
@@ -6233,13 +6428,7 @@ struct ContentView: View {
                             parkingFloorStore.setLotName(lotID: lot.id, name: newName)
                         }
                     }
-                }
-                .disabled(renamingPointFloor == nil && renamingPointName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                Button("取消", role: .cancel) {}
-            } message: {
-                Text(renamingPointFloor == nil ? String(localized: "改名會同步到地圖標點、學習地點同搜尋選單。")
-                     : String(localized: "樓層名稱會同步到這一樓層的停車點及到訪記錄。"))
-            }
+            })
         }
         .alert("新增停車場", isPresented: $showNewParkingLotAlert) {
             TextField("停車場名稱", text: $newParkingLotName)
@@ -6292,6 +6481,7 @@ struct ContentView: View {
     }
 
     private func startNavigationToParkingPoint(_ point: ParkingPointRecord) {
+        guard scenePhase == .active else { return }
         meterRouteTarget = nil
         meterDirections?.cancel()
         meterDirections = nil
@@ -6314,9 +6504,12 @@ struct ContentView: View {
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
         let directions = MKDirections(request: request)
+        meterDirections = directions
         directions.calculate { response, error in
             guard let route = response?.routes.first, error == nil else {
                 DispatchQueue.main.async {
+                    guard scenePhase == .active, meterDirections === directions, routePriorityToken == routeToken else { return }
+                    meterDirections = nil
                     routePriorityToken = nil
                     routePriorityAnchor = nil
                     routeOverlayToken = nil
@@ -6325,6 +6518,8 @@ struct ContentView: View {
                 return
             }
             DispatchQueue.main.async {
+                guard scenePhase == .active, meterDirections === directions, routePriorityToken == routeToken else { return }
+                meterDirections = nil
                 withAnimation {
                     showingRoute = true
                     routePolyline = route.polyline
@@ -6353,6 +6548,7 @@ struct ContentView: View {
     }
 
     private func startNavigationToMeter(_ meter: ParkingMeter) {
+        guard scenePhase == .active else { return }
         dismissMeterDetail()
         guard let location = locationManager.lastLocation else {
             meterRouteError = String(localized: "尚未取得目前位置")
@@ -6375,7 +6571,7 @@ struct ContentView: View {
         meterDirections = directions
         directions.calculate { response, error in
             DispatchQueue.main.async {
-                guard meterDirections === directions, meterRouteTarget?.id == meter.id else { return }
+                guard scenePhase == .active, meterDirections === directions, meterRouteTarget?.id == meter.id else { return }
                 meterDirections = nil
                 guard let route = response?.routes.min(by: { $0.expectedTravelTime < $1.expectedTravelTime }), error == nil else {
                     meterRouteError = error?.localizedDescription ?? "暫時找不到可行駕駛路線"
@@ -6448,6 +6644,7 @@ struct ContentView: View {
     }
 
     private func startNavigationToHKLocation(_ coordinate: CLLocationCoordinate2D) {
+        guard scenePhase == .active else { return }
         meterRouteTarget = nil
         meterDirections?.cancel()
         meterDirections = nil
@@ -6470,9 +6667,12 @@ struct ContentView: View {
         request.transportType = .automobile
         request.requestsAlternateRoutes = false
         let directions = MKDirections(request: request)
+        meterDirections = directions
         directions.calculate { response, error in
             guard let route = response?.routes.first, error == nil else {
                 DispatchQueue.main.async {
+                    guard scenePhase == .active, meterDirections === directions, routePriorityToken == routeToken else { return }
+                    meterDirections = nil
                     routePriorityToken = nil
                     routePriorityAnchor = nil
                     routeOverlayToken = nil
@@ -6481,6 +6681,8 @@ struct ContentView: View {
                 return
             }
             DispatchQueue.main.async {
+                guard scenePhase == .active, meterDirections === directions, routePriorityToken == routeToken else { return }
+                meterDirections = nil
                 withAnimation {
                     showingRoute = true
                     routePolyline = route.polyline
@@ -6871,6 +7073,7 @@ struct ContentView: View {
     }
 
     private func startParkingInfoSwitchTimer() {
+        guard isInForeground else { return }
         parkingInfoSwitchTimer?.invalidate()
         parkingInfoSwitchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
             DispatchQueue.main.async {
@@ -6886,6 +7089,7 @@ struct ContentView: View {
     }
 
     private func resetParkingInfoSwitchTimer() {
+        guard isInForeground else { return }
         parkingInfoSwitchTimer?.invalidate()
         parkingInfoSwitchTimer = Timer.scheduledTimer(withTimeInterval: 10.0, repeats: true) { _ in
             DispatchQueue.main.async {
@@ -7148,7 +7352,7 @@ struct ContentView: View {
     @State private var lastETASuccessLocation: CLLocation?  // 上次成功計算時嘅位置
 
     private func refreshETA() {
-        guard let dest = destinationManager.selectedDestination,
+        guard scenePhase == .active, let dest = destinationManager.selectedDestination,
               let loc = locationManager.lastLocation else {
             return
         }
@@ -7172,7 +7376,7 @@ struct ContentView: View {
             to: dest.coordinate
         ) { result in
             DispatchQueue.main.async {
-                guard destinationManager.selectedDestination?.id == dest.id,
+                guard scenePhase == .active, destinationManager.selectedDestination?.id == dest.id,
                       let result, drivingDistanceUpdatedAt != result.calculatedAt else { return }
                 let distance: Double? = result.route.distance
                 let time: Double? = result.route.expectedTravelTime
@@ -7184,6 +7388,7 @@ struct ContentView: View {
                         drivingDistanceText = String(format: "%.1f km", distance / 1000)
                     }
                     drivingDistanceMeters = distance
+                    if airportRouteTargetID == dest.id { airportRouteDistance = distance }
                     drivingDistanceUpdatedAt = result.calculatedAt
                     lastETASuccessLocation = CLLocation(latitude: result.source.latitude, longitude: result.source.longitude)
                 }
@@ -7204,6 +7409,7 @@ struct ContentView: View {
     }
 
     private func recalculateRoute() {
+        guard scenePhase == .active else { return }
         if let meter = meterRouteTarget {
             startNavigationToMeter(meter)
             return
@@ -7213,7 +7419,7 @@ struct ContentView: View {
         destinationManager.requestRoute(from: currentLocation.coordinate, to: destination.coordinate, force: true) { result in
             guard let route = result?.route else { return }
             DispatchQueue.main.async {
-                guard meterRouteTarget == nil, destinationManager.selectedDestination?.id == destination.id else { return }
+                guard scenePhase == .active, showingRoute, meterRouteTarget == nil, destinationManager.selectedDestination?.id == destination.id else { return }
                 routeOverlayToken = UUID()
                 routeOverlayAnimationToken = nil
                 withAnimation {
@@ -7272,7 +7478,6 @@ struct ContentView: View {
             }
             
             // 离场后：CMMotionActivity 优先，GPS 速度辅助
-            let speed = locationManager.speed
             let gpsLocationChanged = isGPSLocationChanged()
             let motion = locationManager.currentMotionActivity
             let reliableMotion = motion?.confidence != .low && motion != nil
@@ -7281,9 +7486,18 @@ struct ContentView: View {
             let cyclingMotion = reliableMotion && motion?.cycling == true && motion?.stationary != true
             let fix = locationManager.lastLocation
             let freshFix = fix.map { Date().timeIntervalSince($0.timestamp) < 10 && $0.horizontalAccuracy >= 0 && $0.horizontalAccuracy <= 50 } ?? false
+            let speed = freshFix || isInForeground ? locationManager.speed : 0
+            // Reading an old fix again is not fresh evidence of movement.
+            let movementDate = freshFix ? (fix?.timestamp ?? Date()) : (motion?.startDate ?? Date())
             let confirmedStopped = (reliableMotion && motion?.stationary == true && motion?.automotive != true
                 && motion?.walking != true && motion?.running != true && motion?.cycling != true)
                 || (freshFix && (fix?.speed ?? -1) >= 0 && (fix?.speed ?? -1) < 0.6)
+            if !isInForeground, reliableMotion, motion?.stationary == true,
+               let stoppedAt = motion?.startDate, let lastMove = lastMovementTime, stoppedAt > lastMove {
+                // A stationary transition dates the end of walking/driving even
+                // when quiet GPS produced no intermediate fixes.
+                lastMovementTime = stoppedAt
+            }
 
             // Motion can lag behind departure; walking must not override driving speed.
             if reliableMotion && motion?.automotive == true && motion?.walking != true
@@ -7291,7 +7505,7 @@ struct ContentView: View {
                 walkingStartTime = nil
                 cyclingStartTime = nil
                 visitStatus = "已開車"
-                lastMovementTime = Date()
+                lastMovementTime = movementDate
             } else if (walkingMotion && (!freshFix || speed <= 20))
                 || (motion?.walking == true && freshFix && speed > 1 && speed <= 12) {
                 // 步行中：CMMotionActivity 說步行 + GPS 有移動 → 已步行
@@ -7299,14 +7513,14 @@ struct ContentView: View {
                     walkingStartTime = Date()
                 }
                 visitStatus = "已步行"
-                lastMovementTime = Date()
+                lastMovementTime = movementDate
             } else if cyclingMotion || (motion?.cycling == true && freshFix && speed > 3) {
                 // 騎車中：CMMotionActivity 說騎車 + GPS 有移動 → 已騎車
                 if visitStatus != "已騎車" {
                     cyclingStartTime = Date()
                 }
                 visitStatus = "已騎車"
-                lastMovementTime = Date()
+                lastMovementTime = movementDate
             } else if speed > 8 || (speed > 5 && gpsLocationChanged) {
                 // 開車中：GPS 速度快（CMMotionActivity 沒說步行/騎車才走這裡）
                 if visitStatus != "已開車" {
@@ -7314,7 +7528,7 @@ struct ContentView: View {
                     cyclingStartTime = nil
                 }
                 visitStatus = "已開車"
-                lastMovementTime = Date()
+                lastMovementTime = movementDate
             } else if let lastMove = lastMovementTime {
                 // 不在移动，检查是否已持续2分钟以上
                 let stationaryDuration = Date().timeIntervalSince(lastMove)
@@ -7343,11 +7557,13 @@ struct ContentView: View {
             (Self.appGroupDefaults ?? .standard).set(isNonAutomotiveArrival, forKey: "isNonAutomotiveArrival")
             
             let now = Date()
-            let speed = locationManager.speed
+            let fix = locationManager.lastLocation
+            let freshFix = fix.map { Date().timeIntervalSince($0.timestamp) < 10 && $0.horizontalAccuracy >= 0 } ?? false
+            let speed = freshFix || isInForeground ? locationManager.speed : 0
             let moved = isGPSLocationChanged()
             if speed > 8 || (speed > 5 && moved) {
                 preDepartureDriving = true
-                preDepartureLastMoveAt = now
+                preDepartureLastMoveAt = fix?.timestamp ?? now
             } else if preDepartureDriving, let last = preDepartureLastMoveAt, now.timeIntervalSince(last) > 10 {
                 preDepartureDriving = false
             }
@@ -7373,19 +7589,11 @@ struct ContentView: View {
 
     // MARK: - Live Activity sync
 
-    /// 60 秒定時器：定期 push content state，讓 compact trailing 計時器自動更新
-    private func startActivitySyncTimer() {
-        activitySyncTimer?.invalidate()
-        activitySyncTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
-            syncLiveActivity()
-        }
-    }
-
     /// Pushes the current visit state into the system Live Activity.
     private func syncLiveActivity(forceRefresh: Bool = false) {
         // visits 尚未載入時不結束活動（冷啟動保護）
         guard locationManager.hasLoadedVisits else { return }
-        guard !locationManager.visits.isEmpty else {
+        guard !locationManager.visits.isEmpty || manualParkingStartedAt != nil else {
             GorillaActivityManager.shared.end()
             return
         }
@@ -7419,59 +7627,20 @@ struct ContentView: View {
         var content = GorillaActivityAttributes.ContentState(
             state: activityState, startDate: anchor
         )
-        if activityState == .driving || activityState == .cycling {
-            content.speedKmhExact = locationManager.speed
-        }
-
-        switch activityState {
-        case .driving:
-            content.speedKmh = Int(locationManager.speed)
-            let road = locationManager.currentAddress
-            content.road = road.isEmpty ? nil : road
-            if let secs = drivingETASeconds {
-                content.etaMinutes = max(1, Int(secs / 60))
+        if [.parking, .nonAutomotiveParking, .stationary].contains(activityState) {
+            let arrival = manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime)
+            let session = parkingFloorStore.session(forArrival: arrival)
+            let entry = d.string(forKey: "parkingEntryLocation")
+            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
+            content.area = session?.areaCode
+            if activityState != .nonAutomotiveParking {
+                content.floor = session?.floorDisplay
+                content.spot = session?.spotNumber
             }
-        case .parking:
-            let session = parkingFloorStore.session(forArrival: manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime))
-            let entry = d.string(forKey: "parkingEntryLocation")
-            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
-            content.area = session?.areaCode
-            content.floor = session?.floorDisplay
-            content.spot = session?.spotNumber
-        case .nonAutomotiveParking:
-            let session = parkingFloorStore.session(forArrival: manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime))
-            let entry = d.string(forKey: "parkingEntryLocation")
-            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
-            content.area = session?.areaCode
-            // Non-automotive: no floor/spot
-        case .stationary:
-            let session = hasDeparted ? parkingFloorStore.currentSession : parkingFloorStore.session(forArrival: manualParkingStartedAt != nil ? parkingStartTime : (locationManager.visits.first?.arrivalDate ?? parkingStartTime))
-            let entry = d.string(forKey: "parkingEntryLocation")
-            content.location = session?.locationName ?? ((entry?.isEmpty == false) ? entry : nil)
-            content.area = session?.areaCode
-            content.floor = session?.floorDisplay
-            content.spot = session?.spotNumber
-            // Design row: 目的地 + distance | road | eta
+        } else {
+            // Stable place names require no background GPS/route/address refresh.
             content.destinationName = destinationManager.selectedDestination?.name
-            content.distanceText = drivingDistanceText
-            let road = locationManager.currentAddress
-            content.road = road.isEmpty ? nil : road
-            if let secs = drivingETASeconds {
-                content.etaMinutes = max(1, Int(secs / 60))
-            }
-        case .walking:
-            let road = locationManager.currentAddress
-            content.road = road.isEmpty ? nil : road
-            if let secs = drivingETASeconds {
-                content.etaMinutes = max(1, Int(secs / 60))
-            }
-        case .cycling:
-            content.speedKmh = Int(locationManager.speed)
-            let road = locationManager.currentAddress
-            content.road = road.isEmpty ? nil : road
-            if let secs = drivingETASeconds {
-                content.etaMinutes = max(1, Int(secs / 60))
-            }
+            content.location = locationManager.visits.first?.address
         }
 
         GorillaActivityManager.shared.sync(content, forceRefresh: forceRefresh)
@@ -7932,6 +8101,7 @@ struct ContentView: View {
 
     @State private var gpsGlowPhase: CGFloat = 0  // 0 = 脈動起點（出現），1 = 擴散到最外圍
     @State private var gpsShowsMapDetails = false
+    @State private var gpsDetailsPinned = false
 
     private var gpsStatusBadge: some View {
         HStack(spacing: 6) {
@@ -8004,34 +8174,154 @@ struct ContentView: View {
                 enterMarkerOverview(mode)
             }
         }
-        .gesture(TapGesture(count: gpsShowsMapDetails ? 1 : 2).onEnded {
-            if gpsShowsMapDetails {
-                showingMarkerOverviewChoices = true
+        .onTapGesture {
+            if !gpsShowsMapDetails {
+                gpsDetailsPinned = true
+                withAnimation(.easeInOut(duration: 0.2)) { gpsShowsMapDetails = true }
             } else if hkDetailMode {
+                if markerOverview.mode == .airport { dismissAirportGuide(); return }
                 TrafficCameraStore.shared.selected = nil
                 ParkingMeterManager.shared.selectedMeter = nil
                 markerOverview.mode = .nearby
+                gpsDetailsPinned = false
             } else {
                 showingMarkerOverviewChoices = true
+                gpsDetailsPinned = false
             }
-        })
-        .task {
+        }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
             while !Task.isCancelled {
                 do { try await Task.sleep(for: .seconds(10)) } catch { return }
                 guard !Task.isCancelled else { return }
-                if !showingMarkerOverviewChoices {
+                if !showingMarkerOverviewChoices && !gpsDetailsPinned {
                     withAnimation(.easeInOut(duration: 0.4)) { gpsShowsMapDetails.toggle() }
                 }
             }
         }
     }
 
+    private func startAirportDropOffRoute(_ airline: AirportDropOffCatalog.Airline) {
+        guard scenePhase == .active else { return }
+        airportSearchedAirline = airline
+        if !showMap && !showSatellite { showMap = true }
+        airportRouteDistance = nil
+        airportRouteToken = UUID()
+        airportPendingAirline = airline
+        markerOverview.airportTarget = nil
+        guard let number = airline.dropOffZones.first,
+              let zone = AirportDropOffCatalog.bundled.zones?.first(where: { $0.terminal == airline.terminal && $0.number == number }) else {
+            airportRouteMessage = String(localized: "未有此落客區的可靠地圖坐標，暫不能計算路線距離。")
+            airportPendingAirline = nil
+            return
+        }
+        // Show the recommendation even while waiting for a usable GPS fix.
+        markerOverview.airportTarget = zone
+        guard let location = locationManager.lastLocation, location.horizontalAccuracy >= 0,
+              abs(location.timestamp.timeIntervalSinceNow) < 30 else {
+            airportRouteMessage = String(localized: "尚未取得目前位置")
+            return
+        }
+        meterDirections?.cancel()
+        airportPendingAirline = nil
+        meterRouteTarget = nil
+        let destination = Destination(name: "\(zone.terminal) Zone \(zone.number)",
+            coordinate: CLLocationCoordinate2D(latitude: zone.latitude, longitude: zone.longitude), colorHex: "12D2C2")
+        destinationManager.selectDestination(destination)
+        airportRouteTargetID = destination.id
+        airportRouteMessage = String(localized: "正在計算路線")
+        let token = airportRouteToken
+        destinationManager.requestRoute(from: location.coordinate, to: destination.coordinate, force: true) { result in
+            DispatchQueue.main.async {
+                guard scenePhase == .active, markerOverview.mode == .airport, airportRouteToken == token,
+                      destinationManager.selectedDestination?.id == destination.id else { return }
+                guard let result else {
+                    airportRouteMessage = String(localized: "暫時找不到可行駕駛路線")
+                    return
+                }
+                airportRouteDistance = result.route.distance
+                airportRouteMessage = nil
+                drivingDistanceMeters = result.route.distance
+                drivingDistanceUpdatedAt = result.calculatedAt
+                drivingDistanceText = AirportDropOffCatalog.formattedDistance(result.route.distance)
+                drivingETASeconds = result.route.expectedTravelTime
+                routePriorityToken = token
+                routePriorityAnchor = location.coordinate
+                routeOverlayToken = token
+                routeOverlayAnimationToken = nil
+                withAnimation(.smooth) {
+                    showingRoute = true
+                    routePolyline = result.route.polyline
+                    routeAnimationPolyline = nil
+                }
+            }
+        }
+    }
+
     private func enterMarkerOverview(_ mode: MapMarkerOverviewMode) {
+        airportPendingAirline = nil
+        if mode == .airport {
+            airportGuideStage = .button
+            airportSearchedAirline = nil
+            markerOverview.airportAnimateEntry = showMap || showSatellite
+            locationManager.restoreNavigationAccuracy()
+            locationManager.startLocationServicesIfNeeded()
+            markerOverview.airportTarget = nil
+            airportRouteDistance = nil
+            airportRouteMessage = nil
+        }
         selectedParkingPointID = nil
+        selectedHKLocation = nil
         ParkingMeterManager.shared.selectedMeter = nil
         TrafficCameraStore.shared.selected = nil
         markerOverview.mode = mode
         if !showMap && !showSatellite { showMap = true }
+    }
+
+    private func handleAirportBlankTap() {
+        if airportGuideStage == .input {
+            // The first blank tap is the input's close action, not a guide exit.
+            withAnimation(.spring(response: 0.42, dampingFraction: 0.82)) {
+                airportGuideStage = .button
+            }
+        } else {
+            dismissAirportGuide()
+        }
+    }
+
+    private func dismissAirportGuide() {
+        airportPendingAirline = nil
+        airportSearchedAirline = nil
+        airportRouteToken = UUID()
+        // Invalidate callbacks before clearing overlays so a late directions
+        // response cannot turn the airport route back on after leaving.
+        if let targetID = airportRouteTargetID,
+           destinationManager.selectedDestination?.id == targetID, meterRouteTarget == nil {
+            destinationManager.invalidateRoute()
+            routePriorityToken = nil
+            routePriorityAnchor = nil
+            routeOverlayToken = nil
+            routeOverlayAnimationToken = nil
+            isRerouting = false
+            lastRerouteRequestAt = nil
+            offRouteStrikeCount = 0
+            routeArrivalSince = nil
+            withAnimation(.easeOut(duration: 0.25)) {
+                showingRoute = false
+                routePolyline = nil
+                routeAnimationPolyline = nil
+            }
+        }
+        airportRouteTargetID = nil
+        airportRouteDistance = nil
+        airportRouteMessage = nil
+        airportGuideStage = .button
+        markerOverview.airportTarget = nil
+        markerOverview.airportWaitingForLocation = false
+        withAnimation(.easeOut(duration: 0.25)) {
+            markerOverview.mode = .nearby
+        }
+        gpsDetailsPinned = false
     }
 
     private var gpsColor: Color {

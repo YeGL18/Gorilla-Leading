@@ -70,7 +70,7 @@ struct GorillaLiveActivity: Widget {
                     GorillaInfoRow(state: context.state)
                         .padding(.horizontal, 20)
                         .padding(.bottom, 4)
-                        .frame(height: 160, alignment: .bottom)
+                        .frame(minHeight: 48, alignment: .bottom)
                 }
             } compactLeading: {
                 // Icon + state label
@@ -157,7 +157,7 @@ struct GorillaLockScreenView: View {
     let state: GorillaActivityAttributes.ContentState
 
     var body: some View {
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 16) {
             // Top row: tile icon + state name | big timer
             HStack {
                 HStack(spacing: 10) {
@@ -177,148 +177,59 @@ struct GorillaLockScreenView: View {
                                  languageCode: state.languageCode)
             }
 
-            Spacer()
-
             GorillaInfoRow(state: state)
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 20)
         .frame(maxWidth: .infinity)
-        .frame(height: 160)
+        .frame(minHeight: 120)
     }
 }
 
-// MARK: - Shared bottom info row (one variant per state)
-// All rows are LEFT-ALIGNED with fixed 30pt gaps (per approved design).
-// Missing live data falls back to the design-reference sample values.
+// MARK: - Stable context: state changes update these; the system renders the timer.
 
 struct GorillaInfoRow: View {
     let state: GorillaActivityAttributes.ContentState
 
-    private var minuteUnit: String {
-        GorillaActivityLocalization.string("LiveActivity.minute.short", languageCode: state.languageCode)
+    private var moving: Bool { [.driving, .walking, .cycling].contains(state.state) }
+    private var place: String? {
+        let value = moving ? (state.destinationName ?? state.location) : state.location
+        return value?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false ? value : nil
     }
 
     var body: some View {
-        switch state.state {
-        case .parking:
-            // location + area/floor/spot all white, left aligned.
-            // Missing recognition data renders as "-".
-            HStack(spacing: 20) {
-                Text(state.location ?? "-")
-                    .foregroundStyle(.white)
-                Text(parkingDetailText)
-                    .foregroundStyle(.white)
-                    .bold()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
+        VStack(alignment: .leading, spacing: 10) {
+            if let place {
+                Label(place, systemImage: moving && state.destinationName != nil ? "flag.checkered" : "mappin.and.ellipse")
+                    .font(.system(size: 17, weight: .semibold))
+                    .lineLimit(2).minimumScaleFactor(0.85)
             }
-            .font(.system(size: 16))
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .nonAutomotiveParking:
-            // Same layout as parking but without floor/spot (non-automotive stops have no floor detection)
-            HStack(spacing: 20) {
-                Text(state.location ?? "-")
-                    .foregroundStyle(.white)
-                Text(state.area ?? "-")
-                    .foregroundStyle(.white)
-                    .bold()
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-            }
-            .font(.system(size: 16))
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .driving:
-            // speed · road name (larger) · eta — all left aligned
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                valueUnit(state.speedDisplay, state.speedUnitSymbol)
-                Text(state.road ?? "-")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .stationary:
-            // Equal side columns keep the address on the horizontal centerline.
-            HStack(alignment: .bottom, spacing: 12) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(GorillaActivityLocalization.string("目的地：", languageCode: state.languageCode)
-                         + (state.destinationName ?? "-"))
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.75))
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.7)
-                    Text(state.distanceText ?? "-")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
+            if !moving {
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 18) { parkingDetails }
+                    VStack(alignment: .leading, spacing: 8) { parkingDetails }
                 }
-                .frame(width: 90, alignment: .leading)
-                Text(state.road ?? "-")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .multilineTextAlignment(.center)
-                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
-                    .frame(width: 90, alignment: .trailing)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            if place == nil && (moving || (state.area == nil && state.floor == nil && state.spot == nil)) {
+                Text("Gorilla Leading").font(.subheadline.weight(.medium)).foregroundStyle(.white.opacity(0.65))
+            }
+        }
+        .foregroundStyle(.white)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
 
-        case .walking:
-            // road name + eta — same layout as driving but no speed
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                Text(state.road ?? "-")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .cycling:
-            // speed + road name + eta — same as driving
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                valueUnit(state.speedDisplay, state.speedUnitSymbol)
-                Text(state.road ?? "-")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                valueUnit(state.etaMinutes.map(String.init), minuteUnit)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+    @ViewBuilder private var parkingDetails: some View {
+        if let area = state.area, !area.isEmpty { detail(area, symbol: "square.grid.2x2") }
+        if state.state != .nonAutomotiveParking {
+            if let floor = state.floor, !floor.isEmpty { detail(floor, symbol: "building.2") }
+            if let spot = state.spot, !spot.isEmpty { detail(spot, symbol: "parkingsign.circle") }
         }
     }
 
-    /// "P1區域 ␣ B2 · B1258" — real recognition data, one wide em-gap after
-    /// the area, normal " · " between floor and spot. "-" when not detected.
-    private var parkingDetailText: String {
-        let area = state.area ?? "-"
-        let floor = state.floor ?? "-"
-        let spot = state.spot ?? "-"
-        return area + "\u{2003}\u{2003}" + floor + " · " + spot
-    }
-
-    /// Bold number + smaller unit, e.g. "39 mins"; "-" when data is missing.
-    private func valueUnit(_ value: String?, _ unit: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(value ?? "-")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.white)
-            if value != nil {
-                Text(unit)
-                    .font(.system(size: 12.5, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.9))
-            }
-        }
+    private func detail(_ value: String, symbol: String) -> some View {
+        Label { Text(value).monospacedDigit().lineLimit(1).minimumScaleFactor(0.8) }
+            icon: { Image(systemName: symbol).foregroundStyle(state.state.color) }
+            .font(.system(size: 15, weight: .semibold))
     }
 }
 
@@ -328,20 +239,19 @@ private let parkingPreview = GorillaActivityAttributes.ContentState(
     state: .parking, startDate: .now, location: "台北101", area: "P1區域", floor: "B2", spot: "B1258"
 )
 private let drivingPreview = GorillaActivityAttributes.ContentState(
-    state: .driving, startDate: .now, speedKmh: 2, road: "Sai Sha Rd 599", etaMinutes: 39
+    state: .driving, startDate: .now, destinationName: "香港國際機場"
 )
 private let stationaryPreview = GorillaActivityAttributes.ContentState(
-    state: .stationary, startDate: .now, location: "台北101", road: "Sai Sha Rd 599",
-    etaMinutes: 39, destinationName: "家", distanceText: "46.1 km"
+    state: .stationary, startDate: .now, location: "銀湖・天峰"
 )
 private let nonAutomotivePreview = GorillaActivityAttributes.ContentState(
     state: .nonAutomotiveParking, startDate: .now, location: "中央公園", area: "入口廣場"
 )
 private let walkingPreview = GorillaActivityAttributes.ContentState(
-    state: .walking, startDate: .now, road: "Sai Sha Rd 599", etaMinutes: 15
+    state: .walking, startDate: .now, location: "香港都會大學"
 )
 private let cyclingPreview = GorillaActivityAttributes.ContentState(
-    state: .cycling, startDate: .now, speedKmh: 15, road: "Tolo Highway", etaMinutes: 8
+    state: .cycling, startDate: .now, destinationName: "大埔海濱公園"
 )
 
 #Preview(as: .dynamicIsland(.compact), using: GorillaActivityAttributes()) {

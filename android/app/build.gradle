@@ -2,16 +2,17 @@ plugins { id 'com.android.application' }
 def firebaseConfig = file('google-services.json')
 def config = firebaseConfig.exists() ? new groovy.json.JsonSlurper().parse(firebaseConfig) : null
 def androidClient = config?.client?.find { it.client_info?.android_client_info?.package_name == 'com.gorilla.leading' }
-def apiUrl = providers.gradleProperty('communityApiUrl').getOrElse('')
+def apiUrl = providers.gradleProperty('communityApiUrl').getOrElse('https://api.lucidtelos.com/v1/parking-community')
 android {
     namespace 'com.gorilla.leading'
     compileSdk 35
     defaultConfig {
         applicationId 'com.gorilla.leading'
-        minSdk 26
+        minSdk 35
         targetSdk 35
-        versionCode 2
-        versionName '0.2-test'
+        versionCode 3
+        versionName '0.3-test'
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
         buildConfigField 'String', 'API_BASE_URL', groovy.json.JsonOutput.toJson(apiUrl)
         buildConfigField 'boolean', 'FIREBASE_CONFIGURED', androidClient != null ? 'true' : 'false'
         resValue 'string', 'google_app_id', androidClient?.client_info?.mobilesdk_app_id ?: ''
@@ -28,7 +29,11 @@ dependencies {
     implementation 'androidx.camera:camera-lifecycle:1.4.2'
     implementation 'androidx.camera:camera-view:1.4.2'
     implementation 'com.google.mlkit:text-recognition:16.0.1'
+    implementation 'com.qmdeve.liquidglass:core:1.0.3'
     implementation platform('com.google.firebase:firebase-bom:33.12.0')
     implementation 'com.google.firebase:firebase-messaging'
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test:runner:1.6.2'
+    androidTestImplementation 'androidx.test:core:1.6.1'
+    androidTestImplementation 'androidx.test.ext:junit:1.2.1'
 }

@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "Ứng dụng này sử dụng Apple Intelligence để dịch trên thiết bị.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Ứng dụng này cần truy cập vị trí luôn bật để theo dõi các lượt truy cập và vị trí đỗ xe của bạn.";
+"NSCameraUsageDescription" = "Ứng dụng này sử dụng máy ảnh để chụp ảnh vị trí đỗ xe của bạn và quét dấu đăng ký xe để nhắc nhở đỗ xe.";
+"NSLocalNetworkUsageDescription" = "Kết nối với máy tính Windows trên cùng một mạng cục bộ để nhận phép đo từ xa trò chơi Assetto Corsa .";
+"NSSpeechRecognitionUsageDescription" = "Ứng dụng này sử dụng nhận dạng giọng nói để chuyển đổi giọng nói của bạn thành văn bản để dịch.";
+"NSLocationWhenInUseUsageDescription" = "Ứng dụng này sử dụng vị trí của bạn để hiển thị tốc độ hiện tại của bạn.";
+"NSMotionUsageDescription" = "Ứng dụng này sử dụng lịch sử chuyển động để xác định hành trình lái xe và đi bộ, và dữ liệu độ cao để phát hiện mức sàn đỗ xe.";
+"NSMicrophoneUsageDescription" = "Ứng dụng này cần truy cập micrô để nhập giọng nói.";

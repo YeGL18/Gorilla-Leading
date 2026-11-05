@@ -18,9 +18,30 @@ extension CLLocationCoordinate2D {
 struct EnergyRuntimeFixture: App {
     var body: some Scene {
         WindowGroup {
-            if ProcessInfo.processInfo.arguments.contains("--time-entrance") { TimeEntranceFixture() }
+            if ProcessInfo.processInfo.arguments.contains("--activity-preview") { ActivityFixture() }
+            else if ProcessInfo.processInfo.arguments.contains("--time-entrance") { TimeEntranceFixture() }
             else { EdgeFixture() }
         }
+    }
+}
+
+private struct ActivityFixture: View {
+    private let states: [GorillaActivityState] = [.parking, .nonAutomotiveParking, .driving, .stationary, .walking, .cycling]
+    var body: some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                ForEach(states, id: \.self) { state in
+                    GorillaLockScreenView(state: .init(state: state, startDate: Date().addingTimeInterval(-1480),
+                        location: "銀湖・天峰停車場", area: "A", floor: "B2", spot: "128",
+                        destinationName: [.driving, .cycling].contains(state) ? "香港國際機場" : nil,
+                        languageCode: "zh-Hant"))
+                        .background(.black.opacity(0.8), in: .rect(cornerRadius: 26))
+                        .frame(maxWidth: 400)
+                }
+            }.padding(20)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("--light") ? .light : .dark)
     }
 }
 

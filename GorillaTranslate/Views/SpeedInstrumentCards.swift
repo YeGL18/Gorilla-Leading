@@ -153,13 +153,13 @@ private struct InstrumentGlass: ViewModifier {
     }
 }
 
-private extension View {
+extension View {
     func instrumentGlass() -> some View {
         modifier(InstrumentGlass())
     }
 }
 
-private struct SpeedCurrentActionPanel: View {
+struct SpeedCurrentActionPanel: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @ObservedObject var motion: GForceParallaxMotion
     @ObservedObject var telemetry: ACTelemetry
@@ -286,22 +286,25 @@ private struct SpeedCurrentActionPanel: View {
     }
 }
 
-private struct SpeedGForceCirclePanel: View {
+struct SpeedGForceCirclePanel: View {
     @ObservedObject var motion: GForceParallaxMotion
     @ObservedObject var telemetry: ACTelemetry
     let accent: Color
     let textColorOverride: Color?
+    var compact = false
+    var enabled = true
     @Environment(\.scenePhase) private var scenePhase
     @State private var recentPeak = SpeedGForceRecentPeak()
 
     private var reading: SpeedGForce? {
-        telemetry.isReceiving ? telemetry.sample?.gForce : motion.reading
+        guard enabled else { return nil }
+        return telemetry.isReceiving ? telemetry.sample?.gForce : motion.reading
     }
 
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Text("G-force").font(.headline)
+                Text("G-force").font(compact ? .caption2.bold() : .headline)
                 Spacer(minLength: 4)
                 HStack(spacing: 8) {
                     Text(reading.map { String(format: "%.2f G", $0.magnitude) } ?? "— G")
@@ -318,16 +321,17 @@ private struct SpeedGForceCirclePanel: View {
             SpeedGForcePlot(reading: reading, accent: accent)
                 .id(telemetry.isReceiving)
         }
-        .padding(16)
+        .padding(compact ? 8 : 16)
         .transaction { $0.animation = nil }
         .onAppear { recentPeak.update(reading, at: ProcessInfo.processInfo.systemUptime) }
         .onReceive(motion.$reading) { value in
-            if !telemetry.isReceiving { recentPeak.update(value, at: ProcessInfo.processInfo.systemUptime) }
+            if enabled && !telemetry.isReceiving { recentPeak.update(value, at: ProcessInfo.processInfo.systemUptime) }
         }
         .onReceive(telemetry.$sample) { sample in
-            if telemetry.isReceiving { recentPeak.update(sample?.gForce, at: ProcessInfo.processInfo.systemUptime) }
+            if enabled && telemetry.isReceiving { recentPeak.update(sample?.gForce, at: ProcessInfo.processInfo.systemUptime) }
         }
         .onChange(of: telemetry.isReceiving) { _, _ in recentPeak = SpeedGForceRecentPeak() }
+        .onChange(of: enabled) { _, _ in recentPeak = SpeedGForceRecentPeak() }
         .onChange(of: scenePhase) { _, _ in recentPeak = SpeedGForceRecentPeak() }
     }
 }

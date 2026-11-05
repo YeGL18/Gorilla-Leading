@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "Цей додаток використовує Apple Intelligence для перекладу на пристрої.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Цьому додатку потрібен постійний доступ до місця розташування, щоб відстежувати ваші відвідування та місце паркування.";
+"NSCameraUsageDescription" = "Цей додаток використовує камеру для фотографування місця вашої парковки та сканування реєстраційних знаків транспортних засобів для нагадувань про паркування.";
+"NSLocalNetworkUsageDescription" = "Підключіться до ПК Windows у тій самій локальній мережі, щоб отримувати ігрову телеметрію Assetto Corsa.";
+"NSSpeechRecognitionUsageDescription" = "Цей додаток використовує розпізнавання мови для перетворення вашого голосу в текст для перекладу.";
+"NSLocationWhenInUseUsageDescription" = "Цей додаток використовує ваше місцезнаходження для відображення вашої поточної швидкості.";
+"NSMotionUsageDescription" = "Цей додаток використовує історію руху для ідентифікації поїздок під час водіння та ходьби, а також дані про висоту для визначення рівня паркувальної підлоги.";
+"NSMicrophoneUsageDescription" = "Цьому додатку потрібен доступ до мікрофона для голосового введення.";

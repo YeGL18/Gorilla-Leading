@@ -36,12 +36,14 @@ enum LanguageMigrationChecks {
         defaults.set(["zh-Hant", "en"], forKey: "AppleLanguages")
         LanguageManager.migrateLegacyOverride(defaults: defaults)
         precondition(defaults.array(forKey: "AppleLanguages") as? [String] == ["zh-Hant", "en"])
-        let supported = ["en", "zh-Hant", "zh-Hans", "ja", "Base"]
-        for language in ["zh-Hant", "zh-Hans", "ja", "en"] {
+        let supported = ["en", "zh-Hant", "yue", "zh-Hans", "ja", "ko", "fr", "de", "es", "pt", "it", "nl", "pl", "tr", "ru", "uk", "id", "ms", "th", "vi", "Base"]
+        for language in supported.filter({ $0 != "Base" }) {
             precondition(LanguageManager.resolveLanguage(appLanguages: [language],
                 preferredLanguages: ["en"], localizations: supported) == language,
                 "The native app override must win over the system language")
         }
+        precondition(LanguageManager.resolveLanguage(appLanguages: ["yue-Hant-HK"],
+            preferredLanguages: ["en"], localizations: supported) == "yue")
         precondition(LanguageManager.resolveLanguage(appLanguages: ["zh-Hant-HK"],
             preferredLanguages: ["en"], localizations: supported) == "zh-Hant")
         precondition(LanguageManager.resolveLanguage(appLanguages: nil,

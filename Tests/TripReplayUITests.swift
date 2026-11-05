@@ -3,6 +3,168 @@ import CoreLocation
 import SwiftUI
 
 final class TripReplayUITests: XCTestCase {
+    func testProductionDuoParkingAndReplayScreenshots() {
+        continueAfterFailure = false
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.translation")
+        app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_HK", "-capsuleDarkGlassEnabled", "YES", "--duo-landscape-screenshot"]
+        app.launch()
+        // Device Hub rotates the active inner display. XCUIDevice orientation
+        // currently targets Duo's outer display, so don't override it here.
+        let close = app.buttons.matching(NSPredicate(format: "label == 'Close' OR label == '關閉'")).firstMatch
+        if close.waitForExistence(timeout: 4) { close.tap() }
+        let home = app.buttons["Home"].firstMatch
+        XCTAssertTrue(home.waitForExistence(timeout: 15), app.debugDescription)
+        home.tap()
+        XCTAssertGreaterThan(app.frame.width, 800, "Open the Duo inner display before running this check")
+        XCTAssertGreaterThan(app.frame.height, 560)
+        let mapToggle = app.buttons.matching(NSPredicate(format: "label == 'Switch Map Mode' OR label == '切換地圖模式' OR label == 'Show Map'")).firstMatch
+        if mapToggle.exists { mapToggle.tap() }
+        capture(app, "Duo Production Home")
+        if close.exists { close.tap() }
+        let parking = app.buttons.matching(NSPredicate(format: "label == 'Park' OR label == 'Parking memory' OR label == 'Parking Memory' OR label == '泊車記憶'")).firstMatch
+        if !parking.exists {
+            let address = app.descendants(matching: .any)["homeAddressCapsule"].firstMatch
+            XCTAssertTrue(address.waitForExistence(timeout: 5), app.debugDescription)
+            let compactCenter = address.frame.midX
+            let source = address.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            source.press(forDuration: 0.1, thenDragTo: source.withOffset(CGVector(dx: 0, dy: -110)))
+            Thread.sleep(forTimeInterval: 1)
+            XCTAssertEqual(address.frame.midX, compactCenter, accuracy: 2, "Address expansion must preserve its centre")
+        }
+        XCTAssertTrue(parking.waitForExistence(timeout: 5), app.debugDescription)
+        let expandedAddress = app.descendants(matching: .any)["homeAddressCapsule"].firstMatch.frame
+        parking.tap()
+        Thread.sleep(forTimeInterval: 1)
+        capture(app, "Duo Production Parking Memory")
+        let expandedParking = app.descendants(matching: .any)["homeAddressCapsule"].firstMatch.frame
+        XCTAssertEqual(expandedParking.maxX, expandedAddress.maxX, accuracy: 2, "Expansion must preserve the right edge")
+        XCTAssertEqual(expandedParking.maxY, expandedAddress.maxY, accuracy: 2, "Expansion must preserve the bottom edge")
+        print("PARKING_LAYOUT\n" + app.debugDescription)
+        app.buttons["homeTripReplay"].tap()
+        if !app.buttons["replayTripRow"].firstMatch.waitForExistence(timeout: 3) {
+            let calendar = app.descendants(matching: .any)["replayCalendar"].firstMatch
+            let demoDay = calendar.buttons.matching(NSPredicate(format: "label CONTAINS 'November 3' OR label CONTAINS '11月3日'")).firstMatch
+            XCTAssertTrue(demoDay.waitForExistence(timeout: 3), app.debugDescription)
+            demoDay.tap()
+        }
+        XCTAssertTrue(app.buttons["replayTripRow"].firstMatch.waitForExistence(timeout: 10))
+        capture(app, "Duo Production Replay Library")
+        app.buttons["replayTripRow"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["replayOverview"].waitForExistence(timeout: 10))
+        capture(app, "Duo Production Replay Detail")
+        app.buttons["replayFollowPosition"].tap()
+        Thread.sleep(forTimeInterval: 6)
+        let dot = app.descendants(matching: .any)["replayPositionDot"].firstMatch
+        XCTAssertTrue(dot.exists)
+        var positions: [CGPoint] = []
+        for _ in 0..<10 {
+            positions.append(CGPoint(x: dot.frame.midX, y: dot.frame.midY))
+            Thread.sleep(forTimeInterval: 0.05)
+        }
+        XCTAssertLessThan(positions.map(\.x).max()! - positions.map(\.x).min()!, 3)
+        XCTAssertLessThan(positions.map(\.y).max()! - positions.map(\.y).min()!, 3)
+        app.terminate()
+        app.launch()
+        if close.waitForExistence(timeout: 3) { close.tap() }
+        app.buttons["Speed"].firstMatch.tap()
+        capture(app, "Duo Production Speed")
+    }
+    func testNativeRenameEnablesConfirmationAndSavesInBothThemes() {
+        for theme in ["--dark", "--light"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["--rename-place", theme, "-AppleLanguages", "(zh-Hant)"]
+            app.launch()
+            app.buttons["Rename Place"].tap()
+            let alert = app.alerts.firstMatch
+            XCTAssertTrue(alert.waitForExistence(timeout: 5))
+            let confirm = alert.buttons.matching(NSPredicate(format: "label IN %@", ["確定", "OK", "Confirm"])).firstMatch
+            XCTAssertFalse(confirm.isEnabled)
+            alert.textFields.firstMatch.tap()
+            alert.textFields.firstMatch.typeText("New Place")
+            XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+            // Duo moves native alerts when the keyboard enters; tap after that layout settles.
+            Thread.sleep(forTimeInterval: 1.2)
+            XCTAssertTrue(confirm.isEnabled)
+            capture(app, "Native Rename \(theme)")
+            confirm.tap()
+            XCTAssertTrue(app.staticTexts["renameResult"].waitForExistence(timeout: 3))
+            XCTAssertEqual(app.staticTexts["renameResult"].label, "New Place")
+            app.terminate()
+        }
+    }
+
+    func testSeparateFollowAndOverviewAndLiveData() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--dark", "-AppleLanguages", "(en)"]
+        app.launch()
+        let row = app.buttons["replayTripRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        let follow = app.buttons["replayFollowPosition"]
+        XCTAssertTrue(follow.waitForExistence(timeout: 10))
+        follow.tap()
+        XCTAssertEqual(follow.value as? String, "Enable")
+        app.buttons["replayOverview"].tap()
+        XCTAssertEqual(follow.value as? String, "Close")
+        XCTAssertTrue(app.descendants(matching: .any)["tripReplayPanel"].firstMatch.exists)
+        capture(app, "Separate Replay Camera Controls")
+        app.terminate()
+        checkFixedDashboard(app)
+    }
+
+    func testFixedPhoneDashboardLayout() { checkFixedDashboard(XCUIApplication()) }
+
+    private func checkFixedDashboard(_ app: XCUIApplication) {
+        app.launchArguments = ["--live-data", "-AppleLanguages", "(en)"]
+        app.launch()
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            Thread.sleep(forTimeInterval: 1)
+            let dashboard = app.descendants(matching: .any)["fixedSpeedDashboard"].firstMatch
+            XCTAssertTrue(dashboard.waitForExistence(timeout: 10))
+            XCTAssertEqual(app.scrollViews.count, 0)
+            let digits = app.descendants(matching: .any)["fixedDashboardSpeed"].firstMatch
+            XCTAssertLessThan(abs(digits.frame.midY - dashboard.frame.midY), 8)
+            XCTAssertFalse(digits.frame.intersects(app.descendants(matching: .any)["currentActionCard"].firstMatch.frame))
+            XCTAssertFalse(digits.frame.intersects(app.descendants(matching: .any)["gForceCircleCard"].firstMatch.frame))
+            XCTAssertEqual(app.sliders.count, 0)
+            for key in ["speedCompactStatistics", "currentActionCard", "gForceCircleCard", "replaySpeedChart", "replayAltitudeChart", "speedLiveReadout"] {
+                let item = app.descendants(matching: .any)[key].firstMatch
+                XCTAssertTrue(item.exists, key)
+                XCTAssertGreaterThanOrEqual(item.frame.minY, dashboard.frame.minY - 2, key)
+                XCTAssertLessThanOrEqual(item.frame.maxY, dashboard.frame.maxY + 2, key)
+            }
+            capture(app, "Fixed Dashboard \(orientation.rawValue)")
+        }
+        XCUIDevice.shared.orientation = .portrait
+        app.terminate()
+    }
+
+    func testDetailSectionsReorderAndPersist() {
+        let app = XCUIApplication()
+        app.launchArguments = ["-AppleLanguages", "(en)"]
+        app.launch()
+        app.buttons["replayTripRow"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["replayOverview"].waitForExistence(timeout: 10))
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.55))
+            .press(forDuration: 0.1, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.1)))
+        let timeline = app.descendants(matching: .any)["replaySection-timeline"].firstMatch
+        let stats = app.descendants(matching: .any)["replaySection-statistics"].firstMatch
+        XCTAssertTrue(timeline.waitForExistence(timeout: 5))
+        timeline.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.1))
+            .press(forDuration: 0.8, thenDragTo: stats.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)))
+        Thread.sleep(forTimeInterval: 0.8)
+        XCTAssertLessThan(timeline.frame.minY, stats.frame.minY)
+        capture(app, "Reordered Detail Sections")
+        app.terminate()
+        app.launchArguments = ["--preserve", "-AppleLanguages", "(en)"]
+        app.launch()
+        app.buttons["replayTripRow"].firstMatch.tap()
+        XCTAssertTrue(app.buttons["replayOverview"].waitForExistence(timeout: 10))
+        XCTAssertLessThan(timeline.frame.minY, stats.frame.minY)
+        app.terminate()
+    }
+
     func testVLMAlertUsesScopedAppearanceAndRetainsActions() {
         let app = XCUIApplication()
         for mode in ["--dark", "--light"] {
@@ -174,6 +336,72 @@ final class TripReplayUITests: XCTestCase {
         row.swipeLeft()
         XCTAssertTrue(app.buttons["Delete"].firstMatch.waitForExistence(timeout: 5))
         capture(app, "Dark Red Swipe Delete")
+    }
+
+    func testSwipeDeleteKeepsRowUntilConfirmation() {
+        let app = XCUIApplication()
+        app.launchArguments = ["--dark", "-AppleLanguages", "(en)"]
+        app.launch()
+        let row = app.buttons["replayTripRow"].firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.swipeLeft()
+        app.buttons["Delete"].firstMatch.tap()
+        let confirmation = app.buttons["replayConfirmDelete"]
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        let cancel = app.buttons["Cancel"].firstMatch
+        XCTAssertTrue(row.exists)
+        if cancel.exists {
+            cancel.tap()
+        } else {
+            // Regular-width native confirmation popovers dismiss by tapping outside.
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        }
+        XCTAssertTrue(confirmation.waitForNonExistence(timeout: 5))
+        XCTAssertTrue(row.exists)
+        row.swipeLeft()
+        app.buttons["Delete"].firstMatch.tap()
+        XCTAssertTrue(confirmation.waitForExistence(timeout: 5))
+        confirmation.tap()
+        XCTAssertTrue(app.descendants(matching: .any)["replayEmptyHistory"].firstMatch.waitForExistence(timeout: 5))
+        XCTAssertFalse(row.exists)
+        app.terminate()
+    }
+
+    @MainActor func testDrivingDashboardStartsFreshAndClearsWithoutDeletingHistory() {
+        let name = "com.gorilla.live-session-check-" + UUID().uuidString
+        let defaults = UserDefaults(suiteName: name)!
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name + ".json")
+        defer { defaults.removePersistentDomain(forName: name); try? FileManager.default.removeItem(at: url) }
+        let store = TripReplayStore(defaults: defaults, storageURL: url)
+        store.setContext(foreground: true, game: false)
+        let now = Date()
+        func record(_ t: Double) {
+            let time = now.addingTimeInterval(t)
+            let fix = CLLocation(coordinate: .init(latitude: 22.3 + t * 0.00005, longitude: 114.1),
+                altitude: 20, horizontalAccuracy: 5, verticalAccuracy: 5, course: 0, speed: 10, timestamp: time)
+            store.record(fix, automotive: true, pedestrian: false, now: time)
+        }
+        record(0)
+        XCTAssertNil(store.drivingTrip)
+        store.setDriving(true)
+        let firstID = store.drivingTrip?.id
+        for t in 1...5 { record(Double(t)) }
+        XCTAssertEqual(store.drivingTrip?.points.count, 5)
+        XCTAssertEqual(store.drivingTrip?.start, now.addingTimeInterval(1))
+        store.setDriving(false)
+        XCTAssertNil(store.drivingTrip)
+        XCTAssertFalse(store.trips.isEmpty)
+        store.setDriving(true)
+        XCTAssertNotEqual(store.drivingTrip?.id, firstID)
+        XCTAssertTrue(store.drivingTrip?.points.isEmpty == true)
+        record(6)
+        XCTAssertEqual(store.drivingTrip?.points.count, 1)
+        store.setContext(foreground: true, game: true)
+        XCTAssertNil(store.drivingTrip)
+        store.setContext(foreground: true, game: false)
+        store.setDriving(true)
+        store.setEnabled(false)
+        XCTAssertNil(store.drivingTrip)
     }
 
     func testBackRemovesDetailsWithMap() {
@@ -442,5 +670,6 @@ final class TripReplayUITests: XCTestCase {
         attachment.name = name
         attachment.lifetime = .keepAlways
         add(attachment)
+        if name.hasPrefix("Duo Production") { Thread.sleep(forTimeInterval: 12) }
     }
 }

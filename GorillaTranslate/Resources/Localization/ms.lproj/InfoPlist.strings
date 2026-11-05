@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "Aplikasi ini menggunakan Apple Intelligence untuk terjemahan pada peranti.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Aplikasi ini memerlukan akses lokasi sentiasa aktif untuk menjejaki lawatan dan lokasi tempat letak kereta anda.";
+"NSCameraUsageDescription" = "Aplikasi ini menggunakan kamera untuk mengambil gambar lokasi tempat letak kereta anda dan mengimbas cap pendaftaran kenderaan untuk peringatan tempat letak kereta.";
+"NSLocalNetworkUsageDescription" = "Sambungkan ke PC Windows pada rangkaian tempatan yang sama untuk menerima telemetri permainan Assetto Corsa.";
+"NSSpeechRecognitionUsageDescription" = "Aplikasi ini menggunakan pengenalan pertuturan untuk menukar suara anda kepada teks untuk terjemahan.";
+"NSLocationWhenInUseUsageDescription" = "Aplikasi ini menggunakan lokasi anda untuk memaparkan kelajuan semasa anda.";
+"NSMotionUsageDescription" = "Aplikasi ini menggunakan sejarah pergerakan untuk mengenal pasti perjalanan memandu dan berjalan kaki, dan data altitud untuk mengesan aras lantai tempat letak kereta.";
+"NSMicrophoneUsageDescription" = "Aplikasi ini memerlukan akses mikrofon untuk input suara.";

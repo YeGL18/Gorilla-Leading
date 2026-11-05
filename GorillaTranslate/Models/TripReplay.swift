@@ -125,6 +125,25 @@ struct TripReplay: Codable, Identifiable, Sendable {
     var end: Date { points.last?.time ?? start }
     var duration: TimeInterval { max(0, end.timeIntervalSince(start)) }
     var hasGaps: Bool { zip(points, points.dropFirst()).contains { !$0.connects(to: $1) } }
+    /// A visit connector represents this departure-to-arrival window, never the next trip.
+    static func matching(in trips: [Self], origin: UUID, destination: UUID,
+                         departure: Date?, arrival: Date) -> Self? {
+        guard let departure, departure < arrival else { return nil }
+        return trips.filter {
+            !$0.points.isEmpty && $0.start < arrival && $0.end > departure
+                && $0.start.addingTimeInterval($0.duration / 2) < arrival
+                && $0.start.addingTimeInterval($0.duration / 2) > departure
+                && $0.start >= departure.addingTimeInterval(-120)
+                && $0.end <= arrival.addingTimeInterval(120)
+        }.min { lhs, rhs in
+            func cost(_ trip: Self) -> Double {
+                abs(trip.start.timeIntervalSince(departure)) + abs(trip.end.timeIntervalSince(arrival))
+                    + (trip.originVisitID == origin ? 0 : 60)
+                    + (trip.destinationVisitID == destination ? 0 : 60)
+            }
+            return cost(lhs) < cost(rhs)
+        }
+    }
     var topSpeed: Double? { points.compactMap(\.speedKmh).max() }
     var highestAltitude: Double? { points.compactMap(\.altitude).max() }
     var lowestAltitude: Double? { points.compactMap(\.altitude).min() }
@@ -412,11 +431,11 @@ struct TripReplayRecorder {
 
     mutating func resolveNames(places: [TripReplayPlace]) {
         for index in archive.trips.indices {
-            if let first = archive.trips[index].points.first,
+            if archive.trips[index].originVisitID == nil, let first = archive.trips[index].points.first,
                let name = TripReplayPlace.name(near: first, places: places) {
                 archive.trips[index].originName = name
             }
-            if let last = archive.trips[index].points.last,
+            if archive.trips[index].destinationVisitID == nil, let last = archive.trips[index].points.last,
                let name = TripReplayPlace.name(near: last, places: places) {
                 archive.trips[index].destinationName = name
             } else if !archive.trips[index].finished, archive.trips[index].destinationVisitID == nil {

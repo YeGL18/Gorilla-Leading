@@ -215,104 +215,20 @@ struct LiveActivityPreviewTestView: View {
             .background(state.color, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 
-    /// Bottom info row — one variant per state (per HTML design).
-    @ViewBuilder
+    /// Preview the same stable information shown by the widget.
     private func bottomRow(state: GorillaActivityState) -> some View {
-        switch state {
-        case .parking:
-            // 台北101 + info both white, left aligned with 30pt gap
-            HStack(spacing: 30) {
-                Text("台北101")
-                    .foregroundStyle(.white)
-                Text("P1區域\u{2003}\u{2003}B2 · B1258")
-                    .foregroundStyle(.white)
-                    .bold()
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 10) {
+            Label(state == .driving || state == .cycling ? "香港國際機場" : "銀湖・天峰",
+                  systemImage: state == .driving || state == .cycling ? "flag.checkered" : "mappin.and.ellipse")
+                .font(.system(size: 17, weight: .semibold)).lineLimit(2)
+            if state == .parking || state == .stationary {
+                HStack(spacing: 18) {
+                    Label("A", systemImage: "square.grid.2x2")
+                    Label("B2", systemImage: "building.2")
+                    Label("128", systemImage: "parkingsign.circle")
+                }.font(.system(size: 15, weight: .semibold))
             }
-            .font(.system(size: 16))
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .driving:
-            // speed left · road name center (larger) · time right
-            HStack(alignment: .firstTextBaseline) {
-                valueUnit("2", "km/h")
-                Spacer()
-                Text("Sai Sha Rd 599")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-                valueUnit("39", "mins")
-            }
-
-        case .stationary:
-            // destination label above distance · road center · time right
-            HStack(alignment: .bottom) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("目的地: 家")
-                        .font(.system(size: 13))
-                        .foregroundStyle(.white.opacity(0.75))
-                    valueUnit("46.1", "km")
-                }
-                Spacer()
-                Text("Sai Sha Rd 599")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-                valueUnit("39", "mins")
-            }
-
-        case .nonAutomotiveParking:
-            // Similar to parking but without floor/spot
-            HStack(spacing: 30) {
-                Text("中央公園")
-                    .foregroundStyle(.white)
-                Text("入口廣場")
-                    .foregroundStyle(.white)
-                    .bold()
-                    .lineLimit(1)
-            }
-            .font(.system(size: 16))
-            .frame(maxWidth: .infinity, alignment: .leading)
-
-        case .walking:
-            // road + eta
-            HStack(alignment: .firstTextBaseline, spacing: 20) {
-                Text("Sai Sha Rd 599")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-                valueUnit("15", "mins")
-            }
-
-        case .cycling:
-            // speed + road + eta
-            HStack(alignment: .firstTextBaseline) {
-                valueUnit("15", "km/h")
-                Spacer()
-                Text("Tolo Highway")
-                    .font(.system(size: 18, weight: .bold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-                valueUnit("8", "mins")
-            }
-        }
-    }
-
-    /// Bold number + smaller unit, e.g. "39 mins"
-    @ViewBuilder
-    private func valueUnit(_ value: String, _ unit: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 4) {
-            Text(value)
-                .font(.system(size: 17, weight: .bold))
-                .foregroundStyle(.white)
-            Text(unit)
-                .font(.system(size: 12.5, weight: .semibold))
-                .foregroundStyle(.white.opacity(0.9))
-        }
+        }.foregroundStyle(.white).frame(maxWidth: .infinity, alignment: .leading)
     }
 
     // MARK: - Shared components

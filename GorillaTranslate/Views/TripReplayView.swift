@@ -2,6 +2,7 @@ import SwiftUI
 import MapKit
 import Charts
 import Combine
+import UniformTypeIdentifiers
 
 @MainActor
 private final class ReplayReadoutClock: ObservableObject {
@@ -13,6 +14,7 @@ private final class ReplayTransport: NSObject, ObservableObject {
     @Published private(set) var selection = Date.distantPast
     let readouts = ReplayReadoutClock()
     var onFrame: ((Date) -> Void)?
+    var onPlaybackEnded: (() -> Void)?
     var reduceMotion = false
     var isScrolling = false
     private var start = Date.distantPast
@@ -41,6 +43,11 @@ private final class ReplayTransport: NSObject, ObservableObject {
         self.end = end
         publishInterval = sampleCount > 2000 ? 1 / 30 : 1 / 60
         seek(start)
+    }
+
+    func extend(end: Date, sampleCount: Int) {
+        self.end = max(start, end)
+        publishInterval = sampleCount > 2000 ? 1 / 30 : 1 / 60
     }
 
     func seek(_ date: Date) {
@@ -92,9 +99,10 @@ private final class ReplayTransport: NSObject, ObservableObject {
     private func frame(_ display: CADisplayLink) {
         let dt = min(0.05, max(0, timestamp.map { display.timestamp - $0 } ?? 1 / 120))
         timestamp = display.timestamp
+        var reachedEnd = false
         if playing {
             motion.seek(min(end.timeIntervalSince(start), motion.position + dt * rate))
-            if currentDate >= end { playing = false }
+            if currentDate >= end { playing = false; reachedEnd = true }
         } else { motion.step(dt) }
         onFrame?(currentDate)
         // Map motion follows every display frame; expensive charts publish at up to 60 Hz.
@@ -110,6 +118,8 @@ private final class ReplayTransport: NSObject, ObservableObject {
             readouts.selection = currentDate
         }
         if !playing && motion.settled { stopLink() }
+        // Only a playing frame can complete; seeking/settling at the end cannot.
+        if reachedEnd { onPlaybackEnded?() }
     }
 }
 
@@ -214,7 +224,8 @@ struct TripReplayLibraryView: View {
                     .buttonStyle(.plain)
                     .accessibilityIdentifier("replayTripRow")
                     .swipeActions {
-                        Button(role: .destructive) { deleting = trip.id } label: {
+                        // A destructive swipe role removes the row optimistically before confirmation.
+                        Button { deleting = trip.id } label: {
                             Label("Delete", systemImage: "trash").labelStyle(.titleAndIcon)
                         }
                             .tint(.red)
@@ -283,6 +294,7 @@ struct TripReplayLibraryView: View {
         } message: { Text("Replay Delete Notice") }
         .confirmationDialog("Delete Trip?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } }), titleVisibility: .visible) {
             Button("Delete", role: .destructive) { if let deleting { store.delete(deleting) }; deleting = nil }
+                .accessibilityIdentifier("replayConfirmDelete")
         }
     }
 
@@ -344,6 +356,153 @@ private struct ReplayRouteThumbnail: View {
     }
 }
 
+private struct ReplaySectionDrop: DropDelegate {
+    let target: String
+    @Binding var order: String
+    @Binding var dragged: String?
+    static func sections(_ raw: String) -> [String] {
+        let valid = ["statistics", "timeline", "selected", "altitude"]
+        var result: [String] = []
+        for key in raw.split(separator: ",").map(String.init) + valid where valid.contains(key) && !result.contains(key) {
+            result.append(key)
+        }
+        return result
+    }
+    func validateDrop(info: DropInfo) -> Bool { dragged != nil }
+    func dropEntered(info: DropInfo) {
+        guard let dragged, dragged != target else { return }
+        var values = Self.sections(order)
+        guard let source = values.firstIndex(of: dragged), let destination = values.firstIndex(of: target) else { return }
+        withAnimation(.snappy(duration: 0.25)) {
+            values.move(fromOffsets: IndexSet(integer: source), toOffset: destination > source ? destination + 1 : destination)
+            order = values.joined(separator: ",")
+        }
+    }
+    func dropUpdated(info: DropInfo) -> DropProposal? { DropProposal(operation: .move) }
+    func performDrop(info: DropInfo) -> Bool { dragged = nil; return true }
+}
+
+struct FixedSpeedDashboard<SpeedContent: View>: View {
+    @ObservedObject var store = TripReplayStore.shared
+    let motion: GForceParallaxMotion
+    let telemetry: ACTelemetry
+    let partiallyOpen: Bool
+    let foreground: Color
+    let accent: Color
+    let textColorOverride: Color?
+    let driving: Bool
+    let onBlankTap: () -> Void
+    @ViewBuilder var speed: () -> SpeedContent
+    @AppStorage(SpeedUnit.preferenceKey) private var unitRaw = SpeedUnit.kilometresPerHour.rawValue
+    @State private var transport = ReplayTransport()
+    private var trip: TripReplay? { driving && !telemetry.isReceiving ? store.drivingTrip : nil }
+    private var unit: SpeedUnit { .resolve(unitRaw) }
+    private var selection: Binding<Date> {
+        Binding(get: { transport.selection }, set: { _ in })
+    }
+    var body: some View {
+        GeometryReader { geometry in
+            let layout = SpeedCardLayout(width: geometry.size.width, height: geometry.size.height, partiallyOpen: partiallyOpen)
+            let w = layout.width, h = layout.height
+            ZStack {
+                if layout.horizontal {
+                    HStack(alignment: .top, spacing: 10) {
+                        VStack(spacing: 6) { statistics(columns: 5); chart(.speed(unit), height: max(30, h * 0.17)) }
+                            .frame(width: (w - 52) * 0.29)
+                        VStack(spacing: 6) {
+                            action.frame(height: max(84, h * 0.28))
+                            Spacer(minLength: 0)
+                            liveReadout
+                        }.frame(maxWidth: .infinity)
+                        VStack(spacing: 6) {
+                            force.frame(height: max(100, h * 0.36))
+                            chart(.altitude, height: max(30, h * 0.17))
+                        }.frame(width: (w - 52) * 0.29)
+                    }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 58)
+                } else {
+                    VStack(spacing: 8) {
+                        statistics(columns: 5)
+                        HStack(spacing: 8) { action; force }
+                            .frame(height: max(84, h * 0.32 - 76))
+                        Spacer(minLength: 0)
+                        VStack(spacing: 4) {
+                            HStack(spacing: 8) {
+                                chart(.speed(unit), height: max(34, h * 0.105))
+                                chart(.altitude, height: max(34, h * 0.105))
+                            }
+                            liveReadout
+                        }
+                    }.padding(.horizontal, 16).padding(.top, 8).padding(.bottom, 68)
+                }
+                speed().frame(width: w * (layout.horizontal ? 0.35 : 0.72), height: h * (layout.horizontal ? 0.42 : 0.28))
+                    .position(x: w / 2, y: h / 2)
+            }
+            .frame(width: w, height: h)
+            .background { Color.clear.contentShape(Rectangle()).onTapGesture(perform: onBlankTap) }
+        }
+        .foregroundStyle(foreground)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("fixedSpeedDashboard")
+        .task(id: "\(trip?.id)-\(trip?.end)") {
+            guard let trip else { transport.stop(); return }
+            transport.configure(start: trip.start, end: trip.end, sampleCount: trip.points.count)
+            transport.seek(trip.end)
+        }
+        .onDisappear { transport.stop() }
+    }
+    private var action: some View {
+        SpeedCurrentActionPanel(motion: motion, telemetry: telemetry, accent: accent,
+            textColorOverride: textColorOverride, canRecognize: driving || telemetry.isReceiving)
+            .instrumentGlass().accessibilityIdentifier("currentActionCard")
+    }
+    private var force: some View {
+        SpeedGForceCirclePanel(motion: motion, telemetry: telemetry, accent: accent,
+            textColorOverride: textColorOverride, compact: true, enabled: driving || telemetry.isReceiving)
+            .instrumentGlass().accessibilityIdentifier("gForceCircleCard")
+    }
+    private func statistics(columns: Int) -> some View {
+        let metrics: [(String, String)] = [
+            ("距離", String(format: "%.2f km", (trip?.distanceMeters ?? 0) / 1000)),
+            ("平均速度", ReplayFormat.speed(trip?.averageSpeed ?? 0, unit: unit)),
+            ("最高速度", ReplayFormat.speed(trip?.topSpeed ?? 0, unit: unit)),
+            ("行程時長", ReplayFormat.duration(trip?.duration ?? 0)),
+            ("開車時間", ReplayFormat.duration(trip?.drivingSeconds ?? 0)),
+            ("記錄時間", ReplayFormat.duration(trip?.observedSeconds ?? 0)),
+            ("峰值 G", String(format: "%.2f G", trip?.peakG ?? 0)),
+            ("最高海拔", ReplayFormat.meters(trip?.highestAltitude ?? 0)),
+            ("駕駛事件", String(trip?.events.count ?? 0)),
+            ("最低海拔", ReplayFormat.meters(trip?.lowestAltitude ?? 0))]
+        return LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 5), count: columns), spacing: 5) {
+            ForEach(metrics.indices, id: \.self) { index in
+                VStack(spacing: 2) {
+                    Text(LocalizedStringKey(metrics[index].0)).font(.system(size: 9)).opacity(0.65)
+                    Text(metrics[index].1).font(.system(size: 12, weight: .semibold, design: .rounded))
+                        .foregroundStyle([2, 6].contains(index) ? accent : foreground)
+                }.lineLimit(1).minimumScaleFactor(0.65)
+            }
+        }.padding(8).instrumentGlass().frame(height: 76).accessibilityIdentifier("speedCompactStatistics")
+    }
+    private func chart(_ metric: ReplayMetric, height: Double) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(metric.title == "m" ? "海拔變化" : "即時速度")
+                .font(.system(size: 10, weight: .semibold))
+            if let trip {
+                ReplayMetricChart(trip: trip, metric: metric, transport: transport,
+                    selection: selection, height: height, compact: true).equatable().allowsHitTesting(false)
+            } else { Text("等待開車").font(.caption2).opacity(0.6).frame(maxWidth: .infinity).frame(height: height) }
+        }.padding(7).instrumentGlass().frame(height: height + 28)
+    }
+    private var liveReadout: some View {
+            HStack(spacing: 6) {
+                Text(driving ? "本次行程 · 即時" : "等待開車")
+                Spacer(minLength: 0)
+                Text("海拔 " + ReplayFormat.meters(trip?.points.last?.altitude ?? 0))
+            }.font(.system(size: 10, weight: .medium)).lineLimit(1).minimumScaleFactor(0.7)
+                .accessibilityIdentifier("speedLiveReadout")
+    }
+}
+
+
 struct TripReplayDetailView: View {
     let tripID: UUID
     @ObservedObject var store: TripReplayStore = .shared
@@ -353,21 +512,64 @@ struct TripReplayDetailView: View {
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(SpeedUnit.preferenceKey) private var speedUnitRaw = SpeedUnit.kilometresPerHour.rawValue
     @State private var overviewRequest = 0
+    @State private var followsPosition = false
     @State private var transport = ReplayTransport()
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var playing = false
     @State private var playbackRate = 8.0
     @State private var showDetails = false
+    @State private var replayVisible = false
+    @State private var detailsDismissing = false
+    @State private var reopenDetailsAfterDismiss = false
     @State private var detent: PresentationDetent = .medium
     @State private var confirmDelete = false
+    @State private var sheetSideInsets = UIEdgeInsets.zero
+    @AppStorage("replayDetailSectionOrder") private var sectionOrder = "statistics,timeline,selected,altitude"
+    @State private var draggedSection: String?
     private var trip: TripReplay? { store.trips.first { $0.id == tripID } }
     private var unit: SpeedUnit { .resolve(speedUnitRaw) }
     private var selection: Date {
         get { transport.selection }
-        nonmutating set { transport.seek(newValue) }
+        nonmutating set { pausePlayback(); transport.seek(newValue) }
     }
     private var selectionBinding: Binding<Date> {
-        Binding(get: { selection }, set: { if playing { playing = false }; selection = $0 })
+        Binding(get: { selection }, set: { selection = $0 })
+    }
+    private var detailsPresentation: Binding<Bool> {
+        Binding(get: { showDetails }, set: { presented in
+            if !presented { detailsDismissing = true }
+            showDetails = presented
+        })
+    }
+
+    private func pausePlayback() {
+        reopenDetailsAfterDismiss = false
+        playing = false
+        transport.play(false, rate: playbackRate)
+    }
+
+    private func leaveReplay() {
+        replayVisible = false
+        pausePlayback()
+        transport.onPlaybackEnded = nil
+        showDetails = false
+        transport.stop()
+    }
+
+    private func playbackEnded() {
+        guard replayVisible, scenePhase == .active, playing, trip != nil else { return }
+        playing = false
+        // UIKit cannot present again until an interactive dismissal finishes.
+        if detailsDismissing { reopenDetailsAfterDismiss = true }
+        else { showDetails = true }
+    }
+
+    private func detailsDismissed() {
+        detailsDismissing = false
+        let reopen = reopenDetailsAfterDismiss
+        reopenDetailsAfterDismiss = false
+        guard reopen, replayVisible, scenePhase == .active, trip != nil else { return }
+        showDetails = true
     }
 
     var body: some View {
@@ -379,11 +581,9 @@ struct TripReplayDetailView: View {
         .safeAreaInset(edge: .top, spacing: 0) {
             HStack {
                 Button {
-                    playing = false
-                    transport.stop()
                     var transaction = Transaction()
                     transaction.disablesAnimations = true
-                    withTransaction(transaction) { showDetails = false }
+                    withTransaction(transaction) { leaveReplay() }
                     if let onBack { onBack() } else { dismiss() }
                 } label: {
                     Image(systemName: "chevron.left").font(.headline).frame(width: 44, height: 44)
@@ -405,7 +605,7 @@ struct TripReplayDetailView: View {
             .padding(.horizontal, 20).padding(.top, 20).padding(.bottom, 8)
         }
         .tint(colorScheme == .dark ? Color.white : Color.accentColor)
-        .sheet(isPresented: $showDetails) {
+        .sheet(isPresented: detailsPresentation, onDismiss: detailsDismissed) {
             if let trip {
                 replayPanel(trip)
                     .tint(colorScheme == .dark ? Color.white : Color.accentColor)
@@ -415,23 +615,29 @@ struct TripReplayDetailView: View {
             }
         }
         .onAppear {
+            replayVisible = true
+            detailsDismissing = false
+            reopenDetailsAfterDismiss = false
             if let trip { transport.configure(start: trip.start, end: trip.end, sampleCount: trip.points.count) }
             transport.reduceMotion = reduceMotion
+            transport.onPlaybackEnded = playbackEnded
             showDetails = true
         }
-        .onDisappear { playing = false; showDetails = false; transport.stop() }
-        .onChange(of: scenePhase) { _, phase in if phase != .active { playing = false; transport.stop() } }
-        .onChange(of: playing) { _, value in transport.play(value, rate: playbackRate) }
-        .onChange(of: playbackRate) { _, value in transport.play(playing, rate: value) }
-        .onChange(of: reduceMotion) { _, value in transport.reduceMotion = value }
-        .onReceive(transport.$selection) { value in
-            if playing, let trip, value >= trip.end { playing = false }
+        .onDisappear { leaveReplay() }
+        .onChange(of: scenePhase) { _, phase in if phase != .active { pausePlayback(); transport.stop() } }
+        .onChange(of: playing) { _, value in
+            transport.play(value && playing && replayVisible && scenePhase == .active, rate: playbackRate)
         }
+        .onChange(of: playbackRate) { _, value in
+            transport.play(playing && replayVisible && scenePhase == .active, rate: value)
+        }
+        .onChange(of: reduceMotion) { _, value in transport.reduceMotion = value }
     }
 
     private func map(_ trip: TripReplay) -> some View {
         ReplayRouteMap(trip: trip, transport: transport, overviewRequest: overviewRequest,
-                       sheetFraction: !showDetails ? 0 : detent == .large ? 0.82 : detent == .medium ? 0.5 : 0.32)
+                       sheetFraction: !showDetails ? 0 : detent == .large ? 0.82 : detent == .medium ? 0.5 : 0.32,
+                       followsPosition: followsPosition, onStopFollowing: { followsPosition = false })
         .accessibilityIdentifier("tripReplayMap")
         .ignoresSafeArea()
     }
@@ -452,19 +658,69 @@ struct TripReplayDetailView: View {
                     }
                     Spacer()
                     Button {
+                        followsPosition = false
                         overviewRequest += 1
                     } label: {
-                        Image(systemName: "scope").font(.system(size: 23, weight: .medium))
+                        Image(systemName: "arrow.up.left.and.arrow.down.right").font(.system(size: 20, weight: .medium))
                             .frame(width: 44, height: 44)
                     }
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: .circle)
                     .accessibilityLabel("Show Full Route")
                     .accessibilityIdentifier("replayOverview")
+                    Button { followsPosition.toggle() } label: {
+                        Image(systemName: followsPosition ? "location.fill" : "scope")
+                            .font(.system(size: 23, weight: .medium)).frame(width: 44, height: 44)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: .circle)
+                    .accessibilityLabel("跟隨行程位置")
+                    .accessibilityValue(followsPosition ? "開啟" : "關閉")
+                    .accessibilityIdentifier("replayFollowPosition")
                 }
+                ForEach(detailSections, id: \.self) { section in
+                    replaySection(section, trip: trip)
+                        .onDrag {
+                            draggedSection = section
+                            AppHaptics.play(.longPress)
+                            return NSItemProvider(object: section as NSString)
+                        }
+                        .onDrop(of: [.text], delegate: ReplaySectionDrop(target: section,
+                            order: $sectionOrder, dragged: $draggedSection))
+                }
+                Button("Delete Trip", systemImage: "trash", role: .destructive) { confirmDelete = true }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .padding(20).padding(.top, 8)
+        }
+        .contentMargins(.bottom, 96, for: .scrollContent)
+        .onScrollPhaseChange { _, phase in transport.isScrolling = phase != .idle }
+        .overlay(alignment: .bottom) { playback(trip).offset(y: 12) }
+        .padding(.leading, sheetSideInsets.left)
+        .padding(.trailing, sheetSideInsets.right)
+        .background(ReplaySheetSafeAreaReader(insets: $sheetSideInsets))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("tripReplayPanel")
+        .confirmationDialog("Delete Trip?", isPresented: $confirmDelete, titleVisibility: .visible) {
+            Button("Delete", role: .destructive) {
+                leaveReplay()
+                store.delete(tripID)
+                if let onBack { onBack() } else { dismiss() }
+            }
+        } message: { Text("Replay Delete Notice") }
+    }
+
+    private var detailSections: [String] { ReplaySectionDrop.sections(sectionOrder) }
+
+    @ViewBuilder private func replaySection(_ section: String, trip: TripReplay) -> some View {
+        Group {
+            switch section {
+            case "statistics":
                 ReplayStatistics(trip: trip, unit: unit)
                     .equatable()
                     .replaySurface(expanded: detent == .large)
+            case "timeline":
+                VStack(alignment: .leading, spacing: 10) {
                 if trip.hasGaps {
                     Label("Partial Trip Notice", systemImage: "point.topleft.down.to.point.bottomright.curvepath")
                         .font(.caption).foregroundStyle(.secondary)
@@ -481,8 +737,11 @@ struct TripReplayDetailView: View {
                     ReplayEventTimeline(trip: trip, transport: transport, selection: selectionBinding, playing: $playing).equatable()
                 }
                 .replaySurface(expanded: detent == .large)
+                }
+            case "selected":
                 selectedMoment(trip)
                     .replaySurface(expanded: detent == .large)
+            default:
                 VStack(alignment: .leading, spacing: 10) {
                     HStack {
                         Text("Altitude Changes").font(.headline)
@@ -493,22 +752,8 @@ struct TripReplayDetailView: View {
                     Text("Replay Altitude Notice").font(.caption).foregroundStyle(.secondary)
                 }
                 .replaySurface(expanded: detent == .large)
-                Button("Delete Trip", systemImage: "trash", role: .destructive) { confirmDelete = true }
-                    .frame(maxWidth: .infinity, alignment: .leading)
             }
-            .padding(20).padding(.top, 8)
-        }
-        .contentMargins(.bottom, 96, for: .scrollContent)
-        .onScrollPhaseChange { _, phase in transport.isScrolling = phase != .idle }
-        .overlay(alignment: .bottom) { playback(trip).offset(y: 12) }
-        .accessibilityElement(children: .contain)
-        .accessibilityIdentifier("tripReplayPanel")
-        .confirmationDialog("Delete Trip?", isPresented: $confirmDelete, titleVisibility: .visible) {
-            Button("Delete", role: .destructive) {
-                store.delete(tripID); showDetails = false
-                if let onBack { onBack() } else { dismiss() }
-            }
-        } message: { Text("Replay Delete Notice") }
+        }.accessibilityIdentifier("replaySection-\(section)")
     }
 
     private func selectedMoment(_ trip: TripReplay) -> some View {
@@ -543,8 +788,12 @@ struct TripReplayDetailView: View {
             HStack(spacing: 8) {
                 transportButton(LocalizedStringKey(playing ? "Pause" : "Play"),
                                 symbol: playing ? "pause.fill" : "play.fill", identifier: "replayPlayPause") {
-                    if selection >= trip.end { selection = trip.start }
-                    playing.toggle()
+                    if playing { pausePlayback() }
+                    else {
+                        reopenDetailsAfterDismiss = false
+                        if selection >= trip.end { selection = trip.start }
+                        playing = true
+                    }
                 }
                 VStack(spacing: 2) {
                     HStack(spacing: 4) {
@@ -563,9 +812,9 @@ struct TripReplayDetailView: View {
                         .accessibilityIdentifier("replayPlaybackRate")
                     }
                     ReplayTimelineScrubber(value: Binding(get: { min(trip.duration, max(0, selection.timeIntervalSince(trip.start))) },
-                        set: { if playing { playing = false }; selection = trip.start.addingTimeInterval($0) }), in: 0...max(1, trip.duration),
+                        set: { selection = trip.start.addingTimeInterval($0) }), in: 0...max(1, trip.duration),
                         onDrag: { seconds, speed in
-                            if playing { playing = false }
+                            pausePlayback()
                             transport.scrub(trip.start.addingTimeInterval(seconds), speed: speed)
                         }, onRelease: { transport.release() })
                         .accessibilityLabel("Trip Timeline").accessibilityIdentifier("replayScrubber")
@@ -614,18 +863,48 @@ struct TripReplayDetailView: View {
 
 }
 
+// Only reserve the part of a window's side safe area actually covered by this
+// sheet. A centred iPhone/iPad sheet gets zero extra padding; Duo's outer screen
+// and a landscape phone reserve their system indicator/camera strip as needed.
+private struct ReplaySheetSafeAreaReader: UIViewRepresentable {
+    @Binding var insets: UIEdgeInsets
+    final class Probe: UIView {
+        var report: ((UIEdgeInsets) -> Void)?
+        private var previous = UIEdgeInsets.zero
+        override func didMoveToWindow() { super.didMoveToWindow(); updateInsets() }
+        override func safeAreaInsetsDidChange() { super.safeAreaInsetsDidChange(); updateInsets() }
+        override func layoutSubviews() { super.layoutSubviews(); updateInsets() }
+        private func updateInsets() {
+            guard let window, bounds.width > 0 else { return }
+            let frame = convert(bounds, to: window)
+            let next = UIEdgeInsets(top: 0,
+                left: max(0, window.safeAreaInsets.left - frame.minX), bottom: 0,
+                right: max(0, window.safeAreaInsets.right - (window.bounds.maxX - frame.maxX)))
+            guard abs(next.left - previous.left) > 0.5 || abs(next.right - previous.right) > 0.5 else { return }
+            previous = next
+            DispatchQueue.main.async { [weak self] in self?.report?(next) }
+        }
+    }
+    func makeUIView(context: Context) -> Probe { Probe() }
+    func updateUIView(_ view: Probe, context: Context) {
+        view.report = { if insets != $0 { insets = $0 } }
+    }
+}
+
 private struct ReplayRouteMap: UIViewRepresentable {
     let trip: TripReplay
     let transport: ReplayTransport
     let overviewRequest: Int
     let sheetFraction: CGFloat
+    let followsPosition: Bool
+    let onStopFollowing: () -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
     func makeUIView(context: Context) -> LayoutMap {
         let map = LayoutMap()
         map.delegate = context.coordinator
-        map.showsCompass = true
+        map.showsCompass = false
         map.showsScale = true
         map.showsUserLocation = false
         map.onResize = { [weak coordinator = context.coordinator] in coordinator?.fit() }
@@ -636,6 +915,11 @@ private struct ReplayRouteMap: UIViewRepresentable {
 
     func updateUIView(_ map: LayoutMap, context: Context) {
         context.coordinator.update(self)
+    }
+
+    static func dismantleUIView(_ map: LayoutMap, coordinator: Coordinator) {
+        coordinator.stopCameraTracking()
+        map.delegate = nil
     }
 
     final class LayoutMap: MKMapView {
@@ -692,13 +976,47 @@ private struct ReplayRouteMap: UIViewRepresentable {
         private var fraction: CGFloat = 0
         private let start = Pin(kind: 0)
         private let end = Pin(kind: 1)
-        private let cursor = Pin(kind: 2)
-        private var cursorVisible = false
+        // MapKit positions annotation views asynchronously as its camera changes.
+        // Keep the interpolated cursor in our own overlay so there is one writer.
+        private let positionView = PositionDot(annotation: nil, reuseIdentifier: nil)
         private var cursorCoordinate: CLLocationCoordinate2D?
         private var currentTrip: TripReplay?
+        private var following = false
+        private var stopFollowing: (() -> Void)?
+        private var followDate = Date.distantPast
+        private var cameraLink: CADisplayLink?
+        private var lastCameraTick: CFTimeInterval?
+        private let cameraProxy = CameraProxy()
+        private var travelHeading: Double?
+
+        private final class CameraProxy: NSObject {
+            weak var owner: Coordinator?
+            @objc func frame(_ link: CADisplayLink) { owner?.cameraFrame(link) }
+        }
+
+        deinit { cameraLink?.invalidate() }
+
+        func stopCameraTracking() {
+            cameraLink?.invalidate()
+            cameraLink = nil
+            lastCameraTick = nil
+        }
+
+        private func startCameraTracking() {
+            guard cameraLink == nil else { return }
+            cameraProxy.owner = self
+            let link = CADisplayLink(target: cameraProxy, selector: #selector(CameraProxy.frame(_:)))
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 30, maximum: 60, preferred: 60)
+            cameraLink = link
+            link.add(to: .main, forMode: .common)
+        }
 
         func update(_ value: ReplayRouteMap) {
             guard let map else { return }
+            stopFollowing = value.onStopFollowing
+            let beganFollowing = value.followsPosition && !following
+            following = value.followsPosition
+            if !following { stopCameraTracking() }
             let nextStamp = "\(value.trip.id)-\(value.trip.points.count)-\(value.trip.end.timeIntervalSinceReferenceDate)"
             let changed = stamp != nextStamp
             if changed {
@@ -732,38 +1050,105 @@ private struct ReplayRouteMap: UIViewRepresentable {
             let needsFit = changed || request != value.overviewRequest
             request = value.overviewRequest
             fraction = value.sheetFraction
-            if needsFit { fit(animated: requested) }
+            if beganFollowing { travelHeading = nil; startCameraTracking() }
+            else if needsFit { fit(animated: requested) }
         }
 
         func moveCursor(to date: Date) {
             guard let map else { return }
+            followDate = date
             if let coordinate = currentTrip?.displayCoordinate(at: date) {
                 cursorCoordinate = coordinate
                 CATransaction.begin()
                 CATransaction.setDisableActions(true)
-                if cursor.coordinate.latitude != coordinate.latitude || cursor.coordinate.longitude != coordinate.longitude {
-                    cursor.coordinate = coordinate
+                if positionView.superview == nil {
+                    positionView.isUserInteractionEnabled = false
+                    map.addSubview(positionView)
                 }
-                if !cursorVisible { map.addAnnotation(cursor); cursorVisible = true }
+                positionView.isHidden = false
                 positionDot()
                 CATransaction.commit()
+                if following { startCameraTracking() }
             } else {
                 cursorCoordinate = nil
-                if cursorVisible { map.removeAnnotation(cursor); cursorVisible = false }
+                positionView.isHidden = true
             }
         }
 
         private func positionDot() {
-            guard let map, let coordinate = cursorCoordinate, let dot = map.view(for: cursor) as? PositionDot else { return }
+            guard let map, let coordinate = cursorCoordinate else { return }
             CATransaction.begin()
             CATransaction.setDisableActions(true)
-            dot.center = map.convert(coordinate, toPointTo: dot.superview ?? map)
+            positionView.center = map.convert(coordinate, toPointTo: map)
             CATransaction.commit()
         }
 
         func mapViewDidChangeVisibleRegion(_ mapView: MKMapView) { positionDot() }
 
+        func mapView(_ mapView: MKMapView, regionWillChangeAnimated animated: Bool) {
+            if following, mapView.subviews.contains(where: { view in
+                view.gestureRecognizers?.contains(where: { $0.state == .began || $0.state == .changed }) == true
+            }) {
+                following = false
+                stopCameraTracking()
+                stopFollowing?()
+            }
+        }
+
+        private func cameraFrame(_ link: CADisplayLink) {
+            guard following, let map, let coordinate = cursorCoordinate else { return }
+            let dt = min(1 / 15.0, max(1 / 240.0, link.timestamp - (lastCameraTick ?? link.timestamp - 1 / 60)))
+            lastCameraTick = link.timestamp
+            let speed = currentTrip?.point(at: followDate)?.speedKmh ?? 0
+            // Ignore tiny stationary changes when deriving the road direction.
+            if let a = currentTrip?.displayCoordinate(at: followDate.addingTimeInterval(-0.5)),
+               let b = currentTrip?.displayCoordinate(at: followDate.addingTimeInterval(0.8)),
+               CLLocation(latitude: a.latitude, longitude: a.longitude)
+                .distance(from: CLLocation(latitude: b.latitude, longitude: b.longitude)) > 2 {
+                let from = MKMapPoint(a), to = MKMapPoint(b)
+                travelHeading = atan2(to.x - from.x, from.y - to.y) * 180 / .pi
+            }
+            let current = map.camera
+            let alpha = 1 - exp(-dt / 0.28)
+            let headingDelta = ((travelHeading ?? current.heading) - current.heading + 540)
+                .truncatingRemainder(dividingBy: 360) - 180
+            let heading = current.heading + max(-90 * dt, min(90 * dt, headingDelta * alpha))
+            let targetDistance = min(1100, max(540, 540 + speed * 4))
+            let distance = current.centerCoordinateDistance
+                + (targetDistance - current.centerCoordinateDistance) * (1 - exp(-dt / 0.45))
+            let pitch = Double(current.pitch) + (35 - Double(current.pitch)) * alpha
+            let top = max(60, map.safeAreaInsets.top + 40)
+            let bottom = max(top + 40, map.bounds.height * (1 - fraction))
+            let anchor = CGPoint(x: map.bounds.midX, y: top + (bottom - top) * 0.52)
+            // Derive the look-ahead from the target camera, never feed the last
+            // rendered projection back into the next camera. MapKit renders that
+            // projection asynchronously; a feedback loop oscillates at frame rate.
+            let position = MKMapPoint(coordinate)
+            let screenAngle = atan((0.5 - anchor.y / max(1, map.bounds.height)) * 2 * tan(Double.pi / 12))
+            let pitchRadians = pitch * .pi / 180
+            let ahead = distance * cos(pitchRadians) * (tan(pitchRadians + screenAngle) - tan(pitchRadians))
+            let mapOffset = ahead / MKMetersPerMapPointAtLatitude(coordinate.latitude)
+            let headingRadians = heading * .pi / 180
+            let center = MKMapPoint(current.centerCoordinate)
+            let target = MKMapPoint(x: position.x - sin(headingRadians) * mapOffset,
+                                   y: position.y + cos(headingRadians) * mapOffset)
+            let remaining = hypot(target.x - center.x, target.y - center.y) * MKMetersPerMapPointAtLatitude(coordinate.latitude)
+            if remaining < 0.08, abs(headingDelta) < 0.05,
+               abs(35 - Double(current.pitch)) < 0.05,
+               abs(targetDistance - current.centerCoordinateDistance) < 0.5 {
+                stopCameraTracking()
+                return
+            }
+            let positionAlpha = remaining > 350 ? alpha : 1 - exp(-dt / 0.10)
+            let next = MKMapPoint(x: center.x + (target.x - center.x) * positionAlpha,
+                                 y: center.y + (target.y - center.y) * positionAlpha)
+            map.setCamera(MKMapCamera(lookingAtCenter: next.coordinate,
+                fromDistance: distance, pitch: CGFloat(pitch), heading: heading), animated: false)
+            positionDot()
+        }
+
         func fit(animated: Bool = false) {
+            if following { return }
             guard let map, !bounds.isNull, map.bounds.width > 0, map.bounds.height > 0 else { return }
             let safeArea = map.window?.safeAreaInsets ?? .zero
             let top = max(65, max(map.safeAreaInsets.top, safeArea.top) + 64)
@@ -948,13 +1333,14 @@ private struct ReplayStatistics: View, Equatable {
     @AppStorage("orbColorPreset") private var orbPreset = 0
     let trip: TripReplay
     let unit: SpeedUnit
+    var showsAll = false
     @State private var expanded = false
     private var orbAccent: Color {
         Color(hex: GorillaColorGroup.resolve(raw: colorGroupRaw, legacyDarkKnight: legacyDarkKnight)
             .dotColorHex(speed: trip.topSpeed ?? 0, preset: orbPreset)).readableAccent(in: colorScheme)
     }
     static func == (lhs: Self, rhs: Self) -> Bool {
-        lhs.unit == rhs.unit && lhs.trip.id == rhs.trip.id
+        lhs.unit == rhs.unit && lhs.showsAll == rhs.showsAll && lhs.trip.id == rhs.trip.id
             && lhs.trip.points.count == rhs.trip.points.count && lhs.trip.points.last == rhs.trip.points.last
             && lhs.trip.events.count == rhs.trip.events.count
     }
@@ -965,7 +1351,7 @@ private struct ReplayStatistics: View, Equatable {
             ReplayStat(title: "Average Speed", value: ReplayFormat.speed(trip.averageSpeed, unit: unit), symbol: "speedometer")
             ReplayStat(title: "Top Speed", value: ReplayFormat.speed(trip.topSpeed, unit: unit), symbol: "arrow.up.right", accent: orbAccent, tintValue: true)
             ReplayStat(title: "Trip Duration", value: ReplayFormat.duration(trip.duration), symbol: "clock")
-            if expanded {
+            if expanded || showsAll {
             ReplayStat(title: "Driving Time", value: ReplayFormat.duration(trip.drivingSeconds), symbol: "car")
             ReplayStat(title: "Observed Time", value: ReplayFormat.duration(trip.observedSeconds), symbol: "location")
             ReplayStat(title: "Peak G", value: trip.peakG.map { String(format: "%.2f G", $0) } ?? "—", symbol: "g.circle", accent: orbAccent, tintValue: true)
@@ -977,7 +1363,7 @@ private struct ReplayStatistics: View, Equatable {
                 .accessibilityIdentifier("replayLowestAltitude")
             }
         }
-        Button {
+        if !showsAll { Button {
             withAnimation(reduceMotion ? .easeInOut(duration: 0.15) : .spring(response: 0.44, dampingFraction: 0.86)) {
                 expanded.toggle()
             }
@@ -993,6 +1379,7 @@ private struct ReplayStatistics: View, Equatable {
         }
         .buttonStyle(.plain).foregroundStyle(.tint)
         .accessibilityIdentifier("replayExpandStatistics")
+        }
         }
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("replayStatistics")
@@ -1046,9 +1433,12 @@ private struct ReplayMetricChart: View, Equatable {
     let metric: ReplayMetric
     let transport: ReplayTransport
     @Binding var selection: Date
+    var height: Double = 170
+    var compact = false
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.trip.id == rhs.trip.id && lhs.trip.points.count == rhs.trip.points.count
             && lhs.trip.points.last == rhs.trip.points.last && lhs.metric.title == rhs.metric.title
+            && lhs.height == rhs.height && lhs.compact == rhs.compact
     }
     private struct Datum: Identifiable {
         let id: Int
@@ -1072,8 +1462,10 @@ private struct ReplayMetricChart: View, Equatable {
         let baseline = 0.0
         Group {
         if samples.isEmpty {
-            ContentUnavailableView("No Reliable Samples", systemImage: "chart.xyaxis.line")
-                .frame(height: 150).accessibilityIdentifier(metric.identifier)
+            Group {
+                if compact { Text("—").font(.caption).foregroundStyle(.secondary) }
+                else { ContentUnavailableView("No Reliable Samples", systemImage: "chart.xyaxis.line") }
+            }.frame(height: height).accessibilityIdentifier(metric.identifier)
         } else {
             Chart {
                 ForEach(samples) { datum in
@@ -1113,8 +1505,10 @@ private struct ReplayMetricChart: View, Equatable {
             }
             .chartXScale(domain: trip.start...max(trip.end, trip.start.addingTimeInterval(1)))
             .chartOverlay { proxy in
-                ReplayMetricCursor(trip: trip, metric: metric, transport: transport, proxy: proxy)
-                    .allowsHitTesting(false)
+                if !compact {
+                    ReplayMetricCursor(trip: trip, metric: metric, transport: transport, proxy: proxy)
+                        .allowsHitTesting(false)
+                }
             }
             // A tap selects a moment without consuming vertical sheet scrolling.
             // Continuous scrubbing remains available on the pinned timeline slider.
@@ -1126,7 +1520,9 @@ private struct ReplayMetricChart: View, Equatable {
                 }
             }
             .chartLegend(.hidden)
-            .frame(height: 170)
+            .chartXAxis(compact ? .hidden : .automatic)
+            .chartYAxis(compact ? .hidden : .automatic)
+            .frame(height: height)
             .accessibilityIdentifier(metric.identifier)
         }
         }

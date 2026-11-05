@@ -7,6 +7,15 @@ struct MapCameraMotion {
     static let trackingPointDownshift: CGFloat = 60
     static let predictionHorizon: TimeInterval = 4
     static let meterOverviewDuration: TimeInterval = 2.4
+    static let airportCenter = CLLocationCoordinate2D(latitude: 22.3162, longitude: 113.9366)
+
+    static func isUsableAirportOrigin(_ location: CLLocation, at now: Date = Date()) -> Bool {
+        let age = now.timeIntervalSince(location.timestamp)
+        return CLLocationCoordinate2DIsValid(location.coordinate)
+            && (location.coordinate.latitude != 0 || location.coordinate.longitude != 0)
+            && (0...100).contains(location.horizontalAccuracy)
+            && (-5...30).contains(age)
+    }
 
     static func flightProgress(_ progress: Double) -> Double {
         let t = min(1, max(0, progress))

@@ -47,6 +47,16 @@ enum LanguageManager {
         selection.update(readLanguageCode())
     }
 
+    /// Native names keep all supported languages identifiable regardless of the current UI language.
+    static var displayName: String {
+        let names = ["en": "English", "zh-Hant": "繁體中文", "yue": "粵語", "zh-Hans": "简体中文",
+                     "ja": "日本語", "ko": "한국어", "fr": "Français", "de": "Deutsch", "es": "Español",
+                     "pt": "Português", "it": "Italiano", "nl": "Nederlands", "pl": "Polski", "tr": "Türkçe",
+                     "ru": "Русский", "uk": "Українська", "id": "Bahasa Indonesia", "ms": "Bahasa Melayu",
+                     "th": "ไทย", "vi": "Tiếng Việt"]
+        return names[languageCode] ?? Locale(identifier: languageCode).localizedString(forIdentifier: languageCode) ?? languageCode
+    }
+
     static var locale: Locale { Locale(identifier: languageCode) }
 
     static var bundle: Bundle {

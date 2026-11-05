@@ -90,12 +90,6 @@ struct SpeedView: View {
     @State private var lastKnownSpeed: Double = 0
     /// GPS 失聯動畫狀態（用於透明度漸變）
     @State private var gpsLostAnim: Bool = false
-    /// GPS 失聯巡邏定時器（每 0.5 秒用「冇新 fix」年齡判定一次）。
-    /// 用 @State 保存係因為 Timer.publish 喺 app 切過背景之後有機會靜止
-    /// 唔再 fire，令 gpsLostAnim 卡喺 true（時速數字變半透明唔識翻生）；
-    /// 所以每次回前景都換個新 timer（見 onChange(of: scenePhase)）。
-    @State private var gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
-
     let showMap: Bool
     var showSatellite: Bool = false
     var cycleMapPresentation: () -> Void = {}
@@ -201,16 +195,14 @@ struct SpeedView: View {
                         .allowsHitTesting(false)
                 }
             } else {
-                SpeedInstrumentCards(motion: gForceMotion, telemetry: acTelemetry,
-                partiallyOpen: isDuoPartiallyOpen, foreground: instrumentForeground,
-                accent: Color(hex: dotMatrixColorHex),
-                textColorOverride: usesGrayMapText ? instrumentForeground : nil,
-                source: acTelemetry.isReceiving ? "AC" : "GPS",
-                drivingState: drivingState,
-                onBlankTap: toggleInstruments) { compact in
-                speedCardDisplay(compact: compact)
-                }
-                .environment(\.colorScheme, usesGrayMapText ? .light : showMap || colorGroup == .m3Concept || colorGroup == .darkKnight ? .dark : colorScheme)
+                FixedSpeedDashboard(motion: gForceMotion, telemetry: acTelemetry,
+                    partiallyOpen: isDuoPartiallyOpen, foreground: instrumentForeground,
+                    accent: Color(hex: dotMatrixColorHex),
+                    textColorOverride: usesGrayMapText ? instrumentForeground : nil,
+                    driving: drivingState, onBlankTap: toggleInstruments) {
+                        speedCardDisplay(compact: false)
+                    }
+                    .environment(\.colorScheme, usesGrayMapText ? .light : showMap || colorGroup == .m3Concept || colorGroup == .darkKnight ? .dark : colorScheme)
             }
         }
         .sheet(isPresented: $showGameDetails) {
@@ -327,8 +319,12 @@ struct SpeedView: View {
         // GPS 失聯巡邏：隧道入面一個定位回調都冇，gpsQuality 唔會變、
         // smoothedSpeed 亦唔會變，所以要定時用「冇新 fix」年齡判定失聯，
         // 先可以喺冇 callback 嘅情況下照樣凍結顯示＋變暗
-        .onReceive(gpsLostProbe) { _ in
-            syncGpsLostState()
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                syncGpsLostState()
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            }
         }
         // 有新 fix 都校正一次：就算巡邏 timer 失效，
         // 開緊車有數據就唔會俾半透明狀態困住
@@ -347,7 +343,6 @@ struct SpeedView: View {
                 return
             }
             guard phase == .active else { return }
-            gpsLostProbe = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
             syncGpsLostState()
             if kalmanSmoothingEnabled {
                 speedRoller.restart()
@@ -548,6 +543,7 @@ struct SpeedView: View {
     /// 巡邏 timer、回前景、任何新定位都經呢度一次過同步，
     /// 唔會俾單一途徑失效就困住個顯示狀態。
     private func syncGpsLostState() {
+        guard scenePhase == .active else { return }
         if acTelemetry.isReceiving {
             gpsLostAnim = false
             return

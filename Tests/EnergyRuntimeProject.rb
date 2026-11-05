@@ -17,6 +17,8 @@ group = project.main_group.new_group('Sources')
    GorillaTranslate/Models/TimePhase.swift GorillaTranslate/Models/WeatherService.swift
    GorillaTranslate/Views/TimeBasedOrbView.swift
    GorillaTranslate/Extensions/ColorExtension.swift
+   Shared/GorillaActivityAttributes.swift Shared/SpeedUnit.swift
+   ParkingTimerWidget/GorillaLiveActivity.swift
    Tests/EnergyRuntimeFixture.swift].each do |path|
   app.source_build_phase.add_file_reference(group.new_file("#{repo}/#{path}"))
 end

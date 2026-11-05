@@ -20,6 +20,7 @@ final class GorillaActivityManager {
     private var activity: Activity<GorillaActivityAttributes>?
     /// The last state we pushed, used to detect 泊車/開車/停留 transitions.
     private var lastState: GorillaActivityState?
+    private var lastContent: GorillaActivityAttributes.ContentState?
 
     /// Starts the Live Activity, or updates the running one with the latest snapshot.
     /// - Parameter forceRefresh: bumps `renderNonce` so the payload is always
@@ -37,14 +38,16 @@ final class GorillaActivityManager {
             }
         }
 
-        var content = newState
+        var content = newState.stablePresentation
         content.languageCode = LanguageManager.languageCode
-        content.speedUnitRaw = SpeedUnit.resolve(UserDefaults.standard.string(forKey: SpeedUnit.preferenceKey)).rawValue
         if forceRefresh {
             content.renderNonce = Int(Date().timeIntervalSince1970)
         }
 
         if let activity {
+            // Timer text runs in WidgetKit. Identical snapshots need no new task/update.
+            guard forceRefresh || lastContent != content else { return }
+            lastContent = content
             // 狀態轉變（泊車/開車/停留 互換）→ 帶 alert 更新，
             // 靈動島會擴展一次展示新狀態，然後自動收返 compact。
             let stateChanged = lastState != nil && lastState != content.state
@@ -79,6 +82,7 @@ final class GorillaActivityManager {
         } catch {
             activity = nil
         }
+        if activity != nil { lastContent = content }
     }
 
     /// Ends the Live Activity (parking session over).
@@ -88,6 +92,7 @@ final class GorillaActivityManager {
         }
         activity = nil
         lastState = nil
+        lastContent = nil
     }
 
     func end() {
@@ -97,5 +102,6 @@ final class GorillaActivityManager {
         }
         self.activity = nil
         self.lastState = nil
+        self.lastContent = nil
     }
 }

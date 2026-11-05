@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "Deze app gebruikt Apple Intelligence voor vertaling op het apparaat.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Deze app heeft altijd toegang tot de locatie nodig om uw bezoeken en parkeerlocatie bij te houden.";
+"NSCameraUsageDescription" = "Deze app gebruikt de camera om uw parkeerlocatie te fotograferen en voertuigregistratietekens te scannen voor parkeerherinneringen.";
+"NSLocalNetworkUsageDescription" = "Maak verbinding met een Windows-pc op hetzelfde lokale netwerk om Assetto Corsa-gametelemetrie te ontvangen.";
+"NSSpeechRecognitionUsageDescription" = "Deze app gebruikt spraakherkenning om uw stem om te zetten in tekst voor vertaling.";
+"NSLocationWhenInUseUsageDescription" = "Deze app gebruikt uw locatie om uw huidige snelheid weer te geven.";
+"NSMotionUsageDescription" = "Deze app gebruikt de bewegingsgeschiedenis om rij- en wandelritten te identificeren, en hoogtegegevens om het parkeerniveau te detecteren.";
+"NSMicrophoneUsageDescription" = "Deze app heeft microfoontoegang nodig voor spraakinvoer.";

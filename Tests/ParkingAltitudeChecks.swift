@@ -10,6 +10,16 @@ struct ParkingAltitudeChecks {
     }
 
     static func main() throws {
+        precondition(ParkingCaptureEndPolicy.decision(age: 89, stableAge: 89, hasStableCandidate: true, stationaryEvidence: true, manual: false) == .keepSampling,
+                     "A short gate stop must preserve the floor reference")
+        precondition(ParkingCaptureEndPolicy.decision(age: 120, stableAge: 90, hasStableCandidate: true, stationaryEvidence: true, manual: false) == .finishStableStop,
+                     "A long stable stop can freeze its result without waiting indefinitely for CLVisit")
+        precondition(ParkingCaptureEndPolicy.decision(age: 120, stableAge: 90, hasStableCandidate: false, stationaryEvidence: true, manual: false) == .keepSampling)
+        precondition(ParkingCaptureEndPolicy.decision(age: 120, stableAge: 90, hasStableCandidate: true, stationaryEvidence: false, manual: false) == .keepSampling)
+        precondition(ParkingCaptureEndPolicy.decision(age: 900, stableAge: 0, hasStableCandidate: false, stationaryEvidence: false, manual: false) == .timeout,
+                     "Unresolved sampling has a finite lifetime and cannot invent a floor")
+        precondition(ParkingCaptureEndPolicy.decision(age: 1000, stableAge: 900, hasStableCandidate: true, stationaryEvidence: true, manual: true) == .keepSampling,
+                     "An explicit manual capture remains user-controlled")
         var capture = ParkingAltitudeCapture()
         for t in 0...5 { precondition(!capture.append(sample(Double(t), 0)), "Five seconds must keep sampling") }
         precondition(capture.append(sample(6, 0)), "Five plus one stable seconds may ask, not stop the sensor")

@@ -8,6 +8,58 @@ private let hongKongMapFallback = CLLocation(
     longitude: 114.1694
 )
 
+/// One small foreground snapshot warms the airport region without maintaining
+/// another live map, location stream or display link in the background.
+@MainActor
+final class AirportMapPreloader {
+    static let shared = AirportMapPreloader()
+    private var preparedForActivation = false
+    private var snapshotter: MKMapSnapshotter?
+    private var timeout: Task<Void, Never>?
+    private var requestID = UUID()
+
+    func prepareForForeground() {
+        guard !preparedForActivation else { return }
+        preparedForActivation = true
+        let options = MKMapSnapshotter.Options()
+        options.region = MKCoordinateRegion(center: MapCameraMotion.airportCenter,
+            latitudinalMeters: 1400, longitudinalMeters: 1400)
+        options.size = CGSize(width: 512, height: 512)
+        options.scale = 1
+        let preference = UserDefaults.standard.integer(forKey: "appearanceMode")
+        let style: UIUserInterfaceStyle = preference == 1 ? .dark : (preference == 2 ? .light : UITraitCollection.current.userInterfaceStyle)
+        options.traitCollection = UITraitCollection(userInterfaceStyle: style)
+        let loader = MKMapSnapshotter(options: options)
+        snapshotter = loader
+        let id = UUID()
+        requestID = id
+        loader.start { [weak self] _, _ in
+            Task { @MainActor in
+                guard let self, self.requestID == id else { return }
+                self.snapshotter = nil
+                self.timeout?.cancel()
+                self.timeout = nil
+            }
+        }
+        timeout = Task { @MainActor [weak self] in
+            do { try await Task.sleep(for: .seconds(12)) } catch { return }
+            guard let self, self.requestID == id else { return }
+            self.snapshotter?.cancel()
+            self.snapshotter = nil
+            self.timeout = nil
+        }
+    }
+
+    func stopForBackground() {
+        requestID = UUID()
+        snapshotter?.cancel()
+        snapshotter = nil
+        timeout?.cancel()
+        timeout = nil
+        preparedForActivation = false
+    }
+}
+
 enum MapCompassAppearance {
     @MainActor
     static func apply(to compass: MKCompassButton, darkGlassEnabled: Bool) {
@@ -161,6 +213,19 @@ final class NonSelectableUserLocationView: MKUserLocationView {
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? { nil }
 }
 
+private final class AirportZoneAnnotation: NSObject, MKAnnotation {
+    let zone: AirportDropOffCatalog.Zone
+    let coordinate: CLLocationCoordinate2D
+    var recommended = false
+    var title: String? { "\(zone.terminal) Zone \(zone.number)" }
+    var subtitle: String? { String(localized: "落客區大約位置") }
+
+    init(zone: AirportDropOffCatalog.Zone) {
+        self.zone = zone
+        coordinate = CLLocationCoordinate2D(latitude: zone.latitude, longitude: zone.longitude).wgs84ToGCJ02
+    }
+}
+
 final class ParkingPointAnnotation: NSObject, MKAnnotation {
     let pointID: UUID
     dynamic var coordinate: CLLocationCoordinate2D
@@ -267,6 +332,8 @@ final class HomeMapHost: UIView {
         coordinator.updateMapFrame(in: container, centerOffset: CGPoint(
             x: coordinator.parent.centerOffsetX, y: coordinator.parent.centerOffsetY
         ))
+        coordinator.startPendingAirportFlightIfReady()
+        coordinator.startPendingAirportReturnIfReady()
     }
 }
 
@@ -282,6 +349,7 @@ struct MapView: UIViewRepresentable {
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
     var continuousFollow: Bool = false
+    var drivingState: Bool? = nil
     var hkDetailMode: Bool = false
     var northOverrideTrackingToken: Int
     var parkingPoints: [ParkingPointRecord]
@@ -387,12 +455,13 @@ struct MapView: UIViewRepresentable {
 
         // 只採用 app 已確認仍然有效的 GPS fix。MapKit 在未有定位時可能回傳
         // 模擬器／系統預設的美國座標，會令首次飛入由 San Francisco 開始。
-        let center = (locationManager.mapReferenceLocation?.coordinate
-            ?? hongKongMapFallback.coordinate).wgs84ToGCJ02
+        let directAirportEntry = markerOverview.mode == .airport && !markerOverview.airportAnimateEntry
+        let center = (directAirportEntry ? MapCameraMotion.airportCenter : (locationManager.mapReferenceLocation?.coordinate
+            ?? hongKongMapFallback.coordinate)).wgs84ToGCJ02
         mapView.allowCameraChange = true
         let camera = MKMapCamera()
         camera.centerCoordinate = center
-        camera.centerCoordinateDistance = 50000
+        camera.centerCoordinateDistance = directAirportEntry ? 3400 : 50000
         mapView.setCamera(camera, animated: false)
         mapView.allowCameraChange = false
 
@@ -402,7 +471,9 @@ struct MapView: UIViewRepresentable {
         mapView.onTouchEnded = { [weak coordinator = context.coordinator] in
             coordinator?.endManualCameraControl()
         }
-        let blankTap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleBlankTap(_:)))
+        let blankTap = MapBlankTapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.handleBlankTap(_:)))
+        blankTap.name = "mapBlankTap"
+        blankTap.numberOfTouchesRequired = 1
         blankTap.cancelsTouchesInView = false
         blankTap.delegate = context.coordinator
         mapView.addGestureRecognizer(blankTap)
@@ -712,6 +783,7 @@ struct MapView: UIViewRepresentable {
         } else {
             context.coordinator.meterLayer.sync(map: mapView, meters: displayedMeters, manager: meterManager)
         }
+        context.coordinator.updateAirportMarker()
         context.coordinator.trafficCameraLayer.sync(mapView, enabled: trafficCameraEnabled,
                                                   location: locationManager.lastLocation,
                                                   mode: markerOverview.mode)
@@ -719,7 +791,7 @@ struct MapView: UIViewRepresentable {
         context.coordinator.updateParkingPopupCameraFreeze(selectedParkingPointID)
 
         // 持續跟隨模式：啟動/停止 heading 追蹤 timer
-        if continuousFollow && !hkDetailMode {
+        if followHeading && !hkDetailMode {
             context.coordinator.startContinuousHeading()
         } else {
             context.coordinator.stopContinuousHeading()
@@ -728,14 +800,17 @@ struct MapView: UIViewRepresentable {
         // 香港地圖細覽模式：飛到香港、停用自動追蹤
         if !context.coordinator.isBoundaryDrawing &&
             (hkDetailMode != context.coordinator.lastHkDetailMode || markerOverview.mode != context.coordinator.lastMarkerOverviewMode) {
+            let returningFromAirport = context.coordinator.lastMarkerOverviewMode == .airport
             context.coordinator.lastHkDetailMode = hkDetailMode
             context.coordinator.lastMarkerOverviewMode = markerOverview.mode
             if hkDetailMode {
                 context.coordinator.enterHkDetailMode(mapView: mapView)
             } else {
-                context.coordinator.exitHkDetailMode()
+                context.coordinator.exitHkDetailMode(returningFromAirport: returningFromAirport)
             }
         }
+        context.coordinator.startPendingAirportFlightIfReady()
+        context.coordinator.startPendingAirportReturnIfReady()
         if context.coordinator.meterDetailTracking.isWaiting && context.coordinator.autoZoomTimer == nil {
             context.coordinator.scheduleAutoZoom()
         }
@@ -874,12 +949,12 @@ struct MapView: UIViewRepresentable {
 
         private var automaticCameraPaused: Bool {
             TrafficCameraStore.shared.selected != nil || isUserInteracting || manualCameraControl || meterOverviewID != nil || isMeterRouteOverviewActive ||
-                meterDetailTracking.isPaused || parent.hkDetailMode || isBoundaryDrawing ||
+                meterDetailTracking.isPaused || parent.hkDetailMode || pendingAirportReturn || isBoundaryDrawing ||
                 parent.selectedParkingPointID != nil ||
                 (parent.homeMapContext.session != nil && parent.homeMapContext.session?.activeHost == nil)
         }
 
-        func freezeAutomaticCamera() {
+        func freezeAutomaticCamera(reassertCamera: Bool = true) {
             cameraAnimationGeneration &+= 1
             lastTrackingFlightTarget = nil
             stopDrivingTracking()
@@ -898,18 +973,18 @@ struct MapView: UIViewRepresentable {
             realTimeUpdateTimer = nil
             isFlying = false
             pendingAutoZoom = false
-            if let mapView, let camera = mapView.camera.copy() as? MKMapCamera {
+            if reassertCamera, let mapView, let camera = mapView.camera.copy() as? MKMapCamera {
                 mapView.allowCameraChange = true
                 mapView.setCamera(camera, animated: false)
                 mapView.allowCameraChange = false
             }
         }
 
-        func endMeterOverview() {
+        func endMeterOverview(reassertCamera: Bool = true) {
             guard meterOverviewID != nil else { return }
             meterOverviewID = nil
             meterOverviewMeter = nil
-            freezeAutomaticCamera()
+            freezeAutomaticCamera(reassertCamera: reassertCamera)
         }
 
         func updateMeterNoticeOverview(_ notice: MeterNotice?) {
@@ -1017,7 +1092,7 @@ struct MapView: UIViewRepresentable {
             meterDetailTracking.resume()
             endMeterOverview()
             startTracking()
-            if parent.continuousFollow && !parent.hkDetailMode { startContinuousHeading() }
+            if parent.followHeading && !parent.hkDetailMode { startContinuousHeading() }
         }
 
         @MainActor
@@ -1036,6 +1111,7 @@ struct MapView: UIViewRepresentable {
         }
 
         private func startDrivingTracking() {
+            guard UIApplication.shared.applicationState == .active else { return }
             guard hasShownHighAltitude, isDriving, !isFlying, !automaticCameraPaused, drivingDisplayLink == nil,
                   let location = validTrackingLocation ?? parent.locationManager.mapReferenceLocation else { return }
             guard location.horizontalAccuracy >= 0, location.horizontalAccuracy <= 100,
@@ -1059,7 +1135,8 @@ struct MapView: UIViewRepresentable {
 
         private func drivingTrackingFrame(_ link: CADisplayLink) {
             AnimationDiagnostics.callback?("map_tracking", link.timestamp, max(link.duration, link.targetTimestamp - link.timestamp))
-            guard let mapView, hasShownHighAltitude, isDriving, !isFlying, !automaticCameraPaused else {
+            guard UIApplication.shared.applicationState == .active,
+                  let mapView, hasShownHighAltitude, isDriving, !isFlying, !automaticCameraPaused else {
                 stopDrivingTracking()
                 return
             }
@@ -1416,14 +1493,23 @@ struct MapView: UIViewRepresentable {
         /// LocationManager 已設 headingOrientation 跟隨裝置方向，
         /// 所以 heading 直接就係螢幕座標系嘅方向，唔使再手動修正。
         private var correctedHeading: CLLocationDirection {
-            parent.locationManager.heading
+            // Follow uses exactly the continuous-heading response while driving,
+            // including "driving, not departed"; otherwise it settles north-up.
+            if !parent.continuousFollow && !(parent.drivingState ?? isDriving) { return 0 }
+            return parent.locationManager.heading
         }
 
         func startContinuousHeading() {
+            guard UIApplication.shared.applicationState == .active else { return }
             guard hasShownHighAltitude, continuousHeadingTimer == nil, !automaticCameraPaused,
                   !isFlying, drivingDisplayLink == nil else { return }
             let frameInterval = 1.0 / 60.0
-            continuousHeadingTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { [weak self] _ in
+            continuousHeadingTimer = Timer.scheduledTimer(withTimeInterval: frameInterval, repeats: true) { [weak self] timer in
+                guard UIApplication.shared.applicationState == .active else {
+                    self?.stopContinuousHeading()
+                    timer.invalidate()
+                    return
+                }
                 guard let self, let mapView = self.mapView,
                       !self.automaticCameraPaused, !self.isFlying else { return }
                 let targetHeading = self.correctedHeading
@@ -1447,7 +1533,130 @@ struct MapView: UIViewRepresentable {
 
         // MARK: - 香港地圖細覽模式
 
+        private var airportZoneAnnotations: [AirportZoneAnnotation] = []
+        private var framedAirportZone: String?
+        private var pendingAirportFlight = false
+        private var pendingAirportReturn = false
+        private var airportNeedsOriginSeed = false
+
+        private func publishAirportEntryStatus() {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                let state = MapMarkerOverviewState.shared
+                let waiting = state.mode == .airport && state.airportAnimateEntry && self.pendingAirportFlight
+                if state.airportWaitingForLocation != waiting { state.airportWaitingForLocation = waiting }
+            }
+        }
+
+        func startPendingAirportFlightIfReady() {
+            guard pendingAirportFlight, parent.hkDetailMode, MapMarkerOverviewState.shared.mode == .airport,
+                  let mapView, let container, container.bounds.width > 0, container.bounds.height > 0 else { return }
+            let animated = MapMarkerOverviewState.shared.airportAnimateEntry
+            let location = parent.locationManager.lastLocation
+            if animated {
+                guard !parent.locationManager.isGPSLost, let location,
+                      MapCameraMotion.isUsableAirportOrigin(location) else { return }
+            }
+            pendingAirportFlight = false
+            publishAirportEntryStatus()
+            if animated, airportNeedsOriginSeed, let location {
+                // A cold renderer may only contain the Hong Kong fallback or a
+                // persisted location. Establish the confirmed live origin first.
+                let origin = mapView.camera.copy() as! MKMapCamera
+                origin.centerCoordinate = location.coordinate.wgs84ToGCJ02
+                origin.centerCoordinateDistance = trackingDistance(for: location)
+                origin.heading = 0
+                origin.pitch = idlePitch
+                mapView.allowCameraChange = true
+                mapView.setCamera(origin, animated: false)
+                mapView.allowCameraChange = false
+                hasShownHighAltitude = true
+                hasInitialized = true
+            }
+            airportNeedsOriginSeed = false
+            let center = MapCameraMotion.airportCenter.wgs84ToGCJ02
+            let aspect = container.bounds.height / container.bounds.width
+            let distance = max(2600, min(6000, 1700 * aspect))
+            if animated {
+                flyToCoordinate(mapView: mapView, coordinate: center,
+                    distance: distance, duration: 4.5, airportOverview: true)
+            } else {
+                let camera = MKMapCamera(lookingAtCenter: center, fromDistance: distance, pitch: 0, heading: 0)
+                mapView.allowCameraChange = true
+                mapView.setCamera(camera, animated: false)
+                mapView.allowCameraChange = false
+                hasShownHighAltitude = true
+                hasInitialized = true
+            }
+        }
+
+        func startPendingAirportReturnIfReady() {
+            guard pendingAirportReturn, MapMarkerOverviewState.shared.mode == .nearby,
+                  !isUserInteracting, !manualCameraControl, let mapView,
+                  !parent.locationManager.isGPSLost, let location = parent.locationManager.lastLocation,
+                  MapCameraMotion.isUsableAirportOrigin(location) else { return }
+            pendingAirportReturn = false
+            flyToLocation(mapView: mapView, location: location)
+        }
+
+        func updateAirportMarker() {
+            guard let mapView else { return }
+            let state = MapMarkerOverviewState.shared
+            guard state.mode == .airport else {
+                if !airportZoneAnnotations.isEmpty { mapView.removeAnnotations(airportZoneAnnotations) }
+                airportZoneAnnotations = []
+                framedAirportZone = nil
+                return
+            }
+            if airportZoneAnnotations.isEmpty {
+                airportZoneAnnotations = (AirportDropOffCatalog.bundled.zones ?? []).filter(\.isValid)
+                    .map(AirportZoneAnnotation.init)
+                mapView.addAnnotations(airportZoneAnnotations)
+            }
+            for marker in airportZoneAnnotations {
+                let recommended = marker.zone.terminal == state.airportTarget?.terminal &&
+                    marker.zone.number == state.airportTarget?.number
+                if marker.recommended != recommended {
+                    marker.recommended = recommended
+                    if let view = mapView.view(for: marker) as? MKMarkerAnnotationView {
+                        configureAirportMarker(view, marker: marker)
+                    }
+                }
+            }
+            if lastMarkerOverviewMode == .airport { frameAirportRecommendation() }
+        }
+
+        private func frameAirportRecommendation() {
+            guard !pendingAirportFlight, !isFlying, !isUserInteracting, !manualCameraControl,
+                  parent.hkDetailMode, MapMarkerOverviewState.shared.mode == .airport,
+                  let marker = airportZoneAnnotations.first(where: \.recommended),
+                  marker.title != framedAirportZone, let mapView, let container,
+                  container.bounds.width > 0, container.bounds.height > 0 else { return }
+            // Keep the recommended pin above the centred result card, rather
+            // than hiding it behind the card on a portrait phone.
+            let point = mapView.convert(marker.coordinate, toPointTo: container)
+            let desired = CGPoint(x: container.bounds.midX, y: container.bounds.height * 0.23)
+            let center = mapView.convert(CGPoint(x: mapView.bounds.midX, y: mapView.bounds.midY), to: container)
+            let target = mapView.convert(CGPoint(x: center.x - (desired.x - point.x),
+                y: center.y - (desired.y - point.y)), toCoordinateFrom: container)
+            guard CLLocationCoordinate2DIsValid(target), (22.28...22.35).contains(target.latitude),
+                  (113.9...113.97).contains(target.longitude) else { return }
+            framedAirportZone = marker.title
+            flyToCoordinate(mapView: mapView, coordinate: target,
+                distance: mapView.camera.centerCoordinateDistance, duration: 1.2, airportOverview: true)
+        }
+
+        private func configureAirportMarker(_ view: MKMarkerAnnotationView, marker: AirportZoneAnnotation) {
+            view.markerTintColor = marker.recommended ? .systemOrange : .systemTeal
+            view.glyphText = String(marker.zone.number)
+            view.titleVisibility = .visible
+            view.subtitleVisibility = .hidden
+            view.displayPriority = .required
+            view.canShowCallout = true
+        }
+
         func enterHkDetailMode(mapView: MKMapView) {
+            pendingAirportReturn = false
             removeHkAnnotations(mapView: mapView)
             // 停止所有追蹤
             endMeterOverview()
@@ -1455,6 +1664,25 @@ struct MapView: UIViewRepresentable {
             isDriving = false
             pendingAutoZoom = false
             isUserInteracting = false
+
+            // Airport browsing owns the camera until the user exits map browsing.
+            if MapMarkerOverviewState.shared.mode == .airport,
+               let mapView = mapView as? NonAdjustingMapView {
+                // Browsing freezes automatic GPS following, not native panning.
+                // Keep all of MapKit's one- and two-finger gestures available.
+                mapView.isScrollEnabled = true
+                mapView.isZoomEnabled = true
+                mapView.isRotateEnabled = true
+                mapView.isPitchEnabled = true
+                mapView.isUserInteractionEnabled = true
+                mapView.allowsUserCameraChanges = true
+                manualCameraControl = false
+                airportNeedsOriginSeed = !hasShownHighAltitude
+                pendingAirportFlight = true
+                publishAirportEntryStatus()
+                startPendingAirportFlightIfReady()
+                return
+            }
 
             // 飛到香港
             if let nm = mapView as? NonAdjustingMapView { nm.allowCameraChange = true }
@@ -1475,8 +1703,11 @@ struct MapView: UIViewRepresentable {
             }
         }
 
-        func exitHkDetailMode() {
+        func exitHkDetailMode(returningFromAirport: Bool = false) {
             guard let mapView else { return }
+            pendingAirportFlight = false
+            airportNeedsOriginSeed = false
+            publishAirportEntryStatus()
             removeHkAnnotations(mapView: mapView)
             pendingAutoZoom = true
             isDriving = parent.locationManager.speed >= drivingSpeedThreshold
@@ -1484,6 +1715,14 @@ struct MapView: UIViewRepresentable {
             isUserInteracting = false
             mapView.allowsUserCameraChanges = false
             meterDetailTracking.resume()
+            if returningFromAirport {
+                freezeAutomaticCamera()
+                endMeterRouteOverview()
+                pendingAirportReturn = true
+                mapView.allowsUserCameraChanges = true
+                startPendingAirportReturnIfReady()
+                return
+            }
             startTracking(useHongKongFallback: true)
         }
 
@@ -1928,8 +2167,16 @@ struct MapView: UIViewRepresentable {
             manualCameraControl = true
             isUserInteracting = true
             mapView?.allowsUserCameraChanges = true
-            endMeterOverview()
-            freezeAutomaticCamera()
+            pendingAirportReturn = false
+            if pendingAirportFlight {
+                pendingAirportFlight = false
+                airportNeedsOriginSeed = false
+                publishAirportEntryStatus()
+            }
+            // Cancel our timers, but let MapKit continue this same delivered
+            // pan/pinch. Reapplying even an unchanged camera cancels its gesture.
+            endMeterOverview(reassertCamera: false)
+            freezeAutomaticCamera(reassertCamera: false)
 #if DEBUG
             updateCameraCheckValue()
 #endif
@@ -1951,6 +2198,14 @@ struct MapView: UIViewRepresentable {
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+            if gestureRecognizer.name == "mapBlankTap", let mapView {
+                var hit = touch.view
+                while let view = hit, view !== mapView {
+                    if view is MKAnnotationView || view is UIControl { return false }
+                    hit = view.superview
+                }
+                return !mapView.isAnnotationHit(at: touch.location(in: mapView))
+            }
             if gestureRecognizer.name == "parkingPointTap" {
                 // 畫範圍模式：唔好搶 touch（parkingTap 認到會 cancel 個 touch，
                 // 會影響畫布／地圖操作），等 handleParkingTap 個 guard 之外多重保障
@@ -2137,12 +2392,11 @@ struct MapView: UIViewRepresentable {
         @objc func handleBlankTap(_ gesture: UITapGestureRecognizer) {
             guard gesture.state == .ended, let mapView else { return }
             if parkingAnnotation(at: gesture.location(in: mapView)) != nil { return }
-            // 撳中泊車點等 annotation 時唔觸發，保留 annotation 選擇行為
-            for annotation in mapView.annotations where !(annotation is MKUserLocation) {
-                guard let view = mapView.view(for: annotation) else { continue }
-                let p = gesture.location(in: view)
-                if view.bounds.contains(p) { return }
-            }
+            if mapView.isAnnotationHit(at: gesture.location(in: mapView)) { return }
+            // Finish this tap before SwiftUI switches modes. A delayed touch-end
+            // callback must not take manual ownership back during the return flight.
+            mapView.stopObservingTouches()
+            endManualCameraControl()
             // 真係撳空白位：閂停車彈窗（唔靠 MapKit 嘅 deselect，免得同誤判搶 selection 糾纏）
             parent.onSelectParkingPoint(nil)
             parent.onMapBlankTap?()
@@ -2526,8 +2780,10 @@ struct MapView: UIViewRepresentable {
             RunLoop.main.add(flyTimer!, forMode: .common)
         }
 
-        func flyToCoordinate(mapView: NonAdjustingMapView, coordinate: CLLocationCoordinate2D, distance: CLLocationDistance, duration: TimeInterval) {
-            guard !automaticCameraPaused else { return }
+        func flyToCoordinate(mapView: NonAdjustingMapView, coordinate: CLLocationCoordinate2D,
+                             distance: CLLocationDistance, duration: TimeInterval, airportOverview: Bool = false) {
+            guard !automaticCameraPaused || (airportOverview && parent.hkDetailMode &&
+                MapMarkerOverviewState.shared.mode == .airport) else { return }
             freezeAutomaticCamera()
             autoZoomTimer?.invalidate()
             autoZoomTimer = nil
@@ -2538,18 +2794,18 @@ struct MapView: UIViewRepresentable {
             let startDistance = mapView.camera.centerCoordinateDistance
             let startHeading = mapView.camera.heading
             let startPitch = mapView.camera.pitch
-            let targetPitchVal: CGFloat = isDriving ? drivingPitch : idlePitch
-            let targetHeading: CLLocationDirection = parent.followHeading ? correctedHeading : 0
+            let targetPitchVal: CGFloat = airportOverview ? 0 : (isDriving ? drivingPitch : idlePitch)
+            let targetHeading: CLLocationDirection = airportOverview ? 0 : (parent.followHeading ? correctedHeading : 0)
             let generation = cameraAnimationGeneration
             let startTime = Date()
-            routeReturnTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in
+            routeReturnTimer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak mapView, weak self] timer in
                 guard let mapView = mapView, let self = self,
                       self.cameraAnimationGeneration == generation else { timer.invalidate(); return }
                 let now = Date()
                 let elapsed = now.timeIntervalSince(startTime)
                 let t = min(elapsed / duration, 1.0)
                 let ease = MapCameraMotion.flightProgress(t)
-                let liveTarget = self.trackingFlightTarget(fallback: coordinate, at: now)
+                let liveTarget = airportOverview ? coordinate : self.trackingFlightTarget(fallback: coordinate, at: now)
                 let lat = startCenter.latitude + (liveTarget.latitude - startCenter.latitude) * ease
                 let lon = startCenter.longitude + (liveTarget.longitude - startCenter.longitude) * ease
                 let dist = startDistance + (distance - startDistance) * ease
@@ -2568,6 +2824,7 @@ struct MapView: UIViewRepresentable {
                     self.routeReturnTimer = nil
                     self.isFlying = false
                     mapView.allowCameraChange = false
+                    if airportOverview { self.frameAirportRecommendation() }
                     DispatchQueue.main.async {
                         guard self.cameraAnimationGeneration == generation,
                               !self.automaticCameraPaused else { return }
@@ -2579,6 +2836,7 @@ struct MapView: UIViewRepresentable {
                     }
                 }
             }
+            RunLoop.main.add(routeReturnTimer!, forMode: .common)
         }
 
         /// 繪製模式：地圖一郁就重畫橡皮筋／指針，令即時預覽跟手。
@@ -3013,6 +3271,13 @@ struct MapView: UIViewRepresentable {
         }
 
         func mapView(_ mapView: MKMapView, viewFor annotation: MKAnnotation) -> MKAnnotationView? {
+            if let marker = annotation as? AirportZoneAnnotation {
+                let view = mapView.dequeueReusableAnnotationView(withIdentifier: "AirportZone") as? MKMarkerAnnotationView
+                    ?? MKMarkerAnnotationView(annotation: marker, reuseIdentifier: "AirportZone")
+                view.annotation = marker
+                configureAirportMarker(view, marker: marker)
+                return view
+            }
             if let camera = TrafficCameraMapLayer.view(mapView, annotation: annotation) { return camera }
             if let view = MeterMapLayer.view(
                 map: mapView,
@@ -3108,9 +3373,9 @@ struct MapView: UIViewRepresentable {
             }
             if let polyline = overlay as? MKPolyline {
                 if polyline === currentRouteOverlay {
-                    let renderer = MKPolylineRenderer(polyline: polyline)
+                    let renderer = OutlinedRoutePolylineRenderer(polyline: polyline)
                     renderer.strokeColor = routeColor.withAlphaComponent(fullRouteAlpha)
-                    renderer.lineWidth = 5
+                    renderer.lineWidth = 4
                     renderer.lineCap = .round
                     renderer.lineJoin = .round
                     routeFullRenderer = renderer
@@ -3119,15 +3384,15 @@ struct MapView: UIViewRepresentable {
                 if polyline === currentRouteAnimationOverlay {
                     let renderer = AnimatedPolylineRenderer(polyline: polyline)
                     renderer.strokeColor = routeColor.withAlphaComponent(animRouteAlpha)
-                    renderer.lineWidth = 5
+                    renderer.lineWidth = 4
                     renderer.lineCap = .round
                     renderer.lineJoin = .round
                     attachRouteDrawRenderer(renderer)
                     return renderer
                 }
-                let renderer = MKPolylineRenderer(polyline: polyline)
+                let renderer = OutlinedRoutePolylineRenderer(polyline: polyline)
                 renderer.strokeColor = routeColor
-                renderer.lineWidth = 5
+                renderer.lineWidth = 4
                 renderer.lineCap = .round
                 renderer.lineJoin = .round
                 return renderer
@@ -3138,7 +3403,7 @@ struct MapView: UIViewRepresentable {
     }
 }
 
-final class AnimatedPolylineRenderer: MKPolylineRenderer {
+final class AnimatedPolylineRenderer: OutlinedRoutePolylineRenderer {
     var progress: Double = 1
     private let mapPoints: [MKMapPoint]
     private let cumulative: [Double]
@@ -3198,7 +3463,7 @@ final class AnimatedPolylineRenderer: MKPolylineRenderer {
     }
 
     override func draw(_ mapRect: MKMapRect, zoomScale: MKZoomScale, in context: CGContext) {
-        guard !mapPoints.isEmpty else { return }
+        guard !mapPoints.isEmpty, zoomScale > 0 else { return }
         let t = max(0, min(progress, 1))
         if t <= 0 { return }
         if total <= 0 { return }
@@ -3239,17 +3504,7 @@ final class AnimatedPolylineRenderer: MKPolylineRenderer {
             path.addLine(to: point(for: MKMapPoint(x: x, y: y)))
         }
 
-        context.addPath(path)
-        if let color = strokeColor?.cgColor {
-            context.setStrokeColor(color)
-        }
-        let scale = UIScreen.main.scale
-        let w = lineWidth
-        let aligned = (w * scale).rounded(.toNearestOrAwayFromZero) / scale
-        context.setLineWidth(aligned)
-        context.setLineCap(.round)
-        context.setLineJoin(.round)
-        context.strokePath()
+        drawOutlinedPath(path, zoomScale: zoomScale, in: context)
     }
 }
 
@@ -3263,6 +3518,7 @@ struct VignetteMapView: View {
     var routeAnimationOverlay: MKPolyline?
     var followHeading: Bool
     var continuousFollow: Bool = false
+    var drivingState: Bool? = nil
     var hkDetailMode: Bool = false
     var parkingPoints: [ParkingPointRecord]
     var parkingPointTitlePrefixesByID: [UUID: String]
@@ -3295,7 +3551,7 @@ struct VignetteMapView: View {
 
     var body: some View {
         ZStack {
-            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, parkingPointsRevision: parkingPointsRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterNavigationTargetID, meterNavigationTargetCoordinate: meterNavigationTargetCoordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, centerOffsetY: centerOffsetY, hideCompass: hideCompass, compassBridge: compassBridge, softenedEdgeCornerRadius: softenedEdgeCornerRadius, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation, boundaryDrawVertices: boundaryDrawVertices, boundaryDrawBridge: boundaryDrawBridge)
+            MapView(savedRegion: $savedRegion, savedCamera: $savedCamera, flyTrigger: $flyTrigger, isLandscape: isLandscape, routeOverlay: routeOverlay, routeAnimationOverlay: routeAnimationOverlay, followHeading: followHeading, continuousFollow: continuousFollow, drivingState: drivingState, hkDetailMode: hkDetailMode, northOverrideTrackingToken: northOverrideTrackingToken, parkingPoints: parkingPoints, parkingPointTitlePrefixesByID: parkingPointTitlePrefixesByID, parkingPointsRevision: parkingPointsRevision, selectedParkingPointID: selectedParkingPointID, onSelectParkingPoint: onSelectParkingPoint, onMoveParkingPoint: onMoveParkingPoint, routePriorityToken: routePriorityToken, routePriorityAnchor: routePriorityAnchor, meterNavigationTargetID: meterNavigationTargetID, meterNavigationTargetCoordinate: meterNavigationTargetCoordinate, routeOverlayToken: routeOverlayToken, routeOverlayAnimationToken: routeOverlayAnimationToken, mapStyleIndex: mapStyleIndex, showSatellite: showSatellite, centerOffsetX: centerOffsetX, centerOffsetY: centerOffsetY, hideCompass: hideCompass, compassBridge: compassBridge, softenedEdgeCornerRadius: softenedEdgeCornerRadius, onMapBlankTap: onMapBlankTap, onSelectHKLocation: onSelectHKLocation, boundaryDrawVertices: boundaryDrawVertices, boundaryDrawBridge: boundaryDrawBridge)
                 .ignoresSafeArea()
 
             // Minecraft green tint overlay

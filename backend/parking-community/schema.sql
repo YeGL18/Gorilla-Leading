@@ -57,6 +57,22 @@ CREATE TABLE IF NOT EXISTS outbox (
 CREATE TABLE IF NOT EXISTS rate_limits (
  scope TEXT PRIMARY KEY, started REAL NOT NULL, count INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS apple_challenges (
+ digest TEXT PRIMARY KEY, nonce_hash TEXT NOT NULL, purpose TEXT NOT NULL,
+ user_id TEXT REFERENCES users(id) ON DELETE CASCADE, expires REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS apple_identities (
+ subject TEXT PRIMARY KEY, user_id TEXT NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS apple_tokens (
+ digest TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+ encrypted TEXT NOT NULL
+);
+-- Keeps only encrypted revocation credentials after deletion, no account/plate data.
+CREATE TABLE IF NOT EXISTS apple_revocations (
+ digest TEXT PRIMARY KEY, encrypted TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0,
+ next_attempt REAL NOT NULL DEFAULT 0
+);
 CREATE INDEX IF NOT EXISTS thread_expiry ON threads(expires);
 -- Device ownership is tied to the session that registered it. Logout revokes it.
 CREATE TABLE IF NOT EXISTS device_sessions (

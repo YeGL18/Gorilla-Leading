@@ -103,6 +103,7 @@ class DestinationManager: ObservableObject {
     private var routeAttemptAt: Date?
     private var routeResult: RouteResult?
     private var routeCompletions: [(RouteResult?) -> Void] = []
+    private var routeUpdatesActive = true
     private let calculateDirections: (MKDirections, @escaping (MKDirections.Response?, Error?) -> Void) -> Void
 
     init(calculateDirections: @escaping (MKDirections, @escaping (MKDirections.Response?, Error?) -> Void) -> Void = {
@@ -185,6 +186,13 @@ class DestinationManager: ObservableObject {
     }
     
     // 计算从当前位置到目的地的路线
+    /// The phone UI owns route refreshes; background visit detection never needs them.
+    func setRouteUpdatesActive(_ active: Bool) {
+        guard routeUpdatesActive != active else { return }
+        routeUpdatesActive = active
+        if !active { invalidateRoute() }
+    }
+
     func invalidateRoute() {
         routeRequest?.cancel()
         routeRequest = nil
@@ -218,6 +226,7 @@ class DestinationManager: ObservableObject {
     // remain unchanged, so distance interpolation is not restarted on every fix.
     func requestRoute(from currentLocation: CLLocationCoordinate2D, to destination: CLLocationCoordinate2D,
                       force: Bool = false, completion: @escaping (RouteResult?) -> Void) {
+        guard routeUpdatesActive else { completion(nil); return }
         let sameTarget = routeTarget?.latitude == destination.latitude && routeTarget?.longitude == destination.longitude
         if !sameTarget { invalidateRoute(); routeTarget = destination }
         if routeRequest != nil {

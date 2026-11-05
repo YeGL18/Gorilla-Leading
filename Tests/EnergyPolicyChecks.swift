@@ -52,6 +52,41 @@ struct EnergyPolicyChecks {
         _ = policy.observe(fix(age: -400), captureActive: false, now: now.addingTimeInterval(400))
         check(policy.observe(fix(age: -460), captureActive: false, now: now.addingTimeInterval(460)) == .navigation,
               "A gap in GPS fixes cannot be counted as sixty seconds of observed stability")
+        policy.reset()
+        for second in 0...60 {
+            _ = policy.observe(fix(age: -Double(second)), captureActive: false, now: now.addingTimeInterval(Double(second)))
+        }
+        check(policy.observe(fix(age: -180), captureActive: false, now: now.addingTimeInterval(180)) == .stationary,
+              "A sparse callback after a fully observed stop keeps the quiet sampling mode")
+        check(policy.observe(fix(age: -181, speed: 3), captureActive: false, now: now.addingTimeInterval(181)) == .navigation,
+              "Movement after quiet sampling restores full precision immediately")
+        let parkedBackground = LocationSamplingPlan(mode: .stationary, background: true, captureActive: false)
+        check(parkedBackground.distanceFilter == 20, "Confirmed background stops coalesce GPS callbacks")
+        check(parkedBackground.accuracy == kCLLocationAccuracyNearestTenMeters, "Background stop keeps place-level accuracy")
+        for mode in [LocationEnergyPolicy.Mode.navigation, .stationary] {
+            check(LocationSamplingPlan(mode: mode, background: true, captureActive: true).distanceFilter == kCLDistanceFilterNone,
+                  "Floor capture never filters location callbacks")
+            check(LocationSamplingPlan(mode: mode, background: false, captureActive: false).distanceFilter == kCLDistanceFilterNone,
+                  "Foreground watchdog always receives unfiltered callbacks")
+        }
+        check(LocationSamplingPlan(mode: .navigation, background: true, captureActive: false).accuracy == kCLLocationAccuracyBestForNavigation,
+              "Driving in the background keeps navigation accuracy")
+        var rest = BackgroundLocationRestPolicy()
+        check(!rest.canRest(at: now, captureActive: false), "GPS silence alone never implies a long stop")
+        rest.observe(stationary: true, at: now)
+        check(!rest.canRest(at: now.addingTimeInterval(299), captureActive: false), "Brief stops retain existing precision")
+        check(rest.canRest(at: now.addingTimeInterval(300), captureActive: false), "Reliable five-minute stationary evidence permits rest")
+        check(!rest.canRest(at: now.addingTimeInterval(900), captureActive: true), "Active floor capture overrides long-rest mode")
+        rest.observe(stationary: true, at: now.addingTimeInterval(400))
+        check(rest.deadline == now.addingTimeInterval(300), "Repeated stationary events must not postpone rest")
+        rest.observe(stationary: false, at: now.addingTimeInterval(401))
+        check(!rest.canRest(at: now.addingTimeInterval(1000), captureActive: false), "Moving or uncertain motion clears rest evidence")
+        let resting = LocationSamplingPlan(mode: .navigation, background: true, captureActive: false, resting: true)
+        check(resting.accuracy == kCLLocationAccuracyHundredMeters && resting.distanceFilter == 50, "Long indoor stops can reduce GPS demand despite poor fixes")
+        let floor = LocationSamplingPlan(mode: .navigation, background: true, captureActive: true, resting: true)
+        check(floor.accuracy == kCLLocationAccuracyBestForNavigation && floor.distanceFilter == kCLDistanceFilterNone, "Floor ramps keep full sampling")
+        check(LocationSamplingPlan(mode: .navigation, background: false, captureActive: false, resting: true).accuracy == kCLLocationAccuracyBestForNavigation,
+              "Foreground returns to navigation precision")
         print("Energy policies: \(checks) checks passed")
     }
 }

@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "Ta aplikacja używa Apple Intelligence do tłumaczenia na urządzeniu.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Ta aplikacja potrzebuje stałego dostępu do lokalizacji, aby śledzić twoje wizyty i lokalizację parkowania.";
+"NSCameraUsageDescription" = "Ta aplikacja wykorzystuje aparat do fotografowania miejsca parkingowego i skanowania znaków rejestracyjnych pojazdów w celu uzyskania przypomnień o parkowaniu.";
+"NSLocalNetworkUsageDescription" = "Połącz się z komputerem z systemem Windows w tej samej sieci lokalnej, aby otrzymać telemetrię gry Assetto Corsa.";
+"NSSpeechRecognitionUsageDescription" = "Ta aplikacja wykorzystuje rozpoznawanie mowy do konwersji głosu na tekst do tłumaczenia.";
+"NSLocationWhenInUseUsageDescription" = "Ta aplikacja używa Twojej lokalizacji, aby wyświetlić Twoją aktualną prędkość.";
+"NSMotionUsageDescription" = "Ta aplikacja wykorzystuje historię ruchu do identyfikacji podróży samochodem i pieszo oraz dane wysokościowe do wykrywania poziomu parkingu.";
+"NSMicrophoneUsageDescription" = "Ta aplikacja potrzebuje dostępu do mikrofonu do wprowadzania głosu.";

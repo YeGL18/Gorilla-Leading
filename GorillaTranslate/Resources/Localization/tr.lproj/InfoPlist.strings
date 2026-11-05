@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "Bu uygulama, cihaz içi çeviri için Apple Intelligence'ı kullanır.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "Bu uygulamanın ziyaretlerinizi ve park yerinizi takip etmek için her zaman açık konum erişimine ihtiyacı vardır.";
+"NSCameraUsageDescription" = "Bu uygulama, park yerinizi fotoğraflamak ve park hatırlatmaları için araç kayıt işaretlerini taramak için kamerayı kullanır.";
+"NSLocalNetworkUsageDescription" = "Assetto Corsa oyun telemetrisini almak için aynı yerel ağdaki bir Windows PC'ye bağlanın.";
+"NSSpeechRecognitionUsageDescription" = "Bu uygulama, sesinizi çeviri için metne dönüştürmek için konuşma tanıma kullanır.";
+"NSLocationWhenInUseUsageDescription" = "Bu uygulama, mevcut hızınızı görüntülemek için konumunuzu kullanır.";
+"NSMotionUsageDescription" = "Bu uygulama, sürüş ve yürüme yolculuklarını tanımlamak için hareket geçmişini ve park zemini seviyesini tespit etmek için irtifa verilerini kullanır.";
+"NSMicrophoneUsageDescription" = "Bu uygulamanın sesli giriş için mikrofon erişimine ihtiyacı var.";

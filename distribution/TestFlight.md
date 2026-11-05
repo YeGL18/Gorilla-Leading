@@ -1,5 +1,27 @@
 # Gorilla Leading TestFlight
 
+## 1.0 (8) — prepared 2026-11-05
+
+App and widget carry build 8. This update adds twenty complete interface/permission/Live Activity localizations, matching camera-alert speech and automatic same-language system-voice selection, background-energy reductions, the revised Live Activity content, and airport-guide/map/replay refinements. New interface translations were generated on the developer's Mac using Apple's on-device Translation framework, then checked for catalog coverage, placeholders and selected terminology; no runtime translation service or model is bundled in the app. Notes are in `distribution/TestFlight-1.0-8-notes.txt`.
+
+The Release archive at `/private/tmp/GorillaLeading-1.0-8.xcarchive` succeeded and passed `Tests/NoAMapChecks.rb` against the actual bundle. Both the app and widget report build 8 and include all twenty localization directories. Camera-alert and localization checks pass; backend validation/login tests pass (one environment-dependent test skipped). The current source candidate passed a redacted credential scan, with only two verified UserDefaults storage identifiers excluded as false positives. Upload and external-testing status will be recorded after Apple verification.
+
+
+## 1.0 (7) — prepared 2026-11-04
+
+App and widget now carry build 7. The Release archive at `/private/tmp/GorillaLeading-1.0-7.xcarchive` completed successfully and passed `Tests/NoAMapChecks.rb` against its actual app bundle. The archived app reports the fixed API `https://api.lucidtelos.com/v1/parking-community` and `ITSAppUsesNonExemptEncryption = false`. Traditional Chinese test notes are in `distribution/TestFlight-1.0-7-notes.txt`.
+
+The first upload attempt failed with `exportArchive Failed to Use Accounts`. After the owner renewed Xcode access, Apple accepted the retry on 2026-11-04 at 20:19 Hong Kong time (`Upload succeeded`, `EXPORT SUCCEEDED`). Processing completed without a missing-compliance warning. Traditional Chinese What to Test notes were saved, and build `1.0 (7)` was submitted to the existing Friends Testing external group with automatic tester notification enabled. The group Builds page visibly confirms status **Testing**. No testers or public-link settings were changed. Screenshot proof: `/private/tmp/gorilla-testflight-7-external.jpg`.
+
+
+## Build 6 Preparation (2026-11-02)
+
+Version `1.0 (6)` adds native Sign in with Apple, explicit linking for existing email accounts, startup login presentation after the first-run introduction, and the current parking-community messaging/validation changes. The app and widget both carry build 6. The Windows service publicly reports Apple authentication enabled and both APNs and FCM configured. The current temporary Tunnel is the default; user-saved overrides are preserved and can be changed from the login page.
+
+The Release archive at `/private/tmp/GorillaLeading-1.0-6.xcarchive` passed the actual-bundle no-AMap/export-compliance checks. Apple sign-in entitlement `Default` is present. The native login fixture builds, networking/account-isolation/outage checks pass, and the updated debug app was installed and launched on iPhone 16 Pro. Completing a real Apple authorization still requires the owner's native Apple authentication; automated checks use isolated fixtures and never fabricate a real login.
+
+Apple accepted the upload on 2026-11-02 at 15:55 Hong Kong time (`Upload succeeded`, `EXPORT SUCCEEDED`). Processing completed without a missing-compliance warning. Traditional Chinese What to Test notes were saved from `distribution/TestFlight-1.0-6-notes.txt`. The existing Friends Testing external group now contains build `1.0 (6)` with status **Testing**, verified on its Builds page. No new testers were added. Screenshot proof: `/private/tmp/gorilla-testflight-6-external.jpg`.
+
 ## Build 5 Preparation (2026-10-25)
 
 Version `1.0 (5)` includes the current working-tree changes: trip replay and altitude charts, driving-event/G-force improvements, AC telemetry, updated appearance controls, the revised first-run tour, and the published support website. This is a TestFlight update, not a public App Store release.

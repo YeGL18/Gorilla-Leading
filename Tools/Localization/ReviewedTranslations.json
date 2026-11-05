@@ -1,0 +1,148 @@
+{
+  "ko": {
+    "Gorilla Leading 應用程式圖示，配合定位、咪錶和時速功能": "위치, 주차 미터와 속도 기능을 나타내는 Gorilla Leading 앱 아이콘",
+    "關於 Gorilla Leading": "Gorilla Leading 소개",
+    "為 Gorilla Leading 評分": "Gorilla Leading 평가하기",
+    "朗讀內容": "음성 안내",
+    "嗶嗶 + 簡短限速": "알림음 + 제한 속도",
+    "嗶嗶 + 限速及單位": "알림음 + 제한 속도·단위",
+    "超速時加讀減速提醒": "과속 시에만 감속 안내",
+    "試聽相機提醒": "알림 미리 듣기",
+    "朗讀衝紅燈相機提醒": "신호 위반 카메라 음성 안내"
+  },
+  "ms": {
+    "Gorilla Leading 應用程式圖示，配合定位、咪錶和時速功能": "Ikon aplikasi Gorilla Leading dengan lokasi, meter parkir dan kelajuan",
+    "關於 Gorilla Leading": "Mengenai Gorilla Leading",
+    "為 Gorilla Leading 評分": "Nilaikan Gorilla Leading",
+    "圖片已複製到剪貼簿。\n請按動作按鈕執行「%@」快捷指令。": "Imej disalin ke papan klip.\nTekan Butang Tindakan untuk menjalankan pintasan \"%@\".",
+    "朗讀內容": "Amaran suara",
+    "嗶嗶 + 簡短限速": "Bip + had",
+    "嗶嗶 + 限速及單位": "Bip + had dan unit",
+    "超速時加讀減速提醒": "Amaran perlahan hanya apabila melebihi had",
+    "試聽相機提醒": "Dengar amaran",
+    "朗讀衝紅燈相機提醒": "Sebutan amaran kamera lampu merah",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Semasa aplikasi dibuka dan pemanduan dikesan, amaran berbunyi kira-kira 8 saat lebih awal (30–300 meter). Dua bunyi bip diikuti oleh ucapan dalam bahasa pilihan anda. Amaran supaya memperlahankan kenderaan hanya ditambah apabila kelajuan melebihi had rujukan. Jika bahasa tersebut tidak mempunyai suara yang tersedia, bahasa Inggeris digunakan. Amaran menghormati Mod Senyap."
+  },
+  "tr": {
+    "Gorilla Leading 應用程式圖示，配合定位、咪錶和時速功能": "Konum, parkmetre ve hız özelliklerini gösteren Gorilla Leading uygulama simgesi",
+    "為 Gorilla Leading 評分": "Gorilla Leading uygulamasını değerlendir",
+    "朗讀內容": "Sesli uyarı",
+    "嗶嗶 + 簡短限速": "Bip + hız sınırı",
+    "嗶嗶 + 限速及單位": "Bip + sınır ve birim",
+    "超速時加讀減速提醒": "Yalnızca hız sınırı aşılınca yavaşlama uyarısı",
+    "試聽相機提醒": "Uyarıyı dinle",
+    "朗讀衝紅燈相機提醒": "Kırmızı ışık kameralarını seslendir"
+  },
+  "uk": {
+    "Gorilla Leading 應用程式圖示，配合定位、咪錶和時速功能": "Іконка застосунку Gorilla Leading із функціями геолокації, паркоматів і швидкості",
+    "朗讀內容": "Голосове повідомлення",
+    "嗶嗶 + 簡短限速": "Сигнал + ліміт",
+    "嗶嗶 + 限速及單位": "Сигнал + ліміт та одиниці",
+    "超速時加讀減速提醒": "«Зменште швидкість» при перевищенні",
+    "試聽相機提醒": "Прослухати сигнал",
+    "朗讀衝紅燈相機提醒": "Сповіщати про камери світлофорів"
+  },
+  "yue": {
+    "朗讀內容": "朗讀內容",
+    "嗶嗶 + 簡短限速": "嗶嗶 + 簡短限速",
+    "嗶嗶 + 限速及單位": "嗶嗶 + 限速及單位",
+    "超速時加讀減速提醒": "超速先加讀減速提醒",
+    "試聽相機提醒": "試聽相機提醒",
+    "朗讀衝紅燈相機提醒": "朗讀衝紅燈相機提醒"
+  },
+  "fr": {
+    "朗讀內容": "Annonce vocale",
+    "嗶嗶 + 簡短限速": "Bips + limite",
+    "嗶嗶 + 限速及單位": "Bips + limite et unité",
+    "超速時加讀減速提醒": "Dire « Ralentissez » si excès de vitesse",
+    "試聽相機提醒": "Écouter l’alerte",
+    "朗讀衝紅燈相機提醒": "Annoncer les radars de feu rouge"
+  },
+  "de": {
+    "朗讀內容": "Sprachausgabe",
+    "嗶嗶 + 簡短限速": "Piep + Tempolimit",
+    "嗶嗶 + 限速及單位": "Piep + Limit und Einheit",
+    "超速時加讀減速提醒": "„Langsamer“ bei Überschreitung",
+    "試聽相機提醒": "Kamerahinweis anhören",
+    "朗讀衝紅燈相機提醒": "Rotlichtkameras ansagen",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Während die App geöffnet ist und das Fahren erkannt wird, ertönen Warnungen etwa 8 Sekunden im Voraus (30–300 Meter). Auf zwei Pieptöne folgt eine Sprache in der von Ihnen gewählten Sprache. Eine Verlangsamungswarnung wird nur bei Geschwindigkeitsüberschreitung hinzugefügt. Wenn diese Sprache keine verfügbare Stimme hat, wird Englisch verwendet. Warnungen respektieren den lautlosen Modus."
+  },
+  "es": {
+    "朗讀內容": "Aviso de voz",
+    "嗶嗶 + 簡短限速": "Pitidos + límite",
+    "嗶嗶 + 限速及單位": "Pitidos + límite y unidad",
+    "超速時加讀減速提醒": "Pedir reducir la velocidad al superar el límite",
+    "試聽相機提醒": "Escuchar aviso",
+    "朗讀衝紅燈相機提醒": "Anunciar cámaras de semáforo",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Mientras la aplicación está abierta y se detecta la conducción, las alertas suenan unos 8 segundos antes (30-300 metros). Dos pitidos son seguidos por el discurso en el idioma elegido. Solo se añade el aviso de reducir la velocidad cuando se supera el límite de referencia. Si ese idioma no tiene voz disponible, se utiliza el inglés. Las alertas respetan el modo silencioso."
+  },
+  "pt": {
+    "朗讀內容": "Aviso de voz",
+    "嗶嗶 + 簡短限速": "Bips + limite",
+    "嗶嗶 + 限速及單位": "Bips + limite e unidade",
+    "超速時加讀減速提醒": "Pedir para abrandar ao ultrapassar o limite",
+    "試聽相機提醒": "Ouvir aviso",
+    "朗讀衝紅燈相機提醒": "Anunciar câmaras de semáforo",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Enquanto o aplicativo está aberto e a direção é detectada, os alertas soam cerca de 8 segundos à frente (30-300 metros). Dois bipes são seguidos de fala no idioma escolhido. O aviso para abrandar só é acrescentado quando a velocidade ultrapassa o limite de referência. Se esse idioma não tiver voz disponível, o inglês é usado. Os alertas respeitam o Modo Silencioso."
+  },
+  "it": {
+    "朗讀內容": "Avviso vocale",
+    "嗶嗶 + 簡短限速": "Bip + limite",
+    "嗶嗶 + 限速及單位": "Bip + limite e unità",
+    "超速時加讀減速提醒": "Invita a rallentare solo oltre il limite",
+    "試聽相機提醒": "Ascolta avviso",
+    "朗讀衝紅燈相機提醒": "Annuncia telecamere ai semafori",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Mentre l'app è aperta e viene rilevata la guida, gli avvisi suonano circa 8 secondi prima (30-300 metri). Due segnali acustici sono seguiti da un discorso nella lingua scelta. L’invito a rallentare viene aggiunto solo se si supera il limite di velocità di riferimento. Se quella lingua non ha voce disponibile, viene usato l'inglese. Gli avvisi rispettano la modalità silenziosa."
+  },
+  "nl": {
+    "朗讀內容": "Gesproken melding",
+    "嗶嗶 + 簡短限速": "Piepen + limiet",
+    "嗶嗶 + 限速及單位": "Piepen + limiet en eenheid",
+    "超速時加讀減速提醒": "Alleen bij te hoge snelheid om afremmen vragen",
+    "試聽相機提醒": "Melding beluisteren",
+    "朗讀衝紅燈相機提醒": "Roodlichtcamera’s aankondigen"
+  },
+  "pl": {
+    "朗讀內容": "Komunikat głosowy",
+    "嗶嗶 + 簡短限速": "Sygnał + limit",
+    "嗶嗶 + 限速及單位": "Sygnał + limit i jednostka",
+    "超速時加讀減速提醒": "Polecenie zwolnienia tylko ponad limit",
+    "試聽相機提醒": "Odsłuchaj alert",
+    "朗讀衝紅燈相機提醒": "Ostrzegaj o kamerach na światłach",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Gdy aplikacja jest otwarta i wykryta jest jazda, alerty rozbrzmiewają około 8 sekund do przodu (30-300 metrów). Po dwóch sygnałach dźwiękowych następuje mowa w wybranym języku. Polecenie zwolnienia jest dodawane tylko po przekroczeniu referencyjnego limitu prędkości. Jeśli ten język nie ma dostępnego głosu, używany jest angielski. Alerty przestrzegają trybu cichego."
+  },
+  "ru": {
+    "朗讀內容": "Голосовое сообщение",
+    "嗶嗶 + 簡短限速": "Сигнал + лимит",
+    "嗶嗶 + 限速及單位": "Сигнал + лимит и единицы",
+    "超速時加讀減速提醒": "«Снизьте скорость» при превышении",
+    "試聽相機提醒": "Прослушать сигнал",
+    "朗讀衝紅燈相機提醒": "Оповещать о камерах светофоров"
+  },
+  "id": {
+    "朗讀內容": "Peringatan suara",
+    "嗶嗶 + 簡短限速": "Bip + batas",
+    "嗶嗶 + 限速及單位": "Bip + batas dan satuan",
+    "超速時加讀減速提醒": "Peringatan perlambatan hanya saat melebihi batas",
+    "試聽相機提醒": "Dengarkan peringatan",
+    "朗讀衝紅燈相機提醒": "Ucapkan peringatan kamera lampu merah"
+  },
+  "th": {
+    "朗讀內容": "ข้อความที่อ่าน",
+    "嗶嗶 + 簡短限速": "บี๊บ + ความเร็วจำกัด",
+    "嗶嗶 + 限速及單位": "บี๊บ + ความเร็วและหน่วย",
+    "超速時加讀減速提醒": "เตือนให้ชะลอเมื่อเกินความเร็วที่กำหนด",
+    "試聽相機提醒": "ฟังเสียงเตือน",
+    "朗讀衝紅燈相機提醒": "อ่านการเตือนกล้องฝ่าไฟแดง",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "เมื่อเปิดแอปและตรวจพบการขับรถ แอปจะเตือนกล้องประจำที่ล่วงหน้าประมาณ 8 วินาที (30–300 m) โดยส่งเสียงบี๊บสองครั้ง แล้วอ่านด้วยภาษาที่เลือก จะเพิ่มคำเตือนให้ชะลอเฉพาะเมื่อขับเร็วเกินกำหนด หากไม่มีเสียงภาษานั้นจะใช้ภาษาอังกฤษ เสียงเตือนเป็นไปตามโหมดปิดเสียงของ iPhone"
+  },
+  "vi": {
+    "朗讀內容": "Thông báo bằng giọng nói",
+    "嗶嗶 + 簡短限速": "Bíp + giới hạn",
+    "嗶嗶 + 限速及單位": "Bíp + giới hạn và đơn vị",
+    "超速時加讀減速提醒": "Nhắc giảm tốc chỉ khi vượt giới hạn",
+    "試聽相機提醒": "Nghe thử cảnh báo",
+    "朗讀衝紅燈相機提醒": "Đọc cảnh báo camera vượt đèn đỏ",
+    "App 開啟並偵測到開車時，約提前 8 秒車程提醒前方固定相機（距離約 30–300 米）。先播放兩聲提示音，再按所選語言朗讀；只有超速才會加讀減速提醒。沒有該語言聲線時改用英文。音效遵從 iPhone 靜音設定。": "Trong khi ứng dụng đang mở và phát hiện lái xe, cảnh báo sẽ phát ra âm thanh phía trước khoảng 8 giây (30–300 mét). Hai tiếng bíp được theo sau bởi lời nói bằng ngôn ngữ bạn đã chọn. Chỉ thêm lời nhắc giảm tốc khi tốc độ vượt quá giới hạn tham chiếu. Nếu ngôn ngữ đó không có sẵn giọng nói, tiếng Anh sẽ được sử dụng. Cảnh báo tôn trọng Chế độ im lặng."
+  }
+}

@@ -1,6 +1,26 @@
 import XCTest
 
 final class EnergyVisualTests: XCTestCase {
+    @MainActor
+    func testLiveActivityStableInformationInBothAppearances() {
+        for appearance in ["--light", "--dark"] {
+            let app = XCUIApplication()
+            app.launchArguments = ["--activity-preview", appearance]
+            app.launch()
+            XCTAssertTrue(app.staticTexts["泊車中"].waitForExistence(timeout: 10))
+            XCTAssertTrue(app.staticTexts["128"].firstMatch.exists)
+            XCTAssertFalse(app.staticTexts.matching(NSPredicate(format: "label CONTAINS[c] 'km/h' OR label CONTAINS[c] 'mins'")).firstMatch.exists)
+            let first = XCTAttachment(screenshot: app.screenshot())
+            first.lifetime = .keepAlways
+            add(first)
+            app.swipeUp()
+            XCTAssertTrue(app.staticTexts["騎車中"].waitForExistence(timeout: 5))
+            let last = XCTAttachment(screenshot: app.screenshot())
+            last.lifetime = .keepAlways
+            add(last)
+            app.terminate()
+        }
+    }
     func testTimelineEntranceFramesAndActualBlendedEndpoint() {
         let app = XCUIApplication()
         app.launchArguments = ["--time-entrance"]

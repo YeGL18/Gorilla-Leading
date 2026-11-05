@@ -1,0 +1,1316 @@
+{
+  "updatedAt": "2026-11-04",
+  "sourceURL": "https://www.hongkongairport.com/en/flights/airlines-information/airlines.page",
+  "zoneStatus": "user-supplied-aisle-mapping",
+  "airlines": [
+    {
+      "iata": "SU",
+      "nameChinese": "俄羅斯航空",
+      "nameEnglish": "Aeroflot Russian Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "E26928"
+    },
+    {
+      "iata": "KC",
+      "nameChinese": "阿斯塔納航空",
+      "nameEnglish": "Air Astana",
+      "terminal": "T1",
+      "checkInAisles": [
+        "L"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "15365E"
+    },
+    {
+      "iata": "BX",
+      "nameChinese": "釜山航空",
+      "nameEnglish": "AIR BUSAN",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "057EC3"
+    },
+    {
+      "iata": "K6",
+      "nameChinese": "柬埔寨國家航空公司",
+      "nameEnglish": "Air Cambodia",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "5C2D91"
+    },
+    {
+      "iata": "AC",
+      "nameChinese": "加拿大航空",
+      "nameEnglish": "Air Canada",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "D71920"
+    },
+    {
+      "iata": "CA",
+      "nameChinese": "中國國際航空公司",
+      "nameEnglish": "Air China",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "AF",
+      "nameChinese": "法國航空公司",
+      "nameEnglish": "Air France",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "002157"
+    },
+    {
+      "iata": "AI",
+      "nameChinese": "印度航空公司",
+      "nameEnglish": "Air India",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "DA0E29"
+    },
+    {
+      "iata": "MK",
+      "nameChinese": "毛里裘斯航空",
+      "nameEnglish": "Air Mauritius",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "E31937"
+    },
+    {
+      "iata": "NZ",
+      "nameChinese": "新西蘭航空公司",
+      "nameEnglish": "AIR NEW ZEALAND",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "202020"
+    },
+    {
+      "iata": "PX",
+      "nameChinese": "新畿內亞航空",
+      "nameEnglish": "Air Niugini",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "D71920"
+    },
+    {
+      "iata": "YP",
+      "nameChinese": "普莱米婭航空",
+      "nameEnglish": "Air Premia",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "162B48"
+    },
+    {
+      "iata": "RS",
+      "nameChinese": "首爾航空",
+      "nameEnglish": "AIR SEOUL",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "00B5A1"
+    },
+    {
+      "iata": "AK",
+      "nameChinese": "亞洲航空",
+      "nameEnglish": "AirAsia",
+      "terminal": "T2",
+      "checkInAisles": [
+        "V"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "E32526"
+    },
+    {
+      "iata": "D7",
+      "nameChinese": "亞洲航空長途",
+      "nameEnglish": "AirAsia X",
+      "terminal": "T1",
+      "checkInAisles": [
+        "L"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "E32526"
+    },
+    {
+      "iata": "NH",
+      "nameChinese": "全日空",
+      "nameEnglish": "All Nippon Airways",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "13448F"
+    },
+    {
+      "iata": "OZ",
+      "nameChinese": "韓亞航空",
+      "nameEnglish": "Asiana Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "B21C32"
+    },
+    {
+      "iata": "PG",
+      "nameChinese": "曼谷航空",
+      "nameEnglish": "Bangkok Airways",
+      "terminal": "T2",
+      "checkInAisles": [
+        "V"
+      ],
+      "dropOffZones": [],
+      "brandColorHex": "0075BE"
+    },
+    {
+      "iata": "OD",
+      "nameChinese": "峇迪航空",
+      "nameEnglish": "Batik Air Malaysia",
+      "terminal": "T2",
+      "checkInAisles": [
+        "W"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "9C1D37"
+    },
+    {
+      "iata": "BA",
+      "nameChinese": "英國航空公司",
+      "nameEnglish": "British Airways",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "075AAA"
+    },
+    {
+      "iata": "KR",
+      "nameChinese": "柬埔寨航空",
+      "nameEnglish": "Cambodia Airways",
+      "terminal": "T2",
+      "checkInAisles": [
+        "W"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "C31935"
+    },
+    {
+      "iata": "CX",
+      "nameChinese": "國泰航空公司",
+      "nameEnglish": "Cathay Pacific",
+      "terminal": "T1",
+      "checkInAisles": [
+        "B",
+        "C"
+      ],
+      "dropOffZones": [
+        1
+      ],
+      "brandColorHex": "005D63"
+    },
+    {
+      "iata": "5J",
+      "nameChinese": "宿霧太平洋航空",
+      "nameEnglish": "Cebu Pacific Air",
+      "terminal": "T2",
+      "checkInAisles": [
+        "P",
+        "R"
+      ],
+      "dropOffZones": [],
+      "brandColorHex": "008D58"
+    },
+    {
+      "iata": "CI",
+      "nameChinese": "中華航空",
+      "nameEnglish": "China Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "C21883"
+    },
+    {
+      "iata": "MU",
+      "nameChinese": "中國東方航空",
+      "nameEnglish": "China Eastern Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "CE0E2D"
+    },
+    {
+      "iata": "CZ",
+      "nameChinese": "中國南方航空",
+      "nameEnglish": "China Southern Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "0099CC"
+    },
+    {
+      "iata": "OQ",
+      "nameChinese": "重慶航空",
+      "nameEnglish": "Chongqing Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "00529B"
+    },
+    {
+      "iata": "DL",
+      "nameChinese": "美國達美航空",
+      "nameEnglish": "Delta Air Lines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "ZE",
+      "nameChinese": "易斯達航空",
+      "nameEnglish": "EASTAR JET",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "E31B23"
+    },
+    {
+      "iata": "MS",
+      "nameChinese": "埃及航空",
+      "nameEnglish": "EGYPTAIR",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "003A70"
+    },
+    {
+      "iata": "EK",
+      "nameChinese": "阿聯酋航空公司",
+      "nameEnglish": "Emirates",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "D71920"
+    },
+    {
+      "iata": "ET",
+      "nameChinese": "埃塞俄比亞航空",
+      "nameEnglish": "Ethiopian Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "078930"
+    },
+    {
+      "iata": "EY",
+      "nameChinese": "阿提哈德航空公司",
+      "nameEnglish": "ETIHAD AIRWAYS",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "A68D55"
+    },
+    {
+      "iata": "BR",
+      "nameChinese": "長榮航空",
+      "nameEnglish": "EVA Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "008F4C"
+    },
+    {
+      "iata": "MG",
+      "nameChinese": "伊斯尼斯航空",
+      "nameEnglish": "EZNIS AIRWAYS",
+      "terminal": "T1",
+      "checkInAisles": [
+        "L"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "64A70B"
+    },
+    {
+      "iata": "FJ",
+      "nameChinese": "斐濟航空",
+      "nameEnglish": "FIJI AIRWAYS",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "5A4135"
+    },
+    {
+      "iata": "AY",
+      "nameChinese": "芬蘭航空",
+      "nameEnglish": "FINNAIR",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "092A5E"
+    },
+    {
+      "iata": "GA",
+      "nameChinese": "嘉魯達印尼航空",
+      "nameEnglish": "Garuda Indonesia",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "007F9D"
+    },
+    {
+      "iata": "HB",
+      "nameChinese": "大灣區航空",
+      "nameEnglish": "Greater Bay Airlines",
+      "terminal": "T2",
+      "checkInAisles": [
+        "Q",
+        "S"
+      ],
+      "dropOffZones": [
+        6
+      ],
+      "brandColorHex": "005B8F"
+    },
+    {
+      "iata": "HU",
+      "nameChinese": "海南航空",
+      "nameEnglish": "Hainan Airlines",
+      "terminal": "T2",
+      "checkInAisles": [
+        "Q"
+      ],
+      "dropOffZones": [
+        6
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "NS",
+      "nameChinese": "河北航空",
+      "nameEnglish": "Hebei Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "0072BC"
+    },
+    {
+      "iata": "UO",
+      "nameChinese": "香港快運航空",
+      "nameEnglish": "HK Express",
+      "terminal": "T2",
+      "checkInAisles": [
+        "U"
+      ],
+      "dropOffZones": [
+        8
+      ],
+      "brandColorHex": "4F2683"
+    },
+    {
+      "iata": "HX",
+      "nameChinese": "香港航空",
+      "nameEnglish": "Hong Kong Airlines",
+      "terminal": "T2",
+      "checkInAisles": [
+        "Q",
+        "R"
+      ],
+      "dropOffZones": [
+        6
+      ],
+      "brandColorHex": "D71920"
+    },
+    {
+      "iata": "6E",
+      "nameChinese": "靛藍航空",
+      "nameEnglish": "IndiGo",
+      "terminal": "T2",
+      "checkInAisles": [
+        "W"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "001B94"
+    },
+    {
+      "iata": "JL",
+      "nameChinese": "日本航空",
+      "nameEnglish": "Japan Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "C90016"
+    },
+    {
+      "iata": "7C",
+      "nameChinese": "濟州航空",
+      "nameEnglish": "JEJU Air",
+      "terminal": "T2",
+      "checkInAisles": [
+        "V"
+      ],
+      "dropOffZones": [],
+      "brandColorHex": "F15A22"
+    },
+    {
+      "iata": "GK",
+      "nameChinese": "捷星日本航空公司",
+      "nameEnglish": "Jetstar Japan",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "FF5115"
+    },
+    {
+      "iata": "RY",
+      "nameChinese": "江西航空",
+      "nameEnglish": "Jiangxi Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "C51A2C"
+    },
+    {
+      "iata": "LJ",
+      "nameChinese": "真航空",
+      "nameEnglish": "Jin Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "9BCB3B"
+    },
+    {
+      "iata": "HO",
+      "nameChinese": "吉祥航空",
+      "nameEnglish": "Juneyao Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "7D1440"
+    },
+    {
+      "iata": "KL",
+      "nameChinese": "荷蘭皇家航空公司",
+      "nameEnglish": "KLM Royal Dutch Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "00A1DE"
+    },
+    {
+      "iata": "KE",
+      "nameChinese": "大韓航空",
+      "nameEnglish": "Korean Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "0072CE"
+    },
+    {
+      "iata": "LQ",
+      "nameChinese": "瀾湄航空",
+      "nameEnglish": "Lanmei Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "00A99D"
+    },
+    {
+      "iata": "GJ",
+      "nameChinese": "長龍航空",
+      "nameEnglish": "LOONGAIR",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "E31937"
+    },
+    {
+      "iata": "8L",
+      "nameChinese": "祥鵬航空",
+      "nameEnglish": "Lucky Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "E31937"
+    },
+    {
+      "iata": "LH",
+      "nameChinese": "德國漢莎航空公司",
+      "nameEnglish": "Lufthansa German Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "05164D"
+    },
+    {
+      "iata": "MH",
+      "nameChinese": "馬來西亞航空",
+      "nameEnglish": "Malaysia Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "00529B"
+    },
+    {
+      "iata": "AE",
+      "nameChinese": "華信航空",
+      "nameEnglish": "Mandarin Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "007D8A"
+    },
+    {
+      "iata": "OM",
+      "nameChinese": "蒙古航空公司",
+      "nameEnglish": "MIAT Mongolian Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "0054A6"
+    },
+    {
+      "iata": "RA",
+      "nameChinese": "尼泊爾航空",
+      "nameEnglish": "Nepal Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "003B71"
+    },
+    {
+      "iata": "MM",
+      "nameChinese": "樂桃航空",
+      "nameEnglish": "Peach Aviation",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "D6007F"
+    },
+    {
+      "iata": "PR",
+      "nameChinese": "菲律賓航空公司",
+      "nameEnglish": "Philippine Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "0032A0"
+    },
+    {
+      "iata": "Z2",
+      "nameChinese": "菲律賓亞洲航空",
+      "nameEnglish": "Philippines AirAsia Inc",
+      "terminal": "T2",
+      "checkInAisles": [
+        "V"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "E32526"
+    },
+    {
+      "iata": "QZ",
+      "nameChinese": "印尼亞洲航空",
+      "nameEnglish": "PT Indonesia AirAsia",
+      "terminal": "T1",
+      "checkInAisles": [
+        "L"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "E32526"
+    },
+    {
+      "iata": "QF",
+      "nameChinese": "澳洲航空",
+      "nameEnglish": "Qantas Airways",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "E40000"
+    },
+    {
+      "iata": "QR",
+      "nameChinese": "卡塔爾航空",
+      "nameEnglish": "QATAR AIRWAYS",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "5C0632"
+    },
+    {
+      "iata": "QW",
+      "nameChinese": "青島航空",
+      "nameEnglish": "Qingdao Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "0072BC"
+    },
+    {
+      "iata": "RW",
+      "nameChinese": "菲律賓皇家航空",
+      "nameEnglish": "Royal Air Philippines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "D"
+      ],
+      "dropOffZones": [
+        2
+      ],
+      "brandColorHex": "C81D25"
+    },
+    {
+      "iata": "BI",
+      "nameChinese": "汶萊皇家航空",
+      "nameEnglish": "Royal Brunei Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "B89A33"
+    },
+    {
+      "iata": "RJ",
+      "nameChinese": "皇家約旦航空",
+      "nameEnglish": "Royal Jordanian",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "A6192E"
+    },
+    {
+      "iata": "DR",
+      "nameChinese": "蘇南瑞麗航空",
+      "nameEnglish": "Ruili Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "005F35"
+    },
+    {
+      "iata": "S7",
+      "nameChinese": "S7航空",
+      "nameEnglish": "S7 Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "77B900"
+    },
+    {
+      "iata": "TR",
+      "nameChinese": "酷航",
+      "nameEnglish": "SCOOT",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "EFC500"
+    },
+    {
+      "iata": "SC",
+      "nameChinese": "山東航空公司",
+      "nameEnglish": "Shandong Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "005BAC"
+    },
+    {
+      "iata": "FM",
+      "nameChinese": "上海航空公司",
+      "nameEnglish": "Shanghai Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "J"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "ZH",
+      "nameChinese": "深圳航空公司",
+      "nameEnglish": "Shenzhen Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "3U",
+      "nameChinese": "四川航空",
+      "nameEnglish": "Sichuan Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "SQ",
+      "nameChinese": "新加坡航空公司",
+      "nameEnglish": "Singapore Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "A8884F"
+    },
+    {
+      "iata": "SG",
+      "nameChinese": "香料航空",
+      "nameEnglish": "SpiceJet",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "E1261C"
+    },
+    {
+      "iata": "9C",
+      "nameChinese": "春秋航空",
+      "nameEnglish": "Spring Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "008C44"
+    },
+    {
+      "iata": "JX",
+      "nameChinese": "星宇航空",
+      "nameEnglish": "STARLUX Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "9B7949"
+    },
+    {
+      "iata": "9G",
+      "nameChinese": "太陽富國航空",
+      "nameEnglish": "Sun Phuquoc Airways",
+      "terminal": "T1",
+      "checkInAisles": [
+        "E"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "DA281C"
+    },
+    {
+      "iata": "LX",
+      "nameChinese": "瑞士國際航空",
+      "nameEnglish": "SWISS International Air Lines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "F"
+      ],
+      "dropOffZones": [
+        3
+      ],
+      "brandColorHex": "E60000"
+    },
+    {
+      "iata": "FD",
+      "nameChinese": "泰國亞洲航空",
+      "nameEnglish": "Thai AirAsia",
+      "terminal": "T2",
+      "checkInAisles": [
+        "V"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "E32526"
+    },
+    {
+      "iata": "TG",
+      "nameChinese": "泰國國際航空",
+      "nameEnglish": "Thai Airways",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "642667"
+    },
+    {
+      "iata": "SL",
+      "nameChinese": "泰國獅子航空",
+      "nameEnglish": "Thai Lion Air",
+      "terminal": "T2",
+      "checkInAisles": [
+        "W"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "TW",
+      "nameChinese": "泰瑞航空",
+      "nameEnglish": "Trinity Airways",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "33255C"
+    },
+    {
+      "iata": "TK",
+      "nameChinese": "土耳其航空",
+      "nameEnglish": "TURKISH AIRLINES",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "C8102E"
+    },
+    {
+      "iata": "UA",
+      "nameChinese": "美國聯合航空",
+      "nameEnglish": "United Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "G"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "005DAA"
+    },
+    {
+      "iata": "UQ",
+      "nameChinese": "烏魯木齊航空",
+      "nameEnglish": "Urumqi Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "D71920"
+    },
+    {
+      "iata": "VJ",
+      "nameChinese": "越捷航空",
+      "nameEnglish": "VietJet Air",
+      "terminal": "T2",
+      "checkInAisles": [
+        "W"
+      ],
+      "dropOffZones": [
+        9
+      ],
+      "brandColorHex": "E51C23"
+    },
+    {
+      "iata": "VN",
+      "nameChinese": "越南航空公司",
+      "nameEnglish": "Vietnam Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "H"
+      ],
+      "dropOffZones": [
+        4
+      ],
+      "brandColorHex": "007E85"
+    },
+    {
+      "iata": "PN",
+      "nameChinese": "西部航空",
+      "nameEnglish": "West Air",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "DC1029"
+    },
+    {
+      "iata": "MF",
+      "nameChinese": "廈門航空公司",
+      "nameEnglish": "Xiamen Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "0079C2"
+    },
+    {
+      "iata": "TV",
+      "nameChinese": "西藏航空",
+      "nameEnglish": "Xizang Airlines",
+      "terminal": "T1",
+      "checkInAisles": [
+        "K"
+      ],
+      "dropOffZones": [
+        5
+      ],
+      "brandColorHex": "006AB4"
+    }
+  ],
+  "zones": [
+    {
+      "terminal": "T1",
+      "number": 1,
+      "latitude": 22.3148,
+      "longitude": 113.936537,
+      "sourceURL": "https://www.openstreetmap.org/way/251613612",
+      "approximate": true
+    },
+    {
+      "terminal": "T1",
+      "number": 2,
+      "latitude": 22.31555,
+      "longitude": 113.9362633,
+      "sourceURL": "https://www.openstreetmap.org/way/251613612",
+      "approximate": true
+    },
+    {
+      "terminal": "T1",
+      "number": 3,
+      "latitude": 22.3163,
+      "longitude": 113.9359896,
+      "sourceURL": "https://www.openstreetmap.org/way/251613612",
+      "approximate": true
+    },
+    {
+      "terminal": "T1",
+      "number": 4,
+      "latitude": 22.31705,
+      "longitude": 113.935722,
+      "sourceURL": "https://www.openstreetmap.org/way/251613612",
+      "approximate": true
+    },
+    {
+      "terminal": "T1",
+      "number": 5,
+      "latitude": 22.3178,
+      "longitude": 113.9354538,
+      "sourceURL": "https://www.openstreetmap.org/way/251613612",
+      "approximate": true
+    },
+    {
+      "terminal": "T2",
+      "number": 6,
+      "latitude": 22.3171,
+      "longitude": 113.9370197,
+      "sourceURL": "https://www.openstreetmap.org/way/1461971881",
+      "approximate": true
+    },
+    {
+      "terminal": "T2",
+      "number": 7,
+      "latitude": 22.31645,
+      "longitude": 113.9372593,
+      "sourceURL": "https://www.openstreetmap.org/way/1461971881",
+      "approximate": true
+    },
+    {
+      "terminal": "T2",
+      "number": 8,
+      "latitude": 22.3158,
+      "longitude": 113.9374989,
+      "sourceURL": "https://www.openstreetmap.org/way/1461971881",
+      "approximate": true
+    },
+    {
+      "terminal": "T2",
+      "number": 9,
+      "latitude": 22.31515,
+      "longitude": 113.9377386,
+      "sourceURL": "https://www.openstreetmap.org/way/1461971881",
+      "approximate": true
+    }
+  ],
+  "zoneCoordinateStatus": "Approximate: user-supplied north/south order and spacing, interpolated on OpenStreetMap departure roads; not surveyed doors.",
+  "coordinateAttribution": "© OpenStreetMap contributors, ODbL 1.0; zone placement interpreted from user sketch (2026-11-04)"
+}

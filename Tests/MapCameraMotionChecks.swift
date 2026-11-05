@@ -35,6 +35,12 @@ struct MapCameraMotionChecks {
                        verticalAccuracy: 5, course: course, speed: speed,
                        timestamp: time.addingTimeInterval(seconds))
         }
+        check(MapCameraMotion.isUsableAirportOrigin(fix(), at: time), "Fresh GPS can start the airport flight")
+        check(!MapCameraMotion.isUsableAirportOrigin(fix(seconds: -31), at: time), "Old cached location cannot be a flight origin")
+        check(!MapCameraMotion.isUsableAirportOrigin(fix(accuracy: 1500), at: time), "Coarse startup fixes must wait")
+        check(!MapCameraMotion.isUsableAirportOrigin(fix(accuracy: -1), at: time), "Invalid accuracy cannot start a flight")
+        check(!MapCameraMotion.isUsableAirportOrigin(fix(.init(latitude: 0, longitude: 0)), at: time), "Unknown origin cannot fly from the equator")
+        check(!MapCameraMotion.isUsableAirportOrigin(fix(seconds: 60), at: time), "Future timestamps cannot satisfy readiness")
         var motion = MapCameraMotion()
         var mainland = MapCameraMotion()
         let raw = CLLocationCoordinate2D(latitude: 22.5431, longitude: 114.0579)

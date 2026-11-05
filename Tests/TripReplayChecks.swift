@@ -90,7 +90,22 @@ struct TripReplayChecks {
         precondition(recorder.archive.trips[0].end == start.addingTimeInterval(60))
         precondition(recorder.archive.trips[0].isHabitualRoute)
         recorder.resolveNames(places: [named, saved])
-        precondition(recorder.archive.trips[0].originName == "Named Parking")
+        precondition(recorder.archive.trips[0].originName == "Origin")
+        precondition(recorder.archive.trips[0].destinationName == "Destination")
+        let ab = recorder.archive.trips[0]
+        // Even stale visit IDs on B→C cannot override the actual A→B time window.
+        var bc = TripReplay(id: UUID(), points: [point(3600), point(3660)], finished: true)
+        bc.originVisitID = origin.id
+        bc.destinationVisitID = destination.id
+        precondition(TripReplay.matching(in: [bc, ab], origin: origin.id, destination: destination.id,
+            departure: start, arrival: start.addingTimeInterval(60))?.id == ab.id)
+        precondition(TripReplay.matching(in: [bc], origin: origin.id, destination: destination.id,
+            departure: start, arrival: start.addingTimeInterval(60)) == nil)
+        let overlappingNext = TripReplay(id: UUID(), points: [point(50), point(150)], finished: true)
+        precondition(TripReplay.matching(in: [overlappingNext], origin: origin.id, destination: destination.id,
+            departure: start, arrival: start.addingTimeInterval(60)) == nil)
+        precondition(TripReplay.matching(in: [ab], origin: origin.id, destination: destination.id,
+            departure: nil, arrival: start.addingTimeInterval(60)) == nil)
         var noPrediction = recorder.archive.trips[0]
         noPrediction.prediction = nil
         precondition(!noPrediction.isHabitualRoute)

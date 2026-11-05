@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "此 App 使用 Apple Intelligence 進行裝置端翻譯。";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "此 App 需要持續取用定位，以記錄到訪及泊車位置。";
+"NSCameraUsageDescription" = "此 App 使用相機拍攝泊車位置，並掃描車牌以發送泊車互助提醒。";
+"NSLocalNetworkUsageDescription" = "連線到同一本地網路上的Windows PC，以接收Assetto Corsa遊戲遙測。";
+"NSSpeechRecognitionUsageDescription" = "此 App 使用語音識別將語音轉成文字以作翻譯。";
+"NSLocationWhenInUseUsageDescription" = "此 App 使用你的位置顯示目前時速。";
+"NSMotionUsageDescription" = "此 App 使用動作歷史辨識開車與步行行程，並使用高度資料探測泊車樓層。";
+"NSMicrophoneUsageDescription" = "此 App 需要使用咪高風接收語音輸入。";

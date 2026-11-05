@@ -1,6 +1,26 @@
 import XCTest
 
 final class MapGestureUITests: XCTestCase {
+    @MainActor
+    func testBlankTapExcludesDraggingAndAnnotationSelection() {
+        let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
+        app.launchArguments = ["--gestures"]
+        app.launch()
+        let status = app.staticTexts["cameraStatus"]
+        XCTAssertTrue(status.waitForExistence(timeout: 10))
+        let pin = app.descendants(matching: .any)["gesturePin"].firstMatch
+        XCTAssertTrue(pin.waitForExistence(timeout: 10))
+        pin.tap()
+        XCTAssertEqual(number("blank", from: status.label), 0, status.label)
+        let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.20, dy: 0.7))
+        start.press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.4, dy: 0.6)))
+        XCTAssertEqual(number("blank", from: status.label), 0, status.label)
+        app.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.88)).tap()
+        expectation(for: NSPredicate { _, _ in self.number("blank", from: status.label) == 1 }, evaluatedWith: status)
+        waitForExpectations(timeout: 5)
+        print("Blank tap / drag / annotation separation: \(status.label)")
+    }
+
     func testMarkerRequiresHoldBeforeDraggingAndRestoresScale() {
         let app = XCUIApplication(bundleIdentifier: "com.gorilla.map-interaction-checks")
         app.launchArguments = ["--hold"]

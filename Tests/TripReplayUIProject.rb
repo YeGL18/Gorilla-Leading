@@ -20,6 +20,7 @@ fixture = <<~SWIFT
     static func store() -> TripReplayStore {
       if !ProcessInfo.processInfo.arguments.contains("--preserve") {
         defaults.removePersistentDomain(forName: "com.gorilla.replay-ui-fixture")
+        UserDefaults.standard.removeObject(forKey: "replayDetailSectionOrder")
         try? FileManager.default.removeItem(at: url)
         UserDefaults.standard.set("kmh", forKey: SpeedUnit.preferenceKey)
         if !ProcessInfo.processInfo.arguments.contains("--empty") {
@@ -55,6 +56,28 @@ fixture = <<~SWIFT
         }
       }
       return TripReplayStore(defaults: defaults, storageURL: url)
+    }
+  }
+  struct DashboardFixture: View {
+    let store: TripReplayStore
+    @StateObject var telemetry = ACTelemetry()
+    @StateObject var motion = GForceParallaxMotion.shared
+    var body: some View {
+      FixedSpeedDashboard(store: store, motion: motion, telemetry: telemetry, partiallyOpen: false,
+        foreground: .white, accent: .orange, textColorOverride: nil, driving: true, onBlankTap: {}) {
+          VStack { Text("88").font(.system(size: 86, weight: .heavy)); Text("km/h") }
+            .accessibilityElement(children: .combine).accessibilityIdentifier("fixedDashboardSpeed")
+      }.preferredColorScheme(.dark).onAppear {
+        let points = store.trips.first?.points ?? []
+        store.setContext(foreground: true, game: false)
+        store.setDriving(true)
+        for point in points {
+          let fix = CLLocation(coordinate: point.coordinate, altitude: point.altitude ?? 0,
+            horizontalAccuracy: 5, verticalAccuracy: 5, course: 0,
+            speed: (point.speedKmh ?? 0) / 3.6, timestamp: point.time)
+          store.record(fix, automotive: true, pedestrian: false, now: point.time)
+        }
+      }
     }
   }
   struct ActionGateFixture: View {
@@ -99,12 +122,28 @@ fixture = <<~SWIFT
         }
     }
   }
+  struct RenameFixture: View {
+    @State var show = false
+    @State var name = ""
+    @State var result = ""
+    var body: some View {
+      VStack {
+        Button("Rename Place") { show = true }
+        Text(result).accessibilityIdentifier("renameResult")
+      }
+      .modifier(PlaceRenameAlert(isPresented: $show, name: $name, title: "Rename Place",
+        message: "Native rename alert", allowsEmpty: false) { result = $0 })
+      .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("--dark") ? .dark : .light)
+    }
+  }
   @main struct ReplayChecksApp: App {
     @StateObject var store = ReplayFixture.store()
     var body: some Scene {
       WindowGroup {
         Group {
-          if ProcessInfo.processInfo.arguments.contains("--action-gate") { ActionGateFixture() }
+          if ProcessInfo.processInfo.arguments.contains("--rename-place") { RenameFixture() }
+          else if ProcessInfo.processInfo.arguments.contains("--live-data") { DashboardFixture(store: store) }
+          else if ProcessInfo.processInfo.arguments.contains("--action-gate") { ActionGateFixture() }
           else if ProcessInfo.processInfo.arguments.contains("--vlm-prompt") { VLMFixture() }
           else if ProcessInfo.processInfo.arguments.contains("--sheet-library") { LibrarySheetFixture(store: store) }
           else {

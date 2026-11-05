@@ -40,7 +40,7 @@ struct GorillaBackup: Codable, Sendable {
         "trip_replays_v1", "tripReplayEnabled", "tripReplayRetentionDays",
         "meterDetectionEnabled", "meterVehicle", "meterMapRadius", "meterDestinationRadius",
         "meterNearbyRadius", "meterStatusRefreshInterval", "testItemOrder", "testItemFavorites",
-        "trafficCameraEnabled", "trafficCameraSound", "trafficCameraSpeechFormat",
+        "trafficCameraEnabled", "trafficCameraSound", "trafficCameraSpeechFormat", "trafficCameraSpeechLanguage",
         "trafficCameraSlowDown", "trafficCameraRedLightSpeech"
     ]
     static let sharedKeys: Set<String> = [
@@ -78,7 +78,8 @@ struct GorillaBackup: Codable, Sendable {
             "parking_photos_list", "testItemOrder", "testItemFavorites", "parking_floor_store_v1",
             "deleted_parking_points_v1", "deleted_places_v1", "parking_altitude_results_v1", "parkingPhotoContributions"]
         let strings: Set<String> = ["parkingTimerColorHex", "bestRouteColorHex", "floorCurveCarIcon",
-            "llm_shortcut_name", "meterVehicle", "parkingEntryLocation", "parallaxMode", "speedUnit"]
+            "llm_shortcut_name", "meterVehicle", "parkingEntryLocation", "parallaxMode", "speedUnit",
+            "trafficCameraSpeechFormat", "trafficCameraSpeechLanguage"]
         let dates: Set<String> = ["parkingStartTime", "parkingEntryTime", "parkingDepartureTime", "lastKnownArrivalDate"]
         for values in [standard, shared] {
             for (key, value) in values {

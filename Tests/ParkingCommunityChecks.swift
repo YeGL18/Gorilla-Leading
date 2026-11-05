@@ -59,6 +59,10 @@ import Foundation
         precondition(binding.id == "AB1234")
         let thread = try! JSONDecoder().decode(CommunityThread.self, from: Data(#"{"id":"thread","plate":"AB1234","expiresAt":1800604800.0,"lastMessage":{"id":"msg","authorId":"driver","text":"唔該","createdAt":1800000000.0}}"#.utf8))
         precondition(thread.lastMessage?.text == "唔該")
+        precondition(thread.lastMessage?.isOutgoing == false)
+        let own = try! JSONDecoder().decode(CommunityMessage.self, from: Data(#"{"id":"own","authorId":"me","text":"多謝提醒","createdAt":1800000001,"mine":true}"#.utf8))
+        let received = try! JSONDecoder().decode(CommunityMessage.self, from: Data(#"{"id":"other","authorId":"someone","text":"唔使客氣","createdAt":1800000002,"mine":false}"#.utf8))
+        precondition(own.isOutgoing && !received.isOutgoing)
         print("Parking community plate and draft persistence checks passed")
     }
 }

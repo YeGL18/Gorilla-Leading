@@ -140,14 +140,7 @@ struct SettingsView: View {
                             Text(String(localized: "語言"))
                                 .foregroundStyle(.primary)
                             Spacer()
-                            Text({
-                                switch LanguageManager.languageCode {
-                                case "zh-Hant": "繁體中文"
-                                case "zh-Hans": "简体中文"
-                                case "ja": "日本語"
-                                default: "English"
-                                }
-                            }())
+                            Text(verbatim: LanguageManager.displayName)
                                 .foregroundStyle(.secondary)
                             Image(systemName: "arrow.up.right")
                                 .font(.caption)
@@ -1604,11 +1597,11 @@ struct AddressCapsuleBeamTestView: View {
 }
 
 struct AltimeterTestView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @ObservedObject private var barometer = ParkingFloorStore.shared.barometer
     @EnvironmentObject private var locationManager: LocationManager
     @State private var baseAltitude: Double?
     @State private var now = Date()
-    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     // 手動樓層調整
     @State private var manualFloor: Int = 0
@@ -1658,7 +1651,13 @@ struct AltimeterTestView: View {
         }
         .navigationTitle("氣壓計曲線測試")
         .navigationBarTitleDisplayMode(.inline)
-        .onReceive(timer) { t in now = t }
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                now = .now
+                do { try await Task.sleep(for: .seconds(1)) } catch { return }
+            }
+        }
         .onChange(of: barometer.samples.count) { _, _ in
             if baseAltitude == nil, let first = barometer.samples.first {
                 baseAltitude = first.relativeAltitude
@@ -2667,6 +2666,7 @@ struct VisitRecordingSettingsView: View {
 }
 
 struct VisitRecordsTestView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @EnvironmentObject private var locationManager: LocationManager
     @ObservedObject private var replayStore = TripReplayStore.shared
     @State private var showEditSheet: Bool = false
@@ -2763,9 +2763,13 @@ struct VisitRecordsTestView: View {
         .onAppear { timelineNow = .now; rebuildTimeline() }
         .onReceive(locationManager.$visits) { rebuildTimeline($0) }
         .onChange(of: timelineRules) { _, _ in rebuildTimeline() }
-        .onReceive(Timer.publish(every: 30, on: .main, in: .common).autoconnect()) {
-            timelineNow = $0
-            rebuildTimeline()
+        .task(id: scenePhase) {
+            guard scenePhase == .active else { return }
+            while !Task.isCancelled {
+                timelineNow = .now
+                rebuildTimeline()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -3079,8 +3083,8 @@ struct VisitRecordsTestView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if !items.isEmpty { TripSegmentSummary(items: items) }
-                    if let replay = replayStore.trips.first(where: { $0.destinationVisitID == to.id
-                        && ($0.originVisitID == from.id || $0.start >= (gapStart ?? from.arrivalDate)) }) {
+                    if let replay = TripReplay.matching(in: replayStore.trips, origin: from.id,
+                        destination: to.id, departure: gapStart, arrival: to.arrivalDate) {
                         NavigationLink {
                             TripReplayDetailView(tripID: replay.id)
                         } label: {

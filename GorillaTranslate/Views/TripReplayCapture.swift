@@ -5,6 +5,7 @@ struct TripReplayCapture: View {
     @EnvironmentObject private var locationManager: LocationManager
     @Environment(\.scenePhase) private var phase
     @ObservedObject var telemetry: ACTelemetry
+    var driving = false
     @ObservedObject private var destinations = DestinationManager.shared
     @ObservedObject private var parking = ParkingFloorStore.shared
     @ObservedObject private var predictor = TripPredictor.shared
@@ -12,12 +13,14 @@ struct TripReplayCapture: View {
 
     var body: some View {
         Color.clear
-            .onAppear { updateContext(); updateVisits(locationManager.visits) }
+            .onAppear { updateContext(); store.setDriving(driving); updateVisits(locationManager.visits) }
+            .onChange(of: driving) { _, value in store.setDriving(value) }
             .onChange(of: phase) { _, _ in updateContext() }
             .onChange(of: telemetry.isReceiving) { _, _ in updateContext() }
             .onDisappear { store.setContext(foreground: false, game: false) }
             .onReceive(locationManager.$lastLocation) { location in
                 guard let location else { return }
+                store.setDriving(driving)
                 let motion = locationManager.currentMotionActivity
                 let fresh = motion.map { $0.confidence != .low } ?? false
                 store.record(location, automotive: fresh && motion?.automotive == true,
@@ -25,15 +28,18 @@ struct TripReplayCapture: View {
             }
             .onReceive(locationManager.$visits, perform: updateVisits)
             .onReceive(destinations.$destinations) { _ in Task { @MainActor in updatePlaces() } }
-            .onReceive(parking.$lots) { _ in Task { @MainActor in updatePlaces() } }
-            .onReceive(predictor.$placeCatalog) { _ in Task { @MainActor in updatePlaces() } }
+            .onReceive(parking.$lots) { _ in Task { @MainActor in updatePlaces(); updateVisits(locationManager.visits) } }
+            .onReceive(predictor.$placeCatalog) { _ in Task { @MainActor in updatePlaces(); updateVisits(locationManager.visits) } }
             .onReceive(predictor.$pendingConfirm) { value in notePrediction(value) }
             .onReceive(predictor.$pendingToast) { value in notePrediction(value) }
-            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { _ in
+            .task(id: phase) {
                 guard phase == .active else { return }
-                // A candidate can qualify without another native callback.
-                updateVisits(locationManager.visits)
-                updatePlaces()
+                while !Task.isCancelled {
+                    // A candidate can qualify without another native callback.
+                    updateVisits(locationManager.visits)
+                    updatePlaces()
+                    do { try await Task.sleep(for: .seconds(60)) } catch { return }
+                }
             }
     }
 
@@ -72,7 +78,7 @@ struct TripReplayCapture: View {
         let accepted = VisitTimeline.make(visits, rules: rules, now: .now).map(\.record)
         store.link(visits: accepted.map {
             TripReplayVisit(id: $0.id, arrival: $0.arrivalDate, departure: $0.departureDate,
-                latitude: $0.latitude, longitude: $0.longitude, name: $0.address)
+                latitude: $0.latitude, longitude: $0.longitude, name: parking.displayName(for: $0))
         })
     }
 }

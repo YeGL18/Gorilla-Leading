@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+        APD10001 = {isa = PBXBuildFile; fileRef = APD20001; };
+        APD10002 = {isa = PBXBuildFile; fileRef = APD20002; };
+        APD10003 = {isa = PBXBuildFile; fileRef = APD20003; };
 		PC021001 /* ParkingCommunity.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC022001; };
 		PC011001 /* ParkingCommunityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = PC012001; };
 		CP10001 /* GorillaCarPlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = CP20001; };
@@ -112,6 +115,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+        APD20001 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AirportDropOff.swift; sourceTree = "<group>"; };
+        APD20002 = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ../Views/AirportDropOffGuide.swift; sourceTree = "<group>"; };
+        APD20003 = {isa = PBXFileReference; lastKnownFileType = text.json; path = airport_drop_off.json; sourceTree = "<group>"; };
 		PC022001 /* ParkingCommunity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingCommunity.swift; sourceTree = "<group>"; };
 		PC012001 /* ParkingCommunityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ParkingCommunityView.swift; sourceTree = "<group>"; };
 		CP20001 /* GorillaCarPlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaCarPlay.swift; sourceTree = "<group>"; };
@@ -192,6 +198,38 @@
 		L10006 /* zh-Hant */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hant"; path = "Localization/zh-Hant.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		L10007 /* zh-Hans */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = "zh-Hans"; path = "Localization/zh-Hans.lproj/InfoPlist.strings"; sourceTree = "<group>"; };
 		L10008 /* ja */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ja; path = Localization/ja.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20000 /* yue */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = yue; path = Localization/yue.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20001 /* yue */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = yue; path = Localization/yue.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20002 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = Localization/ko.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20003 /* ko */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ko; path = Localization/ko.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20004 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = Localization/fr.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20005 /* fr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = fr; path = Localization/fr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20006 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = Localization/de.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20007 /* de */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = de; path = Localization/de.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20008 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = Localization/es.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20009 /* es */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = es; path = Localization/es.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20010 /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pt; path = Localization/pt.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20011 /* pt */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pt; path = Localization/pt.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20012 /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = it; path = Localization/it.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20013 /* it */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = it; path = Localization/it.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20014 /* nl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = nl; path = Localization/nl.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20015 /* nl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = nl; path = Localization/nl.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20016 /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = Localization/pl.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20017 /* pl */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = pl; path = Localization/pl.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20018 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = Localization/tr.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20019 /* tr */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = tr; path = Localization/tr.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20020 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = Localization/ru.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20021 /* ru */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ru; path = Localization/ru.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20022 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = Localization/uk.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20023 /* uk */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = uk; path = Localization/uk.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20024 /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = id; path = Localization/id.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20025 /* id */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = id; path = Localization/id.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20026 /* ms */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ms; path = Localization/ms.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20027 /* ms */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = ms; path = Localization/ms.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20028 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = Localization/th.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20029 /* th */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = th; path = Localization/th.lproj/InfoPlist.strings; sourceTree = "<group>"; };
+		L20030 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = Localization/vi.lproj/Localizable.strings; sourceTree = "<group>"; };
+		L20031 /* vi */ = {isa = PBXFileReference; lastKnownFileType = text.plist.strings; name = vi; path = Localization/vi.lproj/InfoPlist.strings; sourceTree = "<group>"; };
 		LA20002 /* GorillaActivityManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GorillaActivityManager.swift; sourceTree = "<group>"; };
 		LA20003 /* LiveActivityPreviewTestView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LiveActivityPreviewTestView.swift; sourceTree = "<group>"; };
 		MC20001 /* MapCameraMotion.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MapCameraMotion.swift; sourceTree = "<group>"; };
@@ -300,6 +338,8 @@
 			children = (
 				CP20001 /* GorillaCarPlay.swift */,
 				TC20001,
+                APD20001,
+                APD20002,
 				TR20001 /* TripReplay.swift */,
 				TR20002 /* TripReplayStore.swift */,
 				BACC2001 /* GorillaBackup.swift */,
@@ -395,6 +435,7 @@
 			isa = PBXGroup;
 			children = (
 				TC20002,
+                APD20003,
 				TC20003,
 				F3A0B002B2C3D4E5F6071829 /* Audio */,
 				L30001 /* Localizable.strings */,
@@ -514,6 +555,22 @@
 				"zh-Hant",
 				"zh-Hans",
 				ja,
+				yue,
+				ko,
+				fr,
+				de,
+				es,
+				pt,
+				it,
+				nl,
+				pl,
+				tr,
+				ru,
+				uk,
+				id,
+				ms,
+				th,
+				vi,
 			);
 			mainGroup = A40001;
 			productRefGroup = A40005 /* Products */;
@@ -540,6 +597,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				TC10002,
+                APD10003,
 				TC10003,
 				F11A10000000000000000001 /* PrivacyInfo.xcprivacy in Resources */,
 				F3A0C022B2C3D4E5F6071829 /* gorilla_launch2.mp3 in Resources */,
@@ -600,6 +658,8 @@
 				A10018 /* AnimationClock.swift in Sources */,
 				B10001 /* LocationManager.swift in Sources */,
 				TC10001,
+                APD10001,
+                APD10002,
 				E1A2B3C4D5E6F70819203042 /* NumberRoller.swift in Sources */,
 				C1A001HK0001 /* HKTaxiExamLocations.swift in Sources */,
 				D10001 /* Destination.swift in Sources */,
@@ -653,6 +713,22 @@
 				L10002 /* zh-Hant */,
 				L10003 /* zh-Hans */,
 				L10004 /* ja */,
+				L20000 /* yue */,
+				L20002 /* ko */,
+				L20004 /* fr */,
+				L20006 /* de */,
+				L20008 /* es */,
+				L20010 /* pt */,
+				L20012 /* it */,
+				L20014 /* nl */,
+				L20016 /* pl */,
+				L20018 /* tr */,
+				L20020 /* ru */,
+				L20022 /* uk */,
+				L20024 /* id */,
+				L20026 /* ms */,
+				L20028 /* th */,
+				L20030 /* vi */,
 			);
 			name = Localizable.strings;
 			sourceTree = "<group>";
@@ -664,6 +740,22 @@
 				L10006 /* zh-Hant */,
 				L10007 /* zh-Hans */,
 				L10008 /* ja */,
+				L20001 /* yue */,
+				L20003 /* ko */,
+				L20005 /* fr */,
+				L20007 /* de */,
+				L20009 /* es */,
+				L20011 /* pt */,
+				L20013 /* it */,
+				L20015 /* nl */,
+				L20017 /* pl */,
+				L20019 /* tr */,
+				L20021 /* ru */,
+				L20023 /* uk */,
+				L20025 /* id */,
+				L20027 /* ms */,
+				L20029 /* th */,
+				L20031 /* vi */,
 			);
 			name = InfoPlist.strings;
 			sourceTree = "<group>";
@@ -678,7 +770,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = ParkingTimerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ParkingTimerWidget/Info.plist;
@@ -712,7 +804,7 @@
 				ASSETCATALOG_COMPILER_WIDGET_BACKGROUND_COLOR_NAME = WidgetBackground;
 				CODE_SIGN_ENTITLEMENTS = ParkingTimerWidgetExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ParkingTimerWidget/Info.plist;
@@ -865,9 +957,9 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GorillaTranslate/GorillaTranslate.entitlements;
 				PARKING_APNS_ENVIRONMENT = development;
-				PARKING_COMMUNITY_API_BASE_URL = "";
+				PARKING_COMMUNITY_API_BASE_URL = "https://api.lucidtelos.com/v1/parking-community";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GorillaTranslate/Info.plist;
@@ -914,9 +1006,9 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = GorillaTranslate/GorillaTranslate.entitlements;
 				PARKING_APNS_ENVIRONMENT = production;
-				PARKING_COMMUNITY_API_BASE_URL = "";
+				PARKING_COMMUNITY_API_BASE_URL = "https://api.lucidtelos.com/v1/parking-community";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 5;
+				CURRENT_PROJECT_VERSION = 8;
 				DEVELOPMENT_TEAM = JVL487RN2F;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = GorillaTranslate/Info.plist;

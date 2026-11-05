@@ -1,0 +1,9 @@
+/* Gorilla Leading localization, generated and checked locally. */
+"NSAppleIntelligenceUsageDescription" = "이 앱은 기기 내 번역을 위해 Apple Intelligence를 사용합니다.";
+"NSLocationAlwaysAndWhenInUseUsageDescription" = "이 앱은 방문 및 주차 위치를 추적하기 위해 항상 연결된 위치 접근이 필요합니다.";
+"NSCameraUsageDescription" = "이 앱은 카메라를 사용하여 주차 위치를 사진으로 찍고 주차 알림을 위해 차량 등록 번호를 스캔합니다.";
+"NSLocalNetworkUsageDescription" = "같은 로컬 네트워크에 있는 Windows PC에 연결하여 Assetto Corsa 게임 텔레메트리를 받으세요.";
+"NSSpeechRecognitionUsageDescription" = "이 앱은 음성 인식 기술을 사용하여 당신의 목소리를 번역을 위해 텍스트로 변환합니다.";
+"NSLocationWhenInUseUsageDescription" = "이 앱은 현재 속도를 표시하기 위해 귀하의 위치를 사용합니다.";
+"NSMotionUsageDescription" = "이 앱은 모션 이력을 사용하여 주행 및 걷기 여행을 식별하고 고도 데이터를 사용하여 주차 층수를 감지합니다.";
+"NSMicrophoneUsageDescription" = "이 앱은 음성 입력을 위해 마이크 접근이 필요합니다.";

@@ -5,3 +5,6 @@
 "NSMicrophoneUsageDescription" = "此 App 需要使用咪高風接收語音輸入。";
 "NSMotionUsageDescription" = "此 App 使用動作歷史辨識開車與步行行程，並使用高度資料探測泊車樓層。";
 "NSSpeechRecognitionUsageDescription" = "此 App 使用語音識別將語音轉成文字以作翻譯。";
+
+/* Additional interface translations, generated and checked locally. */
+"NSLocalNetworkUsageDescription" = "連線到同一本地網路上的Windows PC，以接收Assetto Corsa遊戲遙測。";
